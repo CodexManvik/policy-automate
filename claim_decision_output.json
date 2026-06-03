@@ -1,0 +1,1666 @@
+{
+  "claim_id": "CLM-2025-001234",
+  "claim_decision": "PARTIALLY_APPROVED",
+  "total_claimed": 150000.0,
+  "total_admissible": 130000.0,
+  "total_payable": 117000.0,
+  "total_deductions": 33000.0,
+  "deduction_breakdown": {
+    "room_pro_rata": 20000.0,
+    "co_payment": 13000.0,
+    "deductible": 0.0,
+    "non_payable_items": 0.0,
+    "sublimits": 0.0,
+    "penalties": 0.0,
+    "si_cap": 0.0
+  },
+  "si_waterfall_breakdown": {
+    "amount_from_base_si": 117000.0,
+    "amount_from_booster": 0.0,
+    "amount_from_forever": 0.0,
+    "total_paid": 117000.0,
+    "shortfall": 33000.0,
+    "updated_base_si": 683000.0,
+    "updated_booster": 500000.0,
+    "updated_forever_pool": 1000000.0
+  },
+  "line_items": [
+    {
+      "line_item_id": "LI-001",
+      "description": "Hospitalization for Appendectomy",
+      "claimed_amount": 150000.0,
+      "admissible_amount": 130000.0,
+      "payable_amount": 117000.0,
+      "decision": "PARTIALLY_APPROVED",
+      "deductions": [
+        {
+          "deduction_type": "room_pro_rata",
+          "amount": 20000.0,
+          "rule_id": "R3_BEN_004",
+          "reason": "Room category breach: ratio 0.60",
+          "calculation_details": {
+            "eligible_room": 3000.0,
+            "actual_room": 5000.0,
+            "ratio": 0.6
+          }
+        },
+        {
+          "deduction_type": "co_payment",
+          "amount": 13000.0,
+          "rule_id": "R3_FIN_002",
+          "reason": "Co-payment 10.0% (stacked)",
+          "calculation_details": {
+            "base_copay": 13000.0,
+            "heads_up_penalty": 0.0,
+            "tiered_network_penalty": 0.0,
+            "prolonged_hosp_penalty": 0.0,
+            "room_category_copay": 0.0
+          }
+        }
+      ],
+      "decision_trace": [
+        {
+          "step": 2,
+          "rule_id": "GATE_1_PASSED",
+          "rule_name": "Policy Validation",
+          "gate": "policy_validation",
+          "inputs": {
+            "status": "Active",
+            "premium_paid": true
+          },
+          "evaluation": "PASSED",
+          "reason": "Policy is active and premium paid",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:25:08.401547Z"
+        },
+        {
+          "step": 3,
+          "rule_id": "R3_EXCL_003",
+          "rule_name": "30-day waiting period",
+          "gate": "waiting_period_validation",
+          "inputs": {
+            "condition": "Acute Appendicitis",
+            "continuous_months": 12,
+            "portability_credit": 0
+          },
+          "evaluation": "PASSED",
+          "reason": "All waiting periods satisfied",
+          "confidence": 0.95,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:25:08.401547Z"
+        },
+        {
+          "step": 4,
+          "rule_id": "R3_EXCL_002",
+          "rule_name": "Specified disease/procedure waiting period",
+          "gate": "waiting_period_validation",
+          "inputs": {
+            "condition": "Acute Appendicitis",
+            "continuous_months": 12,
+            "portability_credit": 0
+          },
+          "evaluation": "PASSED",
+          "reason": "All waiting periods satisfied",
+          "confidence": 0.95,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:25:08.401547Z"
+        },
+        {
+          "step": 5,
+          "rule_id": "R3_EXCL_001",
+          "rule_name": "Pre-existing Diseases exclusion",
+          "gate": "waiting_period_validation",
+          "inputs": {
+            "condition": "Acute Appendicitis",
+            "continuous_months": 12,
+            "portability_credit": 0
+          },
+          "evaluation": "PASSED",
+          "reason": "All waiting periods satisfied",
+          "confidence": 0.95,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:25:08.401547Z"
+        },
+        {
+          "step": 6,
+          "rule_id": "R3_WT_001",
+          "rule_name": "PED waiting time modification",
+          "gate": "waiting_period_validation",
+          "inputs": {
+            "condition": "Acute Appendicitis",
+            "continuous_months": 12,
+            "portability_credit": 0
+          },
+          "evaluation": "PASSED",
+          "reason": "All waiting periods satisfied",
+          "confidence": 0.95,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:25:08.401547Z"
+        },
+        {
+          "step": 7,
+          "rule_id": "R3_WT_002",
+          "rule_name": "Specific disease waiting time modification",
+          "gate": "waiting_period_validation",
+          "inputs": {
+            "condition": "Acute Appendicitis",
+            "continuous_months": 12,
+            "portability_credit": 0
+          },
+          "evaluation": "PASSED",
+          "reason": "All waiting periods satisfied",
+          "confidence": 0.95,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:25:08.401547Z"
+        },
+        {
+          "step": 8,
+          "rule_id": "R3_WT_003",
+          "rule_name": "Initial Wait Period Modification",
+          "gate": "waiting_period_validation",
+          "inputs": {
+            "condition": "Acute Appendicitis",
+            "continuous_months": 12,
+            "portability_credit": 0
+          },
+          "evaluation": "PASSED",
+          "reason": "All waiting periods satisfied",
+          "confidence": 0.95,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:25:08.401547Z"
+        },
+        {
+          "step": 10,
+          "rule_id": "GATE_5_PASSED",
+          "rule_name": "Exclusion Validation",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "condition": "Acute Appendicitis"
+          },
+          "evaluation": "PASSED",
+          "reason": "No exclusions triggered",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:25:08.401547Z"
+        },
+        {
+          "step": 12,
+          "rule_id": "GATE_5_PASSED",
+          "rule_name": "Exclusion Validation",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "condition": "Acute Appendicitis"
+          },
+          "evaluation": "PASSED",
+          "reason": "No exclusions triggered",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:25:08.401547Z"
+        },
+        {
+          "step": 13,
+          "rule_id": "R3_EXCL_004",
+          "rule_name": "Investigation & Evaluation",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "semantic_prompt": "Assess if admission was primarily for diagnostics only:\nAdmission Reason: Hospitalization for Appendectomy\nProcedures Performed: Hospitalization for Appendectomy\nTreatment Given: Hospitalization for A"
+          },
+          "evaluation": "PASSED",
+          "reason": "The admission reason and procedures performed are listed as 'Hospitalization for Appendectomy' and 'Hospitalization for Appendectomy', respectively. This indicates a definitive surgical treatment (Appendectomy) was performed, not solely diagnostic testing (MRI, CT, Endoscopy, etc.). Therefore, the exclusion criterion ('admission solely for tests... with no treatment') is not met. The treatment was active.",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:25:14.122756Z"
+        },
+        {
+          "step": 14,
+          "rule_id": "R3_EXCL_016",
+          "rule_name": "Maternity Expenses",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "semantic_prompt": "Check if claim involves maternity:\nDiagnosis: Acute Appendicitis\nProcedures: Hospitalization for Appendectomy\nICD Codes: []\n\nEXCLUDE: Childbirth (normal/complicated/caesarean), Miscarriage (except due"
+          },
+          "evaluation": "PASSED",
+          "reason": "The diagnosis is 'Acute Appendicitis' and the procedure is 'Hospitalization for Appendectomy'. The policy exclusion specifically targets 'Childbirth (normal/complicated/caesarean), Miscarriage (except due to Accident), Lawful medical termination'. Appendicitis is a surgical condition unrelated to pregnancy or maternity. Therefore, no active exclusion related to maternity is triggered.",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:25:19.381192Z"
+        },
+        {
+          "step": 15,
+          "rule_id": "R3_EXCL_007",
+          "rule_name": "Cosmetic or plastic Surgery",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "semantic_prompt": "Analyze if this treatment is cosmetic/plastic surgery:\nTreatment: Hospitalization for Appendectomy\nDiagnosis: Acute Appendicitis\nDoctor Notes: \n\nEXCLUDE if cosmetic.\nALLOW if: reconstruction after Acc"
+          },
+          "evaluation": "PASSED",
+          "reason": "The treatment is an Appendectomy for Acute Appendicitis. Appendicitis is a medical condition causing inflammation of the appendix, which constitutes an immediate health risk. The policy allows for treatment that is 'medically necessary to remove immediate health risk (certified by physician)'. This procedure is not classified as cosmetic or plastic surgery. Therefore, the exclusion for cosmetic procedures is not active.",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:25:24.564202Z"
+        },
+        {
+          "step": 16,
+          "rule_id": "R3_EXCL_005",
+          "rule_name": "Rest Cure, rehabilitation and respite care",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "semantic_prompt": "Verify coverage and exclusion terms for Rest Cure, rehabilitation and respite care (ID: R3_EXCL_005) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+          },
+          "evaluation": "PASSED",
+          "reason": "The claim involves 'Hospitalization for Appendectomy' due to 'Acute Appendicitis'. The policy exclusion ID R3_EXCL_005 pertains to 'Rest Cure, rehabilitation and respite care'. Since the primary treatment provided is surgical intervention (Appendectomy) requiring hospitalization, and not solely 'Rest Cure, rehabilitation, or respite care', the exclusion is not actively triggered. The condition (Acute Appendicitis) is a recognized acute medical necessity, overriding the scope of the specified exclusion.",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:25:30.168417Z"
+        },
+        {
+          "step": 17,
+          "rule_id": "R3_EXCL_006",
+          "rule_name": "Obesity/Weight Control",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "semantic_prompt": "Verify coverage and exclusion terms for Obesity/Weight Control (ID: R3_EXCL_006) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+          },
+          "evaluation": "PASSED",
+          "reason": "The policy exclusion ID R3_EXCL_006 pertains to 'Obesity/Weight Control'. The claimed condition is 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. Acute Appendicitis is an acute, life-threatening surgical emergency, which is a distinct medical necessity unrelated to weight management or cosmetic procedures. Therefore, the exclusion for obesity/weight control does not apply to this acute surgical necessity.",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:25:35.426280Z"
+        },
+        {
+          "step": 18,
+          "rule_id": "R3_EXCL_008",
+          "rule_name": "Hazardous or Adventure sports",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "semantic_prompt": "Verify coverage and exclusion terms for Hazardous or Adventure sports (ID: R3_EXCL_008) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+          },
+          "evaluation": "PASSED",
+          "reason": "The claim involves 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. Policy Exclusion ID R3_EXCL_008 specifically covers 'Hazardous or Adventure sports'. Acute Appendicitis is an acute medical condition, not related to participation in hazardous or adventure sports. Therefore, the exclusion is not applicable to this claim.",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:25:40.251165Z"
+        },
+        {
+          "step": 19,
+          "rule_id": "R3_EXCL_009",
+          "rule_name": "Breach of law",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "semantic_prompt": "Verify coverage and exclusion terms for Breach of law (ID: R3_EXCL_009) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+          },
+          "evaluation": "PASSED",
+          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_009 is defined as 'Breach of law'. Acute Appendicitis is a recognized, acute medical emergency requiring surgical intervention, not a condition resulting from or related to a breach of law. Therefore, the exclusion R3_EXCL_009 is not applicable to this medical necessity. The treatment is medically necessary and falls outside the scope of the specified exclusion.",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:25:45.785092Z"
+        },
+        {
+          "step": 20,
+          "rule_id": "R3_EXCL_011",
+          "rule_name": "Alcoholism, drug or substance abuse",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "semantic_prompt": "Verify coverage and exclusion terms for Alcoholism, drug or substance abuse (ID: R3_EXCL_011) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+          },
+          "evaluation": "PASSED",
+          "reason": "The claim is for 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_011 pertains to 'Alcoholism, drug or substance abuse'. Since the documented condition (Acute Appendicitis) is unrelated to substance abuse, the exclusion is not active for this claim. The treatment is medically necessary for an acute surgical condition.",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:25:50.742485Z"
+        },
+        {
+          "step": 21,
+          "rule_id": "R3_EXCL_012",
+          "rule_name": "Health hydros, nature cure clinics, spas",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "semantic_prompt": "Verify coverage and exclusion terms for Health hydros, nature cure clinics, spas (ID: R3_EXCL_012) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+          },
+          "evaluation": "PASSED",
+          "reason": "The claim involves 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. Policy exclusion ID R3_EXCL_012 specifically targets 'Health hydros, nature cure clinics, spas'. Since the treatment is a standard, acute surgical procedure (Appendectomy) performed in a hospital setting, it does not fall under the scope of the excluded services (alternative/wellness treatments). Therefore, the exclusion is not active for this claim.",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:25:56.113893Z"
+        },
+        {
+          "step": 22,
+          "rule_id": "R3_EXCL_013",
+          "rule_name": "Refractive Error",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "semantic_prompt": "Verify coverage and exclusion terms for Refractive Error (ID: R3_EXCL_013) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+          },
+          "evaluation": "PASSED",
+          "reason": "The claim involves 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. The policy exclusion cited is 'Refractive Error (ID: R3_EXCL_013)'. Refractive Error pertains to vision correction/eye conditions, which is entirely unrelated to acute abdominal/surgical pathology like appendicitis. Therefore, the specific exclusion R3_EXCL_013 is not active for this claim. The condition and treatment are medically appropriate for standard coverage.",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:01.704906Z"
+        },
+        {
+          "step": 23,
+          "rule_id": "R3_EXCL_014",
+          "rule_name": "Unproven Treatments",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "semantic_prompt": "Verify coverage and exclusion terms for Unproven Treatments (ID: R3_EXCL_014) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+          },
+          "evaluation": "PASSED",
+          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_014 pertains to 'Unproven Treatments'. Acute Appendicitis is a well-established, medically recognized condition requiring standard surgical intervention (Appendectomy). Since the treatment is a standard, evidence-based procedure for a recognized acute condition, it does not fall under the definition of an 'Unproven Treatment'. Therefore, the exclusion is not active.",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:07.323353Z"
+        },
+        {
+          "step": 24,
+          "rule_id": "R3_EXCL_015",
+          "rule_name": "Sterility and Infertility",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "semantic_prompt": "Verify coverage and exclusion terms for Sterility and Infertility (ID: R3_EXCL_015) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+          },
+          "evaluation": "PASSED",
+          "reason": "The policy exclusion ID R3_EXCL_015 pertains to 'Sterility and Infertility'. The claimed condition is 'Acute Appendicitis' with treatment 'Hospitalization for Appendectomy'. Acute Appendicitis is an acute surgical emergency, which is distinct from conditions related to infertility or sterility. Therefore, the exclusion clause is not applicable to this claim.",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:12.474332Z"
+        },
+        {
+          "step": 25,
+          "rule_id": "R3_EXCL_017",
+          "rule_name": "Personal Waiting Period",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "semantic_prompt": "Verify coverage and exclusion terms for Personal Waiting Period (ID: R3_EXCL_017) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+          },
+          "evaluation": "PASSED",
+          "reason": "The policy exclusion ID R3_EXCL_017 pertains to 'Personal Waiting Period'. Acute Appendicitis requiring 'Hospitalization for Appendectomy' is generally considered an acute, emergent medical condition, not a elective procedure or pre-existing condition that would typically trigger a waiting period exclusion, provided the condition was not known or treated prior to policy inception. Since no information suggests the condition was known or elective, the exclusion is not actively triggered by the nature of the acute event. Therefore, coverage is assessed as PASSED against this specific exclusion.",
+          "confidence": 0.95,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:18.379866Z"
+        },
+        {
+          "step": 26,
+          "rule_id": "R3_EXCL_018",
+          "rule_name": "Conflict & Disaster",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "semantic_prompt": "Verify coverage and exclusion terms for Conflict & Disaster (ID: R3_EXCL_018) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+          },
+          "evaluation": "PASSED",
+          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_018 pertains to 'Conflict & Disaster'. Acute Appendicitis is a medical emergency, not a condition arising from conflict or disaster. Therefore, the exclusion is not active for this claim. The treatment is medically necessary for an acute condition.",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:23.373218Z"
+        },
+        {
+          "step": 27,
+          "rule_id": "R3_EXCL_019",
+          "rule_name": "External Congenital Anomaly",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "semantic_prompt": "Verify coverage and exclusion terms for External Congenital Anomaly (ID: R3_EXCL_019) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+          },
+          "evaluation": "PASSED",
+          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID provided is 'R3_EXCL_019', which is defined as 'External Congenital Anomaly'. Acute Appendicitis is an acute inflammatory condition, not a congenital anomaly. Therefore, the specific exclusion R3_EXCL_019 does not apply to this claim. The treatment is medically necessary for an acute condition.",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:28.782093Z"
+        },
+        {
+          "step": 28,
+          "rule_id": "R3_EXCL_020",
+          "rule_name": "Dental treatment",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "semantic_prompt": "Verify coverage and exclusion terms for Dental treatment (ID: R3_EXCL_020) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+          },
+          "evaluation": "PASSED",
+          "reason": "The claim involves 'Hospitalization for Appendectomy' due to 'Acute Appendicitis'. Policy Exclusion ID R3_EXCL_020 pertains to Dental treatment. Since the condition (Acute Appendicitis) and treatment (Appendectomy) are surgical/medical emergencies and not dental in nature, the specific dental exclusion (R3_EXCL_020) is not applicable or active. Therefore, the claim does not fall under the scope of the specified exclusion.",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:34.274740Z"
+        },
+        {
+          "step": 29,
+          "rule_id": "R3_EXCL_022",
+          "rule_name": "Unreasonable costs and medically unnecessary treatment",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "semantic_prompt": "Verify coverage and exclusion terms for Unreasonable costs and medically unnecessary treatment (ID: R3_EXCL_022) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+          },
+          "evaluation": "PASSED",
+          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. Policy exclusion ID R3_EXCL_022 pertains to 'Unreasonable costs and medically unnecessary treatment'. Acute Appendicitis is a recognized, acute medical emergency requiring surgical intervention (Appendectomy). Therefore, the treatment is considered medically necessary and not inherently unreasonable under standard medical guidelines. No specific documentation suggests the costs are outside the scope of reasonable medical practice for this condition. The exclusion is not actively triggered.",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:40.005221Z"
+        },
+        {
+          "step": 30,
+          "rule_id": "R3_EXCL_023",
+          "rule_name": "Artificial life maintenance after brain death",
+          "gate": "exclusion_validation",
+          "inputs": {
+            "semantic_prompt": "Verify coverage and exclusion terms for Artificial life maintenance after brain death (ID: R3_EXCL_023) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+          },
+          "evaluation": "PASSED",
+          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion cited is ID: R3_EXCL_023, which pertains to 'Artificial life maintenance after brain death'. Since the condition and treatment are related to an acute surgical emergency (Appendicitis/Appendectomy) and do not involve life support following brain death, the exclusion is not applicable. Therefore, the claim passes the exclusion check.",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.640015Z"
+        },
+        {
+          "step": 31,
+          "rule_id": "R3_BEN_003",
+          "rule_name": "Hospitalization minimum duration and eligibility",
+          "gate": "coverage_validation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 32,
+          "rule_id": "R3_BEN_005",
+          "rule_name": "Modern treatments",
+          "gate": "coverage_validation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 33,
+          "rule_id": "R3_BEN_005A",
+          "rule_name": "Modern Treatments+ (optional)",
+          "gate": "coverage_validation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 34,
+          "rule_id": "R3_BEN_013",
+          "rule_name": "Claim Safeguard+",
+          "gate": "coverage_validation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 35,
+          "rule_id": "R3_BEN_018",
+          "rule_name": "Borderless",
+          "gate": "coverage_validation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 36,
+          "rule_id": "R3_BEN_019",
+          "rule_name": "Borderless for Specific Illness",
+          "gate": "coverage_validation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 37,
+          "rule_id": "R3_GEN_001",
+          "rule_name": "Moratorium Period",
+          "gate": "coverage_validation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 38,
+          "rule_id": "R3_GEN_003",
+          "rule_name": "Organ Transplant intimation and biopsy requirements",
+          "gate": "coverage_validation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 39,
+          "rule_id": "R3_GEN_004",
+          "rule_name": "Free Look Period",
+          "gate": "coverage_validation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 40,
+          "rule_id": "R3_GEN_005",
+          "rule_name": "Cancellation",
+          "gate": "coverage_validation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 41,
+          "rule_id": "R3_GEN_007",
+          "rule_name": "Premium Payment in Instalments",
+          "gate": "coverage_validation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 42,
+          "rule_id": "R3_GEN_008",
+          "rule_name": "Additional Premium (Risk Loading)",
+          "gate": "coverage_validation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 43,
+          "rule_id": "R3_GEN_009",
+          "rule_name": "Claim Settlement Timeline",
+          "gate": "coverage_validation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 44,
+          "rule_id": "R3_GEN_010",
+          "rule_name": "Cashless Discharge Processing",
+          "gate": "coverage_validation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 45,
+          "rule_id": "R3_PA_001",
+          "rule_name": "Personal Accident - AD/PTD/PPD",
+          "gate": "coverage_validation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 46,
+          "rule_id": "R3_PA_002",
+          "rule_name": "Personal Accident (Lite)",
+          "gate": "coverage_validation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 47,
+          "rule_id": "R3_PA_003",
+          "rule_name": "Personal Accident (Pro)",
+          "gate": "coverage_validation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 48,
+          "rule_id": "R3_BEN_004",
+          "rule_name": "Room category breach pro-rata",
+          "gate": "financial_computation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 49,
+          "rule_id": "R3_GEN_002",
+          "rule_name": "Prolonged Hospitalization intimation penalty",
+          "gate": "financial_computation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 50,
+          "rule_id": "R3_FIN_002",
+          "rule_name": "Co-payment",
+          "gate": "financial_computation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 51,
+          "rule_id": "R3_SUM_001",
+          "rule_name": "Sum insured waterfall",
+          "gate": "financial_computation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 52,
+          "rule_id": "R3_SUM_002",
+          "rule_name": "ReAssure Forever trigger",
+          "gate": "financial_computation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 53,
+          "rule_id": "R3_SUM_003",
+          "rule_name": "Lock the Clock",
+          "gate": "financial_computation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 54,
+          "rule_id": "R3_SUM_004",
+          "rule_name": "Booster+ accumulation and proportional reduction",
+          "gate": "financial_computation",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 55,
+          "rule_id": "R3_LH_001",
+          "rule_name": "Live Healthy renewal discount",
+          "gate": "state_update",
+          "inputs": {},
+          "evaluation": "PASSED",
+          "reason": "Deterministic check passed",
+          "confidence": 1.0,
+          "source_section": null,
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.647669Z"
+        },
+        {
+          "step": 56,
+          "rule_id": "R3_BEN_004",
+          "rule_name": "Room Pro-Rata",
+          "gate": "financial_computation",
+          "inputs": {
+            "eligible": 3000.0,
+            "actual": 5000.0
+          },
+          "evaluation": "DEDUCTION_APPLIED",
+          "reason": "Pro-rata deduction: INR 20000.00",
+          "confidence": 1.0,
+          "source_section": "6.2.4(d)",
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.648704Z"
+        },
+        {
+          "step": 57,
+          "rule_id": "R3_FIN_002",
+          "rule_name": "Co-Payment (Stacked)",
+          "gate": "financial_computation",
+          "inputs": {
+            "base_copay": 13000.0,
+            "heads_up_penalty": 0.0,
+            "tiered_network_penalty": 0.0,
+            "prolonged_hosp_penalty": 0.0,
+            "room_category_copay": 0.0
+          },
+          "evaluation": "DEDUCTION_APPLIED",
+          "reason": "Total co-pay: INR 13000.00 (10.0%)",
+          "confidence": 1.0,
+          "source_section": "4.19",
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.648704Z"
+        },
+        {
+          "step": 58,
+          "rule_id": "R3_SUM_001",
+          "rule_name": "SI Waterfall Consumption",
+          "gate": "financial_computation",
+          "inputs": {
+            "payable_requested": 117000.0,
+            "base_si_available": 800000.0,
+            "booster_available": 500000.0
+          },
+          "evaluation": "PASSED",
+          "reason": "SI consumed: Base INR 117000.00, Booster INR 0.00, Forever INR 0.00",
+          "confidence": 1.0,
+          "source_section": "3",
+          "source_page": null,
+          "timestamp": "2026-06-03T07:26:45.648704Z"
+        }
+      ],
+      "confidence_score": 0.9932692307692308,
+      "manual_review_required": false,
+      "review_reason": null
+    }
+  ],
+  "decision_trace": [
+    {
+      "step": 2,
+      "rule_id": "GATE_1_PASSED",
+      "rule_name": "Policy Validation",
+      "gate": "policy_validation",
+      "inputs": {
+        "status": "Active",
+        "premium_paid": true
+      },
+      "evaluation": "PASSED",
+      "reason": "Policy is active and premium paid",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:25:08.401547Z"
+    },
+    {
+      "step": 3,
+      "rule_id": "R3_EXCL_003",
+      "rule_name": "30-day waiting period",
+      "gate": "waiting_period_validation",
+      "inputs": {
+        "condition": "Acute Appendicitis",
+        "continuous_months": 12,
+        "portability_credit": 0
+      },
+      "evaluation": "PASSED",
+      "reason": "All waiting periods satisfied",
+      "confidence": 0.95,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:25:08.401547Z"
+    },
+    {
+      "step": 4,
+      "rule_id": "R3_EXCL_002",
+      "rule_name": "Specified disease/procedure waiting period",
+      "gate": "waiting_period_validation",
+      "inputs": {
+        "condition": "Acute Appendicitis",
+        "continuous_months": 12,
+        "portability_credit": 0
+      },
+      "evaluation": "PASSED",
+      "reason": "All waiting periods satisfied",
+      "confidence": 0.95,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:25:08.401547Z"
+    },
+    {
+      "step": 5,
+      "rule_id": "R3_EXCL_001",
+      "rule_name": "Pre-existing Diseases exclusion",
+      "gate": "waiting_period_validation",
+      "inputs": {
+        "condition": "Acute Appendicitis",
+        "continuous_months": 12,
+        "portability_credit": 0
+      },
+      "evaluation": "PASSED",
+      "reason": "All waiting periods satisfied",
+      "confidence": 0.95,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:25:08.401547Z"
+    },
+    {
+      "step": 6,
+      "rule_id": "R3_WT_001",
+      "rule_name": "PED waiting time modification",
+      "gate": "waiting_period_validation",
+      "inputs": {
+        "condition": "Acute Appendicitis",
+        "continuous_months": 12,
+        "portability_credit": 0
+      },
+      "evaluation": "PASSED",
+      "reason": "All waiting periods satisfied",
+      "confidence": 0.95,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:25:08.401547Z"
+    },
+    {
+      "step": 7,
+      "rule_id": "R3_WT_002",
+      "rule_name": "Specific disease waiting time modification",
+      "gate": "waiting_period_validation",
+      "inputs": {
+        "condition": "Acute Appendicitis",
+        "continuous_months": 12,
+        "portability_credit": 0
+      },
+      "evaluation": "PASSED",
+      "reason": "All waiting periods satisfied",
+      "confidence": 0.95,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:25:08.401547Z"
+    },
+    {
+      "step": 8,
+      "rule_id": "R3_WT_003",
+      "rule_name": "Initial Wait Period Modification",
+      "gate": "waiting_period_validation",
+      "inputs": {
+        "condition": "Acute Appendicitis",
+        "continuous_months": 12,
+        "portability_credit": 0
+      },
+      "evaluation": "PASSED",
+      "reason": "All waiting periods satisfied",
+      "confidence": 0.95,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:25:08.401547Z"
+    },
+    {
+      "step": 10,
+      "rule_id": "GATE_5_PASSED",
+      "rule_name": "Exclusion Validation",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "condition": "Acute Appendicitis"
+      },
+      "evaluation": "PASSED",
+      "reason": "No exclusions triggered",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:25:08.401547Z"
+    },
+    {
+      "step": 12,
+      "rule_id": "GATE_5_PASSED",
+      "rule_name": "Exclusion Validation",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "condition": "Acute Appendicitis"
+      },
+      "evaluation": "PASSED",
+      "reason": "No exclusions triggered",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:25:08.401547Z"
+    },
+    {
+      "step": 13,
+      "rule_id": "R3_EXCL_004",
+      "rule_name": "Investigation & Evaluation",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "semantic_prompt": "Assess if admission was primarily for diagnostics only:\nAdmission Reason: Hospitalization for Appendectomy\nProcedures Performed: Hospitalization for Appendectomy\nTreatment Given: Hospitalization for A"
+      },
+      "evaluation": "PASSED",
+      "reason": "The admission reason and procedures performed are listed as 'Hospitalization for Appendectomy' and 'Hospitalization for Appendectomy', respectively. This indicates a definitive surgical treatment (Appendectomy) was performed, not solely diagnostic testing (MRI, CT, Endoscopy, etc.). Therefore, the exclusion criterion ('admission solely for tests... with no treatment') is not met. The treatment was active.",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:25:14.122756Z"
+    },
+    {
+      "step": 14,
+      "rule_id": "R3_EXCL_016",
+      "rule_name": "Maternity Expenses",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "semantic_prompt": "Check if claim involves maternity:\nDiagnosis: Acute Appendicitis\nProcedures: Hospitalization for Appendectomy\nICD Codes: []\n\nEXCLUDE: Childbirth (normal/complicated/caesarean), Miscarriage (except due"
+      },
+      "evaluation": "PASSED",
+      "reason": "The diagnosis is 'Acute Appendicitis' and the procedure is 'Hospitalization for Appendectomy'. The policy exclusion specifically targets 'Childbirth (normal/complicated/caesarean), Miscarriage (except due to Accident), Lawful medical termination'. Appendicitis is a surgical condition unrelated to pregnancy or maternity. Therefore, no active exclusion related to maternity is triggered.",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:25:19.381192Z"
+    },
+    {
+      "step": 15,
+      "rule_id": "R3_EXCL_007",
+      "rule_name": "Cosmetic or plastic Surgery",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "semantic_prompt": "Analyze if this treatment is cosmetic/plastic surgery:\nTreatment: Hospitalization for Appendectomy\nDiagnosis: Acute Appendicitis\nDoctor Notes: \n\nEXCLUDE if cosmetic.\nALLOW if: reconstruction after Acc"
+      },
+      "evaluation": "PASSED",
+      "reason": "The treatment is an Appendectomy for Acute Appendicitis. Appendicitis is a medical condition causing inflammation of the appendix, which constitutes an immediate health risk. The policy allows for treatment that is 'medically necessary to remove immediate health risk (certified by physician)'. This procedure is not classified as cosmetic or plastic surgery. Therefore, the exclusion for cosmetic procedures is not active.",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:25:24.564202Z"
+    },
+    {
+      "step": 16,
+      "rule_id": "R3_EXCL_005",
+      "rule_name": "Rest Cure, rehabilitation and respite care",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "semantic_prompt": "Verify coverage and exclusion terms for Rest Cure, rehabilitation and respite care (ID: R3_EXCL_005) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+      },
+      "evaluation": "PASSED",
+      "reason": "The claim involves 'Hospitalization for Appendectomy' due to 'Acute Appendicitis'. The policy exclusion ID R3_EXCL_005 pertains to 'Rest Cure, rehabilitation and respite care'. Since the primary treatment provided is surgical intervention (Appendectomy) requiring hospitalization, and not solely 'Rest Cure, rehabilitation, or respite care', the exclusion is not actively triggered. The condition (Acute Appendicitis) is a recognized acute medical necessity, overriding the scope of the specified exclusion.",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:25:30.168417Z"
+    },
+    {
+      "step": 17,
+      "rule_id": "R3_EXCL_006",
+      "rule_name": "Obesity/Weight Control",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "semantic_prompt": "Verify coverage and exclusion terms for Obesity/Weight Control (ID: R3_EXCL_006) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+      },
+      "evaluation": "PASSED",
+      "reason": "The policy exclusion ID R3_EXCL_006 pertains to 'Obesity/Weight Control'. The claimed condition is 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. Acute Appendicitis is an acute, life-threatening surgical emergency, which is a distinct medical necessity unrelated to weight management or cosmetic procedures. Therefore, the exclusion for obesity/weight control does not apply to this acute surgical necessity.",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:25:35.426280Z"
+    },
+    {
+      "step": 18,
+      "rule_id": "R3_EXCL_008",
+      "rule_name": "Hazardous or Adventure sports",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "semantic_prompt": "Verify coverage and exclusion terms for Hazardous or Adventure sports (ID: R3_EXCL_008) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+      },
+      "evaluation": "PASSED",
+      "reason": "The claim involves 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. Policy Exclusion ID R3_EXCL_008 specifically covers 'Hazardous or Adventure sports'. Acute Appendicitis is an acute medical condition, not related to participation in hazardous or adventure sports. Therefore, the exclusion is not applicable to this claim.",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:25:40.251165Z"
+    },
+    {
+      "step": 19,
+      "rule_id": "R3_EXCL_009",
+      "rule_name": "Breach of law",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "semantic_prompt": "Verify coverage and exclusion terms for Breach of law (ID: R3_EXCL_009) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+      },
+      "evaluation": "PASSED",
+      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_009 is defined as 'Breach of law'. Acute Appendicitis is a recognized, acute medical emergency requiring surgical intervention, not a condition resulting from or related to a breach of law. Therefore, the exclusion R3_EXCL_009 is not applicable to this medical necessity. The treatment is medically necessary and falls outside the scope of the specified exclusion.",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:25:45.785092Z"
+    },
+    {
+      "step": 20,
+      "rule_id": "R3_EXCL_011",
+      "rule_name": "Alcoholism, drug or substance abuse",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "semantic_prompt": "Verify coverage and exclusion terms for Alcoholism, drug or substance abuse (ID: R3_EXCL_011) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+      },
+      "evaluation": "PASSED",
+      "reason": "The claim is for 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_011 pertains to 'Alcoholism, drug or substance abuse'. Since the documented condition (Acute Appendicitis) is unrelated to substance abuse, the exclusion is not active for this claim. The treatment is medically necessary for an acute surgical condition.",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:25:50.742485Z"
+    },
+    {
+      "step": 21,
+      "rule_id": "R3_EXCL_012",
+      "rule_name": "Health hydros, nature cure clinics, spas",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "semantic_prompt": "Verify coverage and exclusion terms for Health hydros, nature cure clinics, spas (ID: R3_EXCL_012) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+      },
+      "evaluation": "PASSED",
+      "reason": "The claim involves 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. Policy exclusion ID R3_EXCL_012 specifically targets 'Health hydros, nature cure clinics, spas'. Since the treatment is a standard, acute surgical procedure (Appendectomy) performed in a hospital setting, it does not fall under the scope of the excluded services (alternative/wellness treatments). Therefore, the exclusion is not active for this claim.",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:25:56.113893Z"
+    },
+    {
+      "step": 22,
+      "rule_id": "R3_EXCL_013",
+      "rule_name": "Refractive Error",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "semantic_prompt": "Verify coverage and exclusion terms for Refractive Error (ID: R3_EXCL_013) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+      },
+      "evaluation": "PASSED",
+      "reason": "The claim involves 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. The policy exclusion cited is 'Refractive Error (ID: R3_EXCL_013)'. Refractive Error pertains to vision correction/eye conditions, which is entirely unrelated to acute abdominal/surgical pathology like appendicitis. Therefore, the specific exclusion R3_EXCL_013 is not active for this claim. The condition and treatment are medically appropriate for standard coverage.",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:01.704906Z"
+    },
+    {
+      "step": 23,
+      "rule_id": "R3_EXCL_014",
+      "rule_name": "Unproven Treatments",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "semantic_prompt": "Verify coverage and exclusion terms for Unproven Treatments (ID: R3_EXCL_014) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+      },
+      "evaluation": "PASSED",
+      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_014 pertains to 'Unproven Treatments'. Acute Appendicitis is a well-established, medically recognized condition requiring standard surgical intervention (Appendectomy). Since the treatment is a standard, evidence-based procedure for a recognized acute condition, it does not fall under the definition of an 'Unproven Treatment'. Therefore, the exclusion is not active.",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:07.323353Z"
+    },
+    {
+      "step": 24,
+      "rule_id": "R3_EXCL_015",
+      "rule_name": "Sterility and Infertility",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "semantic_prompt": "Verify coverage and exclusion terms for Sterility and Infertility (ID: R3_EXCL_015) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+      },
+      "evaluation": "PASSED",
+      "reason": "The policy exclusion ID R3_EXCL_015 pertains to 'Sterility and Infertility'. The claimed condition is 'Acute Appendicitis' with treatment 'Hospitalization for Appendectomy'. Acute Appendicitis is an acute surgical emergency, which is distinct from conditions related to infertility or sterility. Therefore, the exclusion clause is not applicable to this claim.",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:12.474332Z"
+    },
+    {
+      "step": 25,
+      "rule_id": "R3_EXCL_017",
+      "rule_name": "Personal Waiting Period",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "semantic_prompt": "Verify coverage and exclusion terms for Personal Waiting Period (ID: R3_EXCL_017) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+      },
+      "evaluation": "PASSED",
+      "reason": "The policy exclusion ID R3_EXCL_017 pertains to 'Personal Waiting Period'. Acute Appendicitis requiring 'Hospitalization for Appendectomy' is generally considered an acute, emergent medical condition, not a elective procedure or pre-existing condition that would typically trigger a waiting period exclusion, provided the condition was not known or treated prior to policy inception. Since no information suggests the condition was known or elective, the exclusion is not actively triggered by the nature of the acute event. Therefore, coverage is assessed as PASSED against this specific exclusion.",
+      "confidence": 0.95,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:18.379866Z"
+    },
+    {
+      "step": 26,
+      "rule_id": "R3_EXCL_018",
+      "rule_name": "Conflict & Disaster",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "semantic_prompt": "Verify coverage and exclusion terms for Conflict & Disaster (ID: R3_EXCL_018) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+      },
+      "evaluation": "PASSED",
+      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_018 pertains to 'Conflict & Disaster'. Acute Appendicitis is a medical emergency, not a condition arising from conflict or disaster. Therefore, the exclusion is not active for this claim. The treatment is medically necessary for an acute condition.",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:23.373218Z"
+    },
+    {
+      "step": 27,
+      "rule_id": "R3_EXCL_019",
+      "rule_name": "External Congenital Anomaly",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "semantic_prompt": "Verify coverage and exclusion terms for External Congenital Anomaly (ID: R3_EXCL_019) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+      },
+      "evaluation": "PASSED",
+      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID provided is 'R3_EXCL_019', which is defined as 'External Congenital Anomaly'. Acute Appendicitis is an acute inflammatory condition, not a congenital anomaly. Therefore, the specific exclusion R3_EXCL_019 does not apply to this claim. The treatment is medically necessary for an acute condition.",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:28.782093Z"
+    },
+    {
+      "step": 28,
+      "rule_id": "R3_EXCL_020",
+      "rule_name": "Dental treatment",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "semantic_prompt": "Verify coverage and exclusion terms for Dental treatment (ID: R3_EXCL_020) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+      },
+      "evaluation": "PASSED",
+      "reason": "The claim involves 'Hospitalization for Appendectomy' due to 'Acute Appendicitis'. Policy Exclusion ID R3_EXCL_020 pertains to Dental treatment. Since the condition (Acute Appendicitis) and treatment (Appendectomy) are surgical/medical emergencies and not dental in nature, the specific dental exclusion (R3_EXCL_020) is not applicable or active. Therefore, the claim does not fall under the scope of the specified exclusion.",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:34.274740Z"
+    },
+    {
+      "step": 29,
+      "rule_id": "R3_EXCL_022",
+      "rule_name": "Unreasonable costs and medically unnecessary treatment",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "semantic_prompt": "Verify coverage and exclusion terms for Unreasonable costs and medically unnecessary treatment (ID: R3_EXCL_022) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+      },
+      "evaluation": "PASSED",
+      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. Policy exclusion ID R3_EXCL_022 pertains to 'Unreasonable costs and medically unnecessary treatment'. Acute Appendicitis is a recognized, acute medical emergency requiring surgical intervention (Appendectomy). Therefore, the treatment is considered medically necessary and not inherently unreasonable under standard medical guidelines. No specific documentation suggests the costs are outside the scope of reasonable medical practice for this condition. The exclusion is not actively triggered.",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:40.005221Z"
+    },
+    {
+      "step": 30,
+      "rule_id": "R3_EXCL_023",
+      "rule_name": "Artificial life maintenance after brain death",
+      "gate": "exclusion_validation",
+      "inputs": {
+        "semantic_prompt": "Verify coverage and exclusion terms for Artificial life maintenance after brain death (ID: R3_EXCL_023) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
+      },
+      "evaluation": "PASSED",
+      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion cited is ID: R3_EXCL_023, which pertains to 'Artificial life maintenance after brain death'. Since the condition and treatment are related to an acute surgical emergency (Appendicitis/Appendectomy) and do not involve life support following brain death, the exclusion is not applicable. Therefore, the claim passes the exclusion check.",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.640015Z"
+    },
+    {
+      "step": 31,
+      "rule_id": "R3_BEN_003",
+      "rule_name": "Hospitalization minimum duration and eligibility",
+      "gate": "coverage_validation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 32,
+      "rule_id": "R3_BEN_005",
+      "rule_name": "Modern treatments",
+      "gate": "coverage_validation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 33,
+      "rule_id": "R3_BEN_005A",
+      "rule_name": "Modern Treatments+ (optional)",
+      "gate": "coverage_validation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 34,
+      "rule_id": "R3_BEN_013",
+      "rule_name": "Claim Safeguard+",
+      "gate": "coverage_validation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 35,
+      "rule_id": "R3_BEN_018",
+      "rule_name": "Borderless",
+      "gate": "coverage_validation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 36,
+      "rule_id": "R3_BEN_019",
+      "rule_name": "Borderless for Specific Illness",
+      "gate": "coverage_validation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 37,
+      "rule_id": "R3_GEN_001",
+      "rule_name": "Moratorium Period",
+      "gate": "coverage_validation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 38,
+      "rule_id": "R3_GEN_003",
+      "rule_name": "Organ Transplant intimation and biopsy requirements",
+      "gate": "coverage_validation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 39,
+      "rule_id": "R3_GEN_004",
+      "rule_name": "Free Look Period",
+      "gate": "coverage_validation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 40,
+      "rule_id": "R3_GEN_005",
+      "rule_name": "Cancellation",
+      "gate": "coverage_validation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 41,
+      "rule_id": "R3_GEN_007",
+      "rule_name": "Premium Payment in Instalments",
+      "gate": "coverage_validation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 42,
+      "rule_id": "R3_GEN_008",
+      "rule_name": "Additional Premium (Risk Loading)",
+      "gate": "coverage_validation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 43,
+      "rule_id": "R3_GEN_009",
+      "rule_name": "Claim Settlement Timeline",
+      "gate": "coverage_validation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 44,
+      "rule_id": "R3_GEN_010",
+      "rule_name": "Cashless Discharge Processing",
+      "gate": "coverage_validation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 45,
+      "rule_id": "R3_PA_001",
+      "rule_name": "Personal Accident - AD/PTD/PPD",
+      "gate": "coverage_validation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 46,
+      "rule_id": "R3_PA_002",
+      "rule_name": "Personal Accident (Lite)",
+      "gate": "coverage_validation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 47,
+      "rule_id": "R3_PA_003",
+      "rule_name": "Personal Accident (Pro)",
+      "gate": "coverage_validation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 48,
+      "rule_id": "R3_BEN_004",
+      "rule_name": "Room category breach pro-rata",
+      "gate": "financial_computation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 49,
+      "rule_id": "R3_GEN_002",
+      "rule_name": "Prolonged Hospitalization intimation penalty",
+      "gate": "financial_computation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 50,
+      "rule_id": "R3_FIN_002",
+      "rule_name": "Co-payment",
+      "gate": "financial_computation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 51,
+      "rule_id": "R3_SUM_001",
+      "rule_name": "Sum insured waterfall",
+      "gate": "financial_computation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 52,
+      "rule_id": "R3_SUM_002",
+      "rule_name": "ReAssure Forever trigger",
+      "gate": "financial_computation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 53,
+      "rule_id": "R3_SUM_003",
+      "rule_name": "Lock the Clock",
+      "gate": "financial_computation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 54,
+      "rule_id": "R3_SUM_004",
+      "rule_name": "Booster+ accumulation and proportional reduction",
+      "gate": "financial_computation",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 55,
+      "rule_id": "R3_LH_001",
+      "rule_name": "Live Healthy renewal discount",
+      "gate": "state_update",
+      "inputs": {},
+      "evaluation": "PASSED",
+      "reason": "Deterministic check passed",
+      "confidence": 1.0,
+      "source_section": null,
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.647669Z"
+    },
+    {
+      "step": 56,
+      "rule_id": "R3_BEN_004",
+      "rule_name": "Room Pro-Rata",
+      "gate": "financial_computation",
+      "inputs": {
+        "eligible": 3000.0,
+        "actual": 5000.0
+      },
+      "evaluation": "DEDUCTION_APPLIED",
+      "reason": "Pro-rata deduction: INR 20000.00",
+      "confidence": 1.0,
+      "source_section": "6.2.4(d)",
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.648704Z"
+    },
+    {
+      "step": 57,
+      "rule_id": "R3_FIN_002",
+      "rule_name": "Co-Payment (Stacked)",
+      "gate": "financial_computation",
+      "inputs": {
+        "base_copay": 13000.0,
+        "heads_up_penalty": 0.0,
+        "tiered_network_penalty": 0.0,
+        "prolonged_hosp_penalty": 0.0,
+        "room_category_copay": 0.0
+      },
+      "evaluation": "DEDUCTION_APPLIED",
+      "reason": "Total co-pay: INR 13000.00 (10.0%)",
+      "confidence": 1.0,
+      "source_section": "4.19",
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.648704Z"
+    },
+    {
+      "step": 58,
+      "rule_id": "R3_SUM_001",
+      "rule_name": "SI Waterfall Consumption",
+      "gate": "financial_computation",
+      "inputs": {
+        "payable_requested": 117000.0,
+        "base_si_available": 800000.0,
+        "booster_available": 500000.0
+      },
+      "evaluation": "PASSED",
+      "reason": "SI consumed: Base INR 117000.00, Booster INR 0.00, Forever INR 0.00",
+      "confidence": 1.0,
+      "source_section": "3",
+      "source_page": null,
+      "timestamp": "2026-06-03T07:26:45.648704Z"
+    }
+  ],
+  "confidence_score": 0.9932692307692308,
+  "manual_review_required": false,
+  "review_reasons": [],
+  "pas_submission_payload": {},
+  "decision_timestamp": "2026-06-03T07:26:45.648704Z",
+  "processing_duration_ms": 97247.15757369995
+}
