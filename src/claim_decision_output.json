@@ -73,7 +73,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:37:49.107207Z"
+          "timestamp": "2026-06-03T08:18:56.257140Z"
         },
         {
           "step": 3,
@@ -90,7 +90,7 @@
           "confidence": 0.95,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:37:49.107207Z"
+          "timestamp": "2026-06-03T08:18:56.257140Z"
         },
         {
           "step": 4,
@@ -107,7 +107,7 @@
           "confidence": 0.95,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:37:49.107207Z"
+          "timestamp": "2026-06-03T08:18:56.257140Z"
         },
         {
           "step": 5,
@@ -124,7 +124,7 @@
           "confidence": 0.95,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:37:49.107207Z"
+          "timestamp": "2026-06-03T08:18:56.257140Z"
         },
         {
           "step": 6,
@@ -141,7 +141,7 @@
           "confidence": 0.95,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:37:49.107207Z"
+          "timestamp": "2026-06-03T08:18:56.257140Z"
         },
         {
           "step": 7,
@@ -158,7 +158,7 @@
           "confidence": 0.95,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:37:49.107207Z"
+          "timestamp": "2026-06-03T08:18:56.257140Z"
         },
         {
           "step": 8,
@@ -175,7 +175,7 @@
           "confidence": 0.95,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:37:49.107207Z"
+          "timestamp": "2026-06-03T08:18:56.257140Z"
         },
         {
           "step": 10,
@@ -190,7 +190,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:37:49.107207Z"
+          "timestamp": "2026-06-03T08:18:56.257140Z"
         },
         {
           "step": 12,
@@ -205,7 +205,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:37:49.107207Z"
+          "timestamp": "2026-06-03T08:18:56.257140Z"
         },
         {
           "step": 13,
@@ -216,11 +216,11 @@
             "semantic_prompt": "Assess if admission was primarily for diagnostics only:\nAdmission Reason: Hospitalization for Appendectomy\nProcedures Performed: Hospitalization for Appendectomy\nTreatment Given: Hospitalization for A"
           },
           "evaluation": "PASSED",
-          "reason": "The claim indicates 'Hospitalization for Appendectomy' as the primary reason and procedure. An appendectomy is a definitive surgical treatment, not solely a diagnostic test (like MRI, CT, or Endoscopy). Therefore, the exclusion clause ('admission solely for tests... with no treatment') is not met. The treatment (Appendectomy) was performed.",
+          "reason": "The admission reason and procedures performed are listed as 'Hospitalization for Appendectomy' and 'Hospitalization for Appendectomy', respectively. This indicates a definitive surgical treatment (Appendectomy) was performed, not solely diagnostic testing (MRI, CT, Endoscopy, etc.). Therefore, the exclusion criterion ('admission solely for tests... with no treatment') is not met. The treatment was active.",
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:37:53.903742Z"
+          "timestamp": "2026-06-03T08:19:01.572815Z"
         },
         {
           "step": 14,
@@ -231,11 +231,11 @@
             "semantic_prompt": "Check if claim involves maternity:\nDiagnosis: Acute Appendicitis\nProcedures: Hospitalization for Appendectomy\nICD Codes: []\n\nEXCLUDE: Childbirth (normal/complicated/caesarean), Miscarriage (except due"
           },
           "evaluation": "PASSED",
-          "reason": "The diagnosis is 'Acute Appendicitis' and the procedure is 'Hospitalization for Appendectomy'. The policy exclusion specifically targets 'Childbirth (normal/complicated/caesarean)', 'Miscarriage', and 'Lawful medical termination'. Appendicitis is a surgical condition unrelated to pregnancy or maternity. Therefore, no maternity exclusion is active.",
+          "reason": "The diagnosis is 'Acute Appendicitis' and the procedure is 'Hospitalization for Appendectomy'. The policy exclusion specifically targets 'Childbirth (normal/complicated/caesarean), Miscarriage (except due to Accident), Lawful medical termination'. Appendicitis is a surgical condition unrelated to pregnancy or maternity. Therefore, no maternity exclusion is active.",
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:37:58.580518Z"
+          "timestamp": "2026-06-03T08:19:06.367087Z"
         },
         {
           "step": 15,
@@ -246,11 +246,11 @@
             "semantic_prompt": "Analyze if this treatment is cosmetic/plastic surgery:\nTreatment: Hospitalization for Appendectomy\nDiagnosis: Acute Appendicitis\nDoctor Notes: \n\nEXCLUDE if cosmetic.\nALLOW if: reconstruction after Acc"
           },
           "evaluation": "PASSED",
-          "reason": "The treatment is an Appendectomy for Acute Appendicitis. Appendicitis is a medical condition requiring surgical removal of an inflamed organ to prevent severe health risks (e.g., perforation, sepsis). This falls under the policy allowance for 'medically necessary to remove immediate health risk (certified by physician)'. It does not meet the definition of cosmetic/plastic surgery. Therefore, the cosmetic exclusion is not active.",
+          "reason": "The treatment is an Appendectomy for Acute Appendicitis. Appendicitis is a medical condition causing acute inflammation of the appendix, which constitutes an immediate health risk. The policy allows for coverage if the treatment is 'medically necessary to remove immediate health risk (certified by physician)'. An appendectomy for acute appendicitis meets this criterion and is not classified as cosmetic or plastic surgery. Therefore, the cosmetic exclusion is not active.",
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:38:03.392478Z"
+          "timestamp": "2026-06-03T08:19:11.416599Z"
         },
         {
           "step": 16,
@@ -261,11 +261,11 @@
             "semantic_prompt": "Verify coverage and exclusion terms for Rest Cure, rehabilitation and respite care (ID: R3_EXCL_005) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
           },
           "evaluation": "PASSED",
-          "reason": "The claim involves 'Hospitalization for Appendectomy' due to 'Acute Appendicitis'. The policy exclusion ID R3_EXCL_005 pertains to 'Rest Cure, rehabilitation and respite care'. Since the primary treatment documented is a surgical procedure (Appendectomy) requiring hospitalization, this falls under acute medical necessity for an acute condition, not the excluded categories of non-surgical rest/rehab/respite care. Therefore, the exclusion is not active for this procedure.",
+          "reason": "The claim involves 'Hospitalization for Appendectomy' due to 'Acute Appendicitis'. The policy exclusion ID R3_EXCL_005 pertains to 'Rest Cure, rehabilitation and respite care'. Since the primary treatment provided is a surgical procedure (Appendectomy) requiring hospitalization, and not solely 'Rest Cure, rehabilitation, or respite care', the exclusion R3_EXCL_005 is not actively triggered. The condition (Acute Appendicitis) is a recognized acute medical necessity, overriding any general exclusion related to non-acute care types.",
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:38:08.593765Z"
+          "timestamp": "2026-06-03T08:19:17.243728Z"
         },
         {
           "step": 17,
@@ -276,11 +276,11 @@
             "semantic_prompt": "Verify coverage and exclusion terms for Obesity/Weight Control (ID: R3_EXCL_006) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
           },
           "evaluation": "PASSED",
-          "reason": "The policy exclusion ID R3_EXCL_006 pertains to 'Obesity/Weight Control'. The claimed condition is 'Acute Appendicitis' and the treatment is 'Hospitalization for Appendectomy'. Acute Appendicitis is an acute, life-threatening surgical emergency, which is a covered medical necessity, distinct from elective weight management or obesity-related procedures. Therefore, the specific exclusion for weight control does not apply to this acute surgical intervention.",
+          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_006 pertains to 'Obesity/Weight Control'. Acute Appendicitis is an acute, life-threatening surgical emergency, which is a distinct medical condition unrelated to elective weight management or obesity treatment. Therefore, the exclusion for Obesity/Weight Control does not apply to this claim. The condition and treatment are medically necessary for acute pathology.",
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:38:13.948741Z"
+          "timestamp": "2026-06-03T08:19:22.687189Z"
         },
         {
           "step": 18,
@@ -291,11 +291,11 @@
             "semantic_prompt": "Verify coverage and exclusion terms for Hazardous or Adventure sports (ID: R3_EXCL_008) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
           },
           "evaluation": "PASSED",
-          "reason": "The claim involves 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. Policy Exclusion R3_EXCL_008 specifically targets 'Hazardous or Adventure sports'. Acute Appendicitis is an acute medical condition, not related to participation in hazardous or adventure sports. Therefore, the exclusion is not applicable to this claim. The condition and treatment are standard medical necessities.",
+          "reason": "The claim involves 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. Policy Exclusion ID R3_EXCL_008 specifically covers 'Hazardous or Adventure sports'. Acute Appendicitis is a medical emergency/acute inflammatory condition, not related to participation in hazardous or adventure sports. Therefore, the exclusion is not applicable to this condition/treatment. The condition and treatment fall under standard covered medical necessity.",
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:38:19.055116Z"
+          "timestamp": "2026-06-03T08:19:27.837547Z"
         },
         {
           "step": 19,
@@ -306,11 +306,11 @@
             "semantic_prompt": "Verify coverage and exclusion terms for Breach of law (ID: R3_EXCL_009) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
           },
           "evaluation": "PASSED",
-          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_009 is titled 'Breach of law'. Acute Appendicitis is a recognized, acute medical condition requiring emergency surgical intervention, not a condition resulting from or related to a breach of law. Therefore, the exclusion R3_EXCL_009 is not applicable to this medical necessity. The treatment is medically necessary for the diagnosed condition.",
+          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_009 is titled 'Breach of law'. Acute Appendicitis is a recognized, acute medical condition requiring emergency surgical intervention, not a condition resulting from or related to a breach of law. Therefore, the exclusion R3_EXCL_009 is not applicable to this medical necessity. The treatment is medically necessary and falls outside the scope of the specified exclusion.",
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:38:24.584165Z"
+          "timestamp": "2026-06-03T08:19:33.288103Z"
         },
         {
           "step": 20,
@@ -321,11 +321,11 @@
             "semantic_prompt": "Verify coverage and exclusion terms for Alcoholism, drug or substance abuse (ID: R3_EXCL_011) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
           },
           "evaluation": "PASSED",
-          "reason": "The claim is for 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_011 pertains to 'Alcoholism, drug or substance abuse'. Since the documented condition (Acute Appendicitis) is a distinct, acute surgical emergency and is not directly related to, or a manifestation of, substance abuse, the exclusion is not active. The condition and treatment fall under standard covered surgical procedures.",
+          "reason": "The claim is for 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_011 pertains to 'Alcoholism, drug or substance abuse'. Since the documented condition (Acute Appendicitis) is a distinct, acute surgical emergency and is not directly related to, or presented as a complication of, substance abuse, the exclusion is not active for this specific treatment. The condition and treatment do not fall under the scope of the specified exclusion.",
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:38:29.787054Z"
+          "timestamp": "2026-06-03T08:19:38.688346Z"
         },
         {
           "step": 21,
@@ -336,11 +336,11 @@
             "semantic_prompt": "Verify coverage and exclusion terms for Health hydros, nature cure clinics, spas (ID: R3_EXCL_012) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
           },
           "evaluation": "PASSED",
-          "reason": "The claim involves 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. Policy exclusion ID R3_EXCL_012 specifically targets 'Health hydros, nature cure clinics, spas'. Since the treatment is a standard, acute surgical procedure (Appendectomy) performed in a hospital setting, it does not fall under the scope of the excluded services (alternative/wellness treatments). Therefore, the exclusion is not active.",
+          "reason": "The claim involves 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. Policy exclusion ID R3_EXCL_012 specifically targets 'Health hydros, nature cure clinics, spas'. Since the treatment is a standard, acute surgical procedure (Appendectomy) performed in a hospital setting, it does not fall under the scope of the listed exclusions. Therefore, the exclusion is not active.",
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:38:35.618125Z"
+          "timestamp": "2026-06-03T08:19:43.767656Z"
         },
         {
           "step": 22,
@@ -351,11 +351,11 @@
             "semantic_prompt": "Verify coverage and exclusion terms for Refractive Error (ID: R3_EXCL_013) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
           },
           "evaluation": "PASSED",
-          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion cited is 'Refractive Error (ID: R3_EXCL_013)'. Refractive Error pertains to vision correction issues (e.g., myopia, hyperopia) and is unrelated to acute abdominal pathology like appendicitis. Therefore, the specific exclusion R3_EXCL_013 is not applicable to this claim. The condition and treatment fall under standard acute surgical necessity, which is generally covered unless other, more specific exclusions apply (which are not provided).",
+          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion cited is 'Refractive Error (ID: R3_EXCL_013)'. Refractive Error pertains to vision conditions (e.g., myopia, hyperopia) and is unrelated to acute abdominal pathology like appendicitis. Therefore, the specific exclusion R3_EXCL_013 is not applicable to this claim. The condition and treatment fall under standard acute medical necessity, thus passing the exclusion check.",
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:38:41.963684Z"
+          "timestamp": "2026-06-03T08:19:49.484376Z"
         },
         {
           "step": 23,
@@ -366,11 +366,11 @@
             "semantic_prompt": "Verify coverage and exclusion terms for Unproven Treatments (ID: R3_EXCL_014) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
           },
           "evaluation": "PASSED",
-          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_014 pertains to 'Unproven Treatments'. Acute Appendicitis is a well-established, medically recognized condition requiring standard surgical intervention (Appendectomy). Since the treatment is a standard, evidence-based procedure for a diagnosed acute condition, it does not fall under the definition of an 'Unproven Treatment'. Therefore, the exclusion is not active.",
+          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_014 pertains to 'Unproven Treatments'. Acute Appendicitis is a well-established, medically recognized condition requiring standard surgical intervention (Appendectomy). Since the treatment is a standard, evidence-based procedure for a recognized acute condition, it does not fall under the definition of an 'Unproven Treatment'. Therefore, the exclusion is not active.",
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:38:47.973202Z"
+          "timestamp": "2026-06-03T08:19:54.957941Z"
         },
         {
           "step": 24,
@@ -381,11 +381,11 @@
             "semantic_prompt": "Verify coverage and exclusion terms for Sterility and Infertility (ID: R3_EXCL_015) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
           },
           "evaluation": "PASSED",
-          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_015 pertains to 'Sterility and Infertility'. Since the condition (Acute Appendicitis) and treatment (Appendectomy) are unrelated to reproductive health, fertility, or sterility, the exclusion R3_EXCL_015 is not active. Therefore, the claim passes the exclusion check.",
+          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_015 pertains to 'Sterility and Infertility'. Since the condition (Acute Appendicitis) and treatment (Appendectomy) are unrelated to reproductive health, fertility, or sterility, the exclusion is not active. The treatment is medically necessary for an acute surgical condition.",
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:38:53.295205Z"
+          "timestamp": "2026-06-03T08:20:00.077420Z"
         },
         {
           "step": 25,
@@ -396,11 +396,11 @@
             "semantic_prompt": "Verify coverage and exclusion terms for Personal Waiting Period (ID: R3_EXCL_017) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
           },
           "evaluation": "PASSED",
-          "reason": "The policy exclusion ID R3_EXCL_017 pertains to 'Personal Waiting Period'. Acute Appendicitis requiring an Appendectomy is generally classified as an acute, emergent medical condition, not a elective procedure or pre-existing condition that would typically trigger a waiting period exclusion. Since no specific details indicate the condition was sought for elective reasons or that the waiting period has not elapsed, the treatment is considered covered under standard acute care provisions, thus not meeting the criteria for active exclusion R3_EXCL_017.",
+          "reason": "The policy exclusion ID R3_EXCL_017 pertains to 'Personal Waiting Period'. Acute Appendicitis requiring an Appendectomy is generally classified as an acute, emergent medical condition, not a elective procedure or pre-existing condition that would typically trigger a waiting period exclusion, provided the condition was not known or sought treatment for prior to policy inception. Since the prompt provides no information regarding the policy start date relative to the onset of the condition, and Appendicitis is a recognized acute medical emergency, it does not inherently fall under the scope of a standard 'Personal Waiting Period' exclusion for elective/non-acute care. Therefore, the exclusion is not actively triggered based on the provided clinical data.",
           "confidence": 0.95,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:38:58.921805Z"
+          "timestamp": "2026-06-03T08:20:06.486817Z"
         },
         {
           "step": 26,
@@ -411,11 +411,11 @@
             "semantic_prompt": "Verify coverage and exclusion terms for Conflict & Disaster (ID: R3_EXCL_018) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
           },
           "evaluation": "PASSED",
-          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_018 pertains to 'Conflict & Disaster'. Acute Appendicitis is a medical emergency, not a condition arising from conflict or disaster. Therefore, the exclusion is not active for this claim. The treatment is medically necessary for an acute condition.",
+          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_018 pertains to 'Conflict & Disaster'. Acute Appendicitis is a medical emergency, not a condition arising from conflict or disaster. Therefore, the exclusion is not active for this claim. The treatment is medically necessary and falls under standard covered surgical procedures.",
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:03.760643Z"
+          "timestamp": "2026-06-03T08:20:11.423006Z"
         },
         {
           "step": 27,
@@ -426,11 +426,11 @@
             "semantic_prompt": "Verify coverage and exclusion terms for External Congenital Anomaly (ID: R3_EXCL_019) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
           },
           "evaluation": "PASSED",
-          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID provided is 'R3_EXCL_019', which is defined as 'External Congenital Anomaly'. Acute Appendicitis is an acute inflammatory condition, not a congenital anomaly. Therefore, the specific exclusion R3_EXCL_019 does not apply to this condition/treatment combination. The treatment is medically necessary for an acute condition.",
+          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion cited is 'External Congenital Anomaly (ID: R3_EXCL_019)'. Acute Appendicitis is an acute inflammatory condition, not a congenital anomaly. Therefore, the specific exclusion R3_EXCL_019 does not apply to this claim. The treatment is medically necessary for an acute condition, and no other active exclusions were presented for review.",
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:09.085029Z"
+          "timestamp": "2026-06-03T08:20:16.888941Z"
         },
         {
           "step": 28,
@@ -441,11 +441,11 @@
             "semantic_prompt": "Verify coverage and exclusion terms for Dental treatment (ID: R3_EXCL_020) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
           },
           "evaluation": "PASSED",
-          "reason": "The claim involves 'Hospitalization for Appendectomy' due to 'Acute Appendicitis'. The policy exclusion ID provided is 'R3_EXCL_020', which is specified as 'Dental treatment'. Since the treatment provided (Appendectomy/Hospitalization) is surgical/medical and not dental, the specific exclusion R3_EXCL_020 does not apply. Therefore, the claim passes the check against this specific exclusion.",
+          "reason": "The claim involves 'Hospitalization for Appendectomy' due to 'Acute Appendicitis'. The policy exclusion ID provided is 'R3_EXCL_020', which pertains to 'Dental treatment'. Since the treatment provided (Appendectomy/Hospitalization) is a surgical/medical necessity unrelated to dental care, the specific dental exclusion (R3_EXCL_020) is not applicable or active. Therefore, the claim does not fall under the scope of the specified exclusion.",
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:14.262189Z"
+          "timestamp": "2026-06-03T08:20:22.582335Z"
         },
         {
           "step": 29,
@@ -456,11 +456,11 @@
             "semantic_prompt": "Verify coverage and exclusion terms for Unreasonable costs and medically unnecessary treatment (ID: R3_EXCL_022) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
           },
           "evaluation": "PASSED",
-          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. Policy exclusion ID R3_EXCL_022 pertains to 'Unreasonable costs and medically unnecessary treatment'. Acute Appendicitis is a recognized, acute medical emergency requiring surgical intervention (Appendectomy). Therefore, the treatment is medically necessary and not considered unreasonable under standard medical guidelines. No evidence suggests the treatment falls under the scope of this exclusion.",
+          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. Policy Exclusion ID R3_EXCL_022 pertains to 'Unreasonable costs and medically unnecessary treatment'. Acute Appendicitis is a recognized, acute medical emergency requiring surgical intervention (Appendectomy). Therefore, the treatment is considered medically necessary and not unreasonable under standard medical guidelines. No evidence suggests the treatment falls under the scope of this exclusion.",
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:19.488185Z"
+          "timestamp": "2026-06-03T08:20:28.235624Z"
         },
         {
           "step": 30,
@@ -471,11 +471,11 @@
             "semantic_prompt": "Verify coverage and exclusion terms for Artificial life maintenance after brain death (ID: R3_EXCL_023) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
           },
           "evaluation": "PASSED",
-          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion cited is 'ID: R3_EXCL_023' which pertains to 'Artificial life maintenance after brain death'. Since the condition (Acute Appendicitis) and treatment (Appendectomy) are unrelated to the exclusion criteria (brain death/life support), the exclusion is not active. The treatment is a standard, covered surgical procedure for an acute medical condition.",
+          "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion cited is ID: R3_EXCL_023, which pertains to 'Artificial life maintenance after brain death'. Since the condition and treatment are related to an acute surgical emergency (Appendicitis/Appendectomy) and do not involve life support following brain death, the exclusion is not applicable. Therefore, the claim passes the exclusion check.",
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.903484Z"
+          "timestamp": "2026-06-03T08:20:33.740493Z"
         },
         {
           "step": 31,
@@ -488,7 +488,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 32,
@@ -501,7 +501,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 33,
@@ -514,7 +514,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 34,
@@ -527,7 +527,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 35,
@@ -540,7 +540,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 36,
@@ -553,7 +553,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 37,
@@ -566,7 +566,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 38,
@@ -579,7 +579,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 39,
@@ -592,7 +592,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 40,
@@ -605,7 +605,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 41,
@@ -618,7 +618,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 42,
@@ -631,7 +631,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 43,
@@ -644,7 +644,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 44,
@@ -657,7 +657,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 45,
@@ -670,7 +670,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 46,
@@ -683,7 +683,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 47,
@@ -696,7 +696,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 48,
@@ -709,7 +709,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 49,
@@ -722,7 +722,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 50,
@@ -735,7 +735,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 51,
@@ -748,7 +748,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 52,
@@ -761,7 +761,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 53,
@@ -774,7 +774,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 54,
@@ -787,7 +787,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 55,
@@ -800,7 +800,7 @@
           "confidence": 1.0,
           "source_section": null,
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.741498Z"
         },
         {
           "step": 56,
@@ -816,7 +816,7 @@
           "confidence": 1.0,
           "source_section": "6.2.4(d)",
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.742066Z"
         },
         {
           "step": 57,
@@ -835,7 +835,7 @@
           "confidence": 1.0,
           "source_section": "4.19",
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.742066Z"
         },
         {
           "step": 58,
@@ -852,7 +852,7 @@
           "confidence": 1.0,
           "source_section": "3",
           "source_page": null,
-          "timestamp": "2026-06-03T07:39:24.911449Z"
+          "timestamp": "2026-06-03T08:20:33.742066Z"
         }
       ],
       "confidence_score": 0.9932692307692308,
@@ -875,7 +875,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:37:49.107207Z"
+      "timestamp": "2026-06-03T08:18:56.257140Z"
     },
     {
       "step": 3,
@@ -892,7 +892,7 @@
       "confidence": 0.95,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:37:49.107207Z"
+      "timestamp": "2026-06-03T08:18:56.257140Z"
     },
     {
       "step": 4,
@@ -909,7 +909,7 @@
       "confidence": 0.95,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:37:49.107207Z"
+      "timestamp": "2026-06-03T08:18:56.257140Z"
     },
     {
       "step": 5,
@@ -926,7 +926,7 @@
       "confidence": 0.95,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:37:49.107207Z"
+      "timestamp": "2026-06-03T08:18:56.257140Z"
     },
     {
       "step": 6,
@@ -943,7 +943,7 @@
       "confidence": 0.95,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:37:49.107207Z"
+      "timestamp": "2026-06-03T08:18:56.257140Z"
     },
     {
       "step": 7,
@@ -960,7 +960,7 @@
       "confidence": 0.95,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:37:49.107207Z"
+      "timestamp": "2026-06-03T08:18:56.257140Z"
     },
     {
       "step": 8,
@@ -977,7 +977,7 @@
       "confidence": 0.95,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:37:49.107207Z"
+      "timestamp": "2026-06-03T08:18:56.257140Z"
     },
     {
       "step": 10,
@@ -992,7 +992,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:37:49.107207Z"
+      "timestamp": "2026-06-03T08:18:56.257140Z"
     },
     {
       "step": 12,
@@ -1007,7 +1007,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:37:49.107207Z"
+      "timestamp": "2026-06-03T08:18:56.257140Z"
     },
     {
       "step": 13,
@@ -1018,11 +1018,11 @@
         "semantic_prompt": "Assess if admission was primarily for diagnostics only:\nAdmission Reason: Hospitalization for Appendectomy\nProcedures Performed: Hospitalization for Appendectomy\nTreatment Given: Hospitalization for A"
       },
       "evaluation": "PASSED",
-      "reason": "The claim indicates 'Hospitalization for Appendectomy' as the primary reason and procedure. An appendectomy is a definitive surgical treatment, not solely a diagnostic test (like MRI, CT, or Endoscopy). Therefore, the exclusion clause ('admission solely for tests... with no treatment') is not met. The treatment (Appendectomy) was performed.",
+      "reason": "The admission reason and procedures performed are listed as 'Hospitalization for Appendectomy' and 'Hospitalization for Appendectomy', respectively. This indicates a definitive surgical treatment (Appendectomy) was performed, not solely diagnostic testing (MRI, CT, Endoscopy, etc.). Therefore, the exclusion criterion ('admission solely for tests... with no treatment') is not met. The treatment was active.",
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:37:53.903742Z"
+      "timestamp": "2026-06-03T08:19:01.572815Z"
     },
     {
       "step": 14,
@@ -1033,11 +1033,11 @@
         "semantic_prompt": "Check if claim involves maternity:\nDiagnosis: Acute Appendicitis\nProcedures: Hospitalization for Appendectomy\nICD Codes: []\n\nEXCLUDE: Childbirth (normal/complicated/caesarean), Miscarriage (except due"
       },
       "evaluation": "PASSED",
-      "reason": "The diagnosis is 'Acute Appendicitis' and the procedure is 'Hospitalization for Appendectomy'. The policy exclusion specifically targets 'Childbirth (normal/complicated/caesarean)', 'Miscarriage', and 'Lawful medical termination'. Appendicitis is a surgical condition unrelated to pregnancy or maternity. Therefore, no maternity exclusion is active.",
+      "reason": "The diagnosis is 'Acute Appendicitis' and the procedure is 'Hospitalization for Appendectomy'. The policy exclusion specifically targets 'Childbirth (normal/complicated/caesarean), Miscarriage (except due to Accident), Lawful medical termination'. Appendicitis is a surgical condition unrelated to pregnancy or maternity. Therefore, no maternity exclusion is active.",
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:37:58.580518Z"
+      "timestamp": "2026-06-03T08:19:06.367087Z"
     },
     {
       "step": 15,
@@ -1048,11 +1048,11 @@
         "semantic_prompt": "Analyze if this treatment is cosmetic/plastic surgery:\nTreatment: Hospitalization for Appendectomy\nDiagnosis: Acute Appendicitis\nDoctor Notes: \n\nEXCLUDE if cosmetic.\nALLOW if: reconstruction after Acc"
       },
       "evaluation": "PASSED",
-      "reason": "The treatment is an Appendectomy for Acute Appendicitis. Appendicitis is a medical condition requiring surgical removal of an inflamed organ to prevent severe health risks (e.g., perforation, sepsis). This falls under the policy allowance for 'medically necessary to remove immediate health risk (certified by physician)'. It does not meet the definition of cosmetic/plastic surgery. Therefore, the cosmetic exclusion is not active.",
+      "reason": "The treatment is an Appendectomy for Acute Appendicitis. Appendicitis is a medical condition causing acute inflammation of the appendix, which constitutes an immediate health risk. The policy allows for coverage if the treatment is 'medically necessary to remove immediate health risk (certified by physician)'. An appendectomy for acute appendicitis meets this criterion and is not classified as cosmetic or plastic surgery. Therefore, the cosmetic exclusion is not active.",
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:38:03.392478Z"
+      "timestamp": "2026-06-03T08:19:11.416599Z"
     },
     {
       "step": 16,
@@ -1063,11 +1063,11 @@
         "semantic_prompt": "Verify coverage and exclusion terms for Rest Cure, rehabilitation and respite care (ID: R3_EXCL_005) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
       },
       "evaluation": "PASSED",
-      "reason": "The claim involves 'Hospitalization for Appendectomy' due to 'Acute Appendicitis'. The policy exclusion ID R3_EXCL_005 pertains to 'Rest Cure, rehabilitation and respite care'. Since the primary treatment documented is a surgical procedure (Appendectomy) requiring hospitalization, this falls under acute medical necessity for an acute condition, not the excluded categories of non-surgical rest/rehab/respite care. Therefore, the exclusion is not active for this procedure.",
+      "reason": "The claim involves 'Hospitalization for Appendectomy' due to 'Acute Appendicitis'. The policy exclusion ID R3_EXCL_005 pertains to 'Rest Cure, rehabilitation and respite care'. Since the primary treatment provided is a surgical procedure (Appendectomy) requiring hospitalization, and not solely 'Rest Cure, rehabilitation, or respite care', the exclusion R3_EXCL_005 is not actively triggered. The condition (Acute Appendicitis) is a recognized acute medical necessity, overriding any general exclusion related to non-acute care types.",
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:38:08.593765Z"
+      "timestamp": "2026-06-03T08:19:17.243728Z"
     },
     {
       "step": 17,
@@ -1078,11 +1078,11 @@
         "semantic_prompt": "Verify coverage and exclusion terms for Obesity/Weight Control (ID: R3_EXCL_006) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
       },
       "evaluation": "PASSED",
-      "reason": "The policy exclusion ID R3_EXCL_006 pertains to 'Obesity/Weight Control'. The claimed condition is 'Acute Appendicitis' and the treatment is 'Hospitalization for Appendectomy'. Acute Appendicitis is an acute, life-threatening surgical emergency, which is a covered medical necessity, distinct from elective weight management or obesity-related procedures. Therefore, the specific exclusion for weight control does not apply to this acute surgical intervention.",
+      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_006 pertains to 'Obesity/Weight Control'. Acute Appendicitis is an acute, life-threatening surgical emergency, which is a distinct medical condition unrelated to elective weight management or obesity treatment. Therefore, the exclusion for Obesity/Weight Control does not apply to this claim. The condition and treatment are medically necessary for acute pathology.",
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:38:13.948741Z"
+      "timestamp": "2026-06-03T08:19:22.687189Z"
     },
     {
       "step": 18,
@@ -1093,11 +1093,11 @@
         "semantic_prompt": "Verify coverage and exclusion terms for Hazardous or Adventure sports (ID: R3_EXCL_008) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
       },
       "evaluation": "PASSED",
-      "reason": "The claim involves 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. Policy Exclusion R3_EXCL_008 specifically targets 'Hazardous or Adventure sports'. Acute Appendicitis is an acute medical condition, not related to participation in hazardous or adventure sports. Therefore, the exclusion is not applicable to this claim. The condition and treatment are standard medical necessities.",
+      "reason": "The claim involves 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. Policy Exclusion ID R3_EXCL_008 specifically covers 'Hazardous or Adventure sports'. Acute Appendicitis is a medical emergency/acute inflammatory condition, not related to participation in hazardous or adventure sports. Therefore, the exclusion is not applicable to this condition/treatment. The condition and treatment fall under standard covered medical necessity.",
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:38:19.055116Z"
+      "timestamp": "2026-06-03T08:19:27.837547Z"
     },
     {
       "step": 19,
@@ -1108,11 +1108,11 @@
         "semantic_prompt": "Verify coverage and exclusion terms for Breach of law (ID: R3_EXCL_009) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
       },
       "evaluation": "PASSED",
-      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_009 is titled 'Breach of law'. Acute Appendicitis is a recognized, acute medical condition requiring emergency surgical intervention, not a condition resulting from or related to a breach of law. Therefore, the exclusion R3_EXCL_009 is not applicable to this medical necessity. The treatment is medically necessary for the diagnosed condition.",
+      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_009 is titled 'Breach of law'. Acute Appendicitis is a recognized, acute medical condition requiring emergency surgical intervention, not a condition resulting from or related to a breach of law. Therefore, the exclusion R3_EXCL_009 is not applicable to this medical necessity. The treatment is medically necessary and falls outside the scope of the specified exclusion.",
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:38:24.584165Z"
+      "timestamp": "2026-06-03T08:19:33.288103Z"
     },
     {
       "step": 20,
@@ -1123,11 +1123,11 @@
         "semantic_prompt": "Verify coverage and exclusion terms for Alcoholism, drug or substance abuse (ID: R3_EXCL_011) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
       },
       "evaluation": "PASSED",
-      "reason": "The claim is for 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_011 pertains to 'Alcoholism, drug or substance abuse'. Since the documented condition (Acute Appendicitis) is a distinct, acute surgical emergency and is not directly related to, or a manifestation of, substance abuse, the exclusion is not active. The condition and treatment fall under standard covered surgical procedures.",
+      "reason": "The claim is for 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_011 pertains to 'Alcoholism, drug or substance abuse'. Since the documented condition (Acute Appendicitis) is a distinct, acute surgical emergency and is not directly related to, or presented as a complication of, substance abuse, the exclusion is not active for this specific treatment. The condition and treatment do not fall under the scope of the specified exclusion.",
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:38:29.787054Z"
+      "timestamp": "2026-06-03T08:19:38.688346Z"
     },
     {
       "step": 21,
@@ -1138,11 +1138,11 @@
         "semantic_prompt": "Verify coverage and exclusion terms for Health hydros, nature cure clinics, spas (ID: R3_EXCL_012) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
       },
       "evaluation": "PASSED",
-      "reason": "The claim involves 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. Policy exclusion ID R3_EXCL_012 specifically targets 'Health hydros, nature cure clinics, spas'. Since the treatment is a standard, acute surgical procedure (Appendectomy) performed in a hospital setting, it does not fall under the scope of the excluded services (alternative/wellness treatments). Therefore, the exclusion is not active.",
+      "reason": "The claim involves 'Acute Appendicitis' requiring 'Hospitalization for Appendectomy'. Policy exclusion ID R3_EXCL_012 specifically targets 'Health hydros, nature cure clinics, spas'. Since the treatment is a standard, acute surgical procedure (Appendectomy) performed in a hospital setting, it does not fall under the scope of the listed exclusions. Therefore, the exclusion is not active.",
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:38:35.618125Z"
+      "timestamp": "2026-06-03T08:19:43.767656Z"
     },
     {
       "step": 22,
@@ -1153,11 +1153,11 @@
         "semantic_prompt": "Verify coverage and exclusion terms for Refractive Error (ID: R3_EXCL_013) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
       },
       "evaluation": "PASSED",
-      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion cited is 'Refractive Error (ID: R3_EXCL_013)'. Refractive Error pertains to vision correction issues (e.g., myopia, hyperopia) and is unrelated to acute abdominal pathology like appendicitis. Therefore, the specific exclusion R3_EXCL_013 is not applicable to this claim. The condition and treatment fall under standard acute surgical necessity, which is generally covered unless other, more specific exclusions apply (which are not provided).",
+      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion cited is 'Refractive Error (ID: R3_EXCL_013)'. Refractive Error pertains to vision conditions (e.g., myopia, hyperopia) and is unrelated to acute abdominal pathology like appendicitis. Therefore, the specific exclusion R3_EXCL_013 is not applicable to this claim. The condition and treatment fall under standard acute medical necessity, thus passing the exclusion check.",
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:38:41.963684Z"
+      "timestamp": "2026-06-03T08:19:49.484376Z"
     },
     {
       "step": 23,
@@ -1168,11 +1168,11 @@
         "semantic_prompt": "Verify coverage and exclusion terms for Unproven Treatments (ID: R3_EXCL_014) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
       },
       "evaluation": "PASSED",
-      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_014 pertains to 'Unproven Treatments'. Acute Appendicitis is a well-established, medically recognized condition requiring standard surgical intervention (Appendectomy). Since the treatment is a standard, evidence-based procedure for a diagnosed acute condition, it does not fall under the definition of an 'Unproven Treatment'. Therefore, the exclusion is not active.",
+      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_014 pertains to 'Unproven Treatments'. Acute Appendicitis is a well-established, medically recognized condition requiring standard surgical intervention (Appendectomy). Since the treatment is a standard, evidence-based procedure for a recognized acute condition, it does not fall under the definition of an 'Unproven Treatment'. Therefore, the exclusion is not active.",
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:38:47.973202Z"
+      "timestamp": "2026-06-03T08:19:54.957941Z"
     },
     {
       "step": 24,
@@ -1183,11 +1183,11 @@
         "semantic_prompt": "Verify coverage and exclusion terms for Sterility and Infertility (ID: R3_EXCL_015) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
       },
       "evaluation": "PASSED",
-      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_015 pertains to 'Sterility and Infertility'. Since the condition (Acute Appendicitis) and treatment (Appendectomy) are unrelated to reproductive health, fertility, or sterility, the exclusion R3_EXCL_015 is not active. Therefore, the claim passes the exclusion check.",
+      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_015 pertains to 'Sterility and Infertility'. Since the condition (Acute Appendicitis) and treatment (Appendectomy) are unrelated to reproductive health, fertility, or sterility, the exclusion is not active. The treatment is medically necessary for an acute surgical condition.",
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:38:53.295205Z"
+      "timestamp": "2026-06-03T08:20:00.077420Z"
     },
     {
       "step": 25,
@@ -1198,11 +1198,11 @@
         "semantic_prompt": "Verify coverage and exclusion terms for Personal Waiting Period (ID: R3_EXCL_017) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
       },
       "evaluation": "PASSED",
-      "reason": "The policy exclusion ID R3_EXCL_017 pertains to 'Personal Waiting Period'. Acute Appendicitis requiring an Appendectomy is generally classified as an acute, emergent medical condition, not a elective procedure or pre-existing condition that would typically trigger a waiting period exclusion. Since no specific details indicate the condition was sought for elective reasons or that the waiting period has not elapsed, the treatment is considered covered under standard acute care provisions, thus not meeting the criteria for active exclusion R3_EXCL_017.",
+      "reason": "The policy exclusion ID R3_EXCL_017 pertains to 'Personal Waiting Period'. Acute Appendicitis requiring an Appendectomy is generally classified as an acute, emergent medical condition, not a elective procedure or pre-existing condition that would typically trigger a waiting period exclusion, provided the condition was not known or sought treatment for prior to policy inception. Since the prompt provides no information regarding the policy start date relative to the onset of the condition, and Appendicitis is a recognized acute medical emergency, it does not inherently fall under the scope of a standard 'Personal Waiting Period' exclusion for elective/non-acute care. Therefore, the exclusion is not actively triggered based on the provided clinical data.",
       "confidence": 0.95,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:38:58.921805Z"
+      "timestamp": "2026-06-03T08:20:06.486817Z"
     },
     {
       "step": 26,
@@ -1213,11 +1213,11 @@
         "semantic_prompt": "Verify coverage and exclusion terms for Conflict & Disaster (ID: R3_EXCL_018) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
       },
       "evaluation": "PASSED",
-      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_018 pertains to 'Conflict & Disaster'. Acute Appendicitis is a medical emergency, not a condition arising from conflict or disaster. Therefore, the exclusion is not active for this claim. The treatment is medically necessary for an acute condition.",
+      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID R3_EXCL_018 pertains to 'Conflict & Disaster'. Acute Appendicitis is a medical emergency, not a condition arising from conflict or disaster. Therefore, the exclusion is not active for this claim. The treatment is medically necessary and falls under standard covered surgical procedures.",
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:03.760643Z"
+      "timestamp": "2026-06-03T08:20:11.423006Z"
     },
     {
       "step": 27,
@@ -1228,11 +1228,11 @@
         "semantic_prompt": "Verify coverage and exclusion terms for External Congenital Anomaly (ID: R3_EXCL_019) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
       },
       "evaluation": "PASSED",
-      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion ID provided is 'R3_EXCL_019', which is defined as 'External Congenital Anomaly'. Acute Appendicitis is an acute inflammatory condition, not a congenital anomaly. Therefore, the specific exclusion R3_EXCL_019 does not apply to this condition/treatment combination. The treatment is medically necessary for an acute condition.",
+      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion cited is 'External Congenital Anomaly (ID: R3_EXCL_019)'. Acute Appendicitis is an acute inflammatory condition, not a congenital anomaly. Therefore, the specific exclusion R3_EXCL_019 does not apply to this claim. The treatment is medically necessary for an acute condition, and no other active exclusions were presented for review.",
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:09.085029Z"
+      "timestamp": "2026-06-03T08:20:16.888941Z"
     },
     {
       "step": 28,
@@ -1243,11 +1243,11 @@
         "semantic_prompt": "Verify coverage and exclusion terms for Dental treatment (ID: R3_EXCL_020) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
       },
       "evaluation": "PASSED",
-      "reason": "The claim involves 'Hospitalization for Appendectomy' due to 'Acute Appendicitis'. The policy exclusion ID provided is 'R3_EXCL_020', which is specified as 'Dental treatment'. Since the treatment provided (Appendectomy/Hospitalization) is surgical/medical and not dental, the specific exclusion R3_EXCL_020 does not apply. Therefore, the claim passes the check against this specific exclusion.",
+      "reason": "The claim involves 'Hospitalization for Appendectomy' due to 'Acute Appendicitis'. The policy exclusion ID provided is 'R3_EXCL_020', which pertains to 'Dental treatment'. Since the treatment provided (Appendectomy/Hospitalization) is a surgical/medical necessity unrelated to dental care, the specific dental exclusion (R3_EXCL_020) is not applicable or active. Therefore, the claim does not fall under the scope of the specified exclusion.",
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:14.262189Z"
+      "timestamp": "2026-06-03T08:20:22.582335Z"
     },
     {
       "step": 29,
@@ -1258,11 +1258,11 @@
         "semantic_prompt": "Verify coverage and exclusion terms for Unreasonable costs and medically unnecessary treatment (ID: R3_EXCL_022) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
       },
       "evaluation": "PASSED",
-      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. Policy exclusion ID R3_EXCL_022 pertains to 'Unreasonable costs and medically unnecessary treatment'. Acute Appendicitis is a recognized, acute medical emergency requiring surgical intervention (Appendectomy). Therefore, the treatment is medically necessary and not considered unreasonable under standard medical guidelines. No evidence suggests the treatment falls under the scope of this exclusion.",
+      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. Policy Exclusion ID R3_EXCL_022 pertains to 'Unreasonable costs and medically unnecessary treatment'. Acute Appendicitis is a recognized, acute medical emergency requiring surgical intervention (Appendectomy). Therefore, the treatment is considered medically necessary and not unreasonable under standard medical guidelines. No evidence suggests the treatment falls under the scope of this exclusion.",
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:19.488185Z"
+      "timestamp": "2026-06-03T08:20:28.235624Z"
     },
     {
       "step": 30,
@@ -1273,11 +1273,11 @@
         "semantic_prompt": "Verify coverage and exclusion terms for Artificial life maintenance after brain death (ID: R3_EXCL_023) given condition 'Acute Appendicitis' and treatment 'Hospitalization for Appendectomy'."
       },
       "evaluation": "PASSED",
-      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion cited is 'ID: R3_EXCL_023' which pertains to 'Artificial life maintenance after brain death'. Since the condition (Acute Appendicitis) and treatment (Appendectomy) are unrelated to the exclusion criteria (brain death/life support), the exclusion is not active. The treatment is a standard, covered surgical procedure for an acute medical condition.",
+      "reason": "The claim involves 'Acute Appendicitis' treated with 'Hospitalization for Appendectomy'. The policy exclusion cited is ID: R3_EXCL_023, which pertains to 'Artificial life maintenance after brain death'. Since the condition and treatment are related to an acute surgical emergency (Appendicitis/Appendectomy) and do not involve life support following brain death, the exclusion is not applicable. Therefore, the claim passes the exclusion check.",
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.903484Z"
+      "timestamp": "2026-06-03T08:20:33.740493Z"
     },
     {
       "step": 31,
@@ -1290,7 +1290,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 32,
@@ -1303,7 +1303,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 33,
@@ -1316,7 +1316,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 34,
@@ -1329,7 +1329,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 35,
@@ -1342,7 +1342,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 36,
@@ -1355,7 +1355,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 37,
@@ -1368,7 +1368,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 38,
@@ -1381,7 +1381,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 39,
@@ -1394,7 +1394,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 40,
@@ -1407,7 +1407,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 41,
@@ -1420,7 +1420,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 42,
@@ -1433,7 +1433,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 43,
@@ -1446,7 +1446,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 44,
@@ -1459,7 +1459,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 45,
@@ -1472,7 +1472,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 46,
@@ -1485,7 +1485,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 47,
@@ -1498,7 +1498,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 48,
@@ -1511,7 +1511,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 49,
@@ -1524,7 +1524,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 50,
@@ -1537,7 +1537,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 51,
@@ -1550,7 +1550,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 52,
@@ -1563,7 +1563,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 53,
@@ -1576,7 +1576,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 54,
@@ -1589,7 +1589,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 55,
@@ -1602,7 +1602,7 @@
       "confidence": 1.0,
       "source_section": null,
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.741498Z"
     },
     {
       "step": 56,
@@ -1618,7 +1618,7 @@
       "confidence": 1.0,
       "source_section": "6.2.4(d)",
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.742066Z"
     },
     {
       "step": 57,
@@ -1637,7 +1637,7 @@
       "confidence": 1.0,
       "source_section": "4.19",
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.742066Z"
     },
     {
       "step": 58,
@@ -1654,13 +1654,13 @@
       "confidence": 1.0,
       "source_section": "3",
       "source_page": null,
-      "timestamp": "2026-06-03T07:39:24.911449Z"
+      "timestamp": "2026-06-03T08:20:33.742066Z"
     }
   ],
   "confidence_score": 0.9932692307692308,
   "manual_review_required": false,
   "review_reasons": [],
   "pas_submission_payload": {},
-  "decision_timestamp": "2026-06-03T07:39:24.911449Z",
-  "processing_duration_ms": 95805.23991584778
+  "decision_timestamp": "2026-06-03T08:20:33.742066Z",
+  "processing_duration_ms": 97485.92376708984
 }

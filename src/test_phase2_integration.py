@@ -283,6 +283,31 @@ def create_test_context() -> ClaimContext:
     )
 
 
+def test_async_adjudication():
+    """Test 8: Asynchronous claim adjudication"""
+    print("\n" + "="*70)
+    print("TEST 8: Asynchronous Adjudication")
+    print("="*70)
+    
+    import asyncio
+    from pipeline import ClaimsAdjudicationPipeline
+    
+    context = create_test_context()
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    
+    decision = asyncio.run(pipeline.adjudicate_claim_async(context))
+    
+    assert decision.claim_decision in ["APPROVED", "PARTIALLY_APPROVED", "REJECTED", "PENDING_REVIEW"]
+    assert decision.total_claimed == 150000.0
+    assert len(decision.line_items) == 1
+    assert decision.confidence_score > 0.0
+    
+    print(f"  Overall Decision: {decision.claim_decision}")
+    print(f"  Total Payable: INR {decision.total_payable:,.2f}")
+    print("[PASS] PASSED: Asynchronous adjudication matches schema and succeeds")
+    return True
+
+
 def run_all_tests():
     """Run all Phase 2 integration tests"""
     print("\n" + "="*70)
@@ -296,7 +321,8 @@ def run_all_tests():
         test_semantic_agent_exclusions,
         test_semantic_agent_coverage,
         test_confidence_based_routing,
-        test_execution_plan_generation
+        test_execution_plan_generation,
+        test_async_adjudication
     ]
     
     passed = 0

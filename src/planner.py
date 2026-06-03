@@ -92,6 +92,18 @@ class DAGBuilder:
         Perform lexicographical topological sort using a Priority Queue (Kahn's algorithm).
         Returns rules strictly in gate and priority sequence.
         """
+        # Rebuild clean adjacency list and in-degree maps to ignore outside dependencies
+        self.adjacency_list = defaultdict(list)
+        self.in_degree = {rule_id: 0 for rule_id in self.nodes}
+        
+        for rule_id, rule in self.nodes.items():
+            for dep_id in rule.depends_on:
+                if dep_id in self.nodes:
+                    self.adjacency_list[dep_id].append(rule_id)
+                    self.in_degree[rule_id] += 1
+                else:
+                    print(f"Warning: Ignored dependency {dep_id} of rule {rule_id} as it is not in the active rules set.")
+
         heap = []
         for rule_id, degree in self.in_degree.items():
             if degree == 0:
@@ -115,7 +127,7 @@ class DAGBuilder:
         # Check for cycles
         if len(sorted_rules) < len(self.nodes):
             # Cycle detected - fallback to priority sort
-            print("⚠ Warning: Cycle detected in rule dependencies. Falling back to priority sort.")
+            print("Warning: Cycle detected in rule dependencies. Falling back to priority sort.")
             return sorted(self.nodes.values(), key=lambda r: self.get_rule_priority_tuple(r.rule_id))
         
         return sorted_rules

@@ -6,6 +6,7 @@ Dynamic Graph-based Execution with AI Planner and Semantic Agent
 from typing import List, Tuple, Optional, Any
 from datetime import datetime, timezone, date
 import time
+import asyncio
 
 from schemas import (
     ClaimContext, ClaimDecision, LineItemDecision, DeductionDetail,
@@ -597,18 +598,18 @@ class ClaimsAdjudicationPipeline:
         continuous_months = context.history.claim_free_years * 12
         
         # Coerce inputs safely
-        p_inc = self._coerce_to_date(context.policy.policy_start_date)
-        c_adm = self._coerce_to_date(line_item.expense_date)
+        policy_start = self._coerce_to_date(context.policy.policy_start_date)
+        admission_date = self._coerce_to_date(line_item.admission_date or line_item.expense_date)
         
         # Call Tool 1
         result = calculate_waiting_period(
             condition=line_item.condition_diagnosed,
-            policy_inception_date=p_inc,
+            policy_inception_date=policy_start,
             continuous_coverage_months=continuous_months,
             portability_credit_months=context.porting.waiting_period_credit_months,
             accident_flag=line_item.accident_related,
             cancer_flag="cancer" in line_item.condition_diagnosed.lower(),
-            claim_date=c_adm,
+            claim_date=admission_date,
             ped_declarations=context.member.ped_declarations
         )
         
@@ -786,18 +787,18 @@ class ClaimsAdjudicationPipeline:
         self.current_step += 1
         
         # Coerce inputs safely
-        p_inc = self._coerce_to_date(context.policy.policy_start_date)
-        c_adm = self._coerce_to_date(line_item.expense_date)
+        policy_start = self._coerce_to_date(context.policy.policy_start_date)
+        admission_date = self._coerce_to_date(line_item.admission_date or line_item.expense_date)
         
         # Call Tool 1
         result = calculate_waiting_period(
             condition=line_item.condition_diagnosed,
-            policy_inception_date=p_inc,
+            policy_inception_date=policy_start,
             continuous_coverage_months=context.history.claim_free_years * 12,
             portability_credit_months=context.porting.waiting_period_credit_months,
             accident_flag=line_item.accident_related,
             cancer_flag="cancer" in line_item.condition_diagnosed.lower(),
-            claim_date=c_adm,
+            claim_date=admission_date,
             ped_declarations=context.member.ped_declarations
         )
         
@@ -1275,3 +1276,290 @@ class ClaimsAdjudicationPipeline:
             manual_review_required=state.overall_confidence < self.confidence_threshold,
             processing_duration_ms=processing_duration
         )
+
+    async def adjudicate_claim_async(self, context: ClaimContext) -> ClaimDecision:
+        """
+        Asynchronous entry point: Execute dynamic graph-based adjudication pipeline in parallel
+        
+        Uses depth-layer grouping to execute independent rules concurrently.
+        """
+        start_time = time.time()
+        self.decision_traces = []
+        self.current_step = 0
+
+        # Initialize per-claim state
+        state = PerClaimState(claim_id=context.claim_id)
+
+        # Validate mutual exclusivity constraints before processing
+        mx_violation = self._validate_mutual_exclusivity(context)
+        if mx_violation:
+            constraint_id, reason = mx_violation
+            self.manual_review_count += 1
+
+            # Log trace for mutual exclusivity violation
+            mx_trace = DecisionTrace(
+                step=0,
+                rule_id=constraint_id,
+                rule_name="Mutual Exclusivity Validation",
+                gate="policy_validation",
+                inputs={
+                    "co_payment_percent": context.policy.co_payment_percent,
+                    "annual_aggregate_deductible": context.policy.annual_aggregate_deductible,
+                    "borderless_opted": context.policy.borderless_opted,
+                    "borderless_specific_illness_opted": context.policy.borderless_specific_illness_opted,
+                    "tiered_network_opted": context.policy.tiered_network_opted,
+                    "heads_up_opted": context.policy.heads_up_opted,
+                },
+                evaluation="PENDING_REVIEW",
+                reason=reason,
+                confidence=1.0,
+                source_section="Extraction JSON: mutual_exclusivity_constraints",
+            )
+            self.decision_traces.append(mx_trace)
+
+            # Return claim with PENDING_REVIEW status
+            return self._create_claim_review_decision(
+                context, constraint_id, reason, [mx_trace]
+            )
+
+        # Process each line item through dynamic execution plan concurrently
+        line_item_decisions: List[LineItemDecision] = []
+        tasks = []
+        for line_item in context.line_items:
+            # Create execution plan using AI Planner
+            execution_plan = self.planner.create_execution_plan(context, line_item)
+            self.plans_created += 1
+            
+            # Execute the plan asynchronously
+            tasks.append(self._execute_plan_async(execution_plan, line_item, context, state))
+            
+        line_item_decisions = list(await asyncio.gather(*tasks))
+        
+        for decision in line_item_decisions:
+            if hasattr(decision, "decision_trace") and decision.decision_trace:
+                self.decision_traces.extend(decision.decision_trace)
+        
+        # Compose final claim-level decision
+        claim_decision = self._compose_claim_decision(
+            context, line_item_decisions, state, start_time
+        )
+        
+        return claim_decision
+
+    async def _execute_plan_async(
+        self,
+        plan: ExecutionPlan,
+        line_item,
+        context: ClaimContext,
+        state: PerClaimState
+    ) -> LineItemDecision:
+        """
+        Execute the dynamically generated execution plan asynchronously.
+        Groups execution steps by DAG depth layer to execute independent steps concurrently.
+        """
+        item_traces: List[DecisionTrace] = []
+        item_deductions: List[DeductionDetail] = []
+        
+        claimed_amount = line_item.claimed_amount
+        admissible_amount = claimed_amount
+        payable_amount = claimed_amount
+        
+        # Track confidence
+        step_confidences = []
+        
+        # Step 1: Compute execution depth for each step in the plan
+        step_by_id = {step.rule_id: step for step in plan.execution_steps}
+        step_depths = {}
+        
+        def get_step_depth(rule_id: str) -> int:
+            if rule_id in step_depths:
+                return step_depths[rule_id]
+            
+            step = step_by_id.get(rule_id)
+            if not step or not step.depends_on:
+                step_depths[rule_id] = 0
+                return 0
+            
+            # Find dependencies that are actually present in the current plan
+            plan_deps = [dep for dep in step.depends_on if dep in step_by_id]
+            if not plan_deps:
+                step_depths[rule_id] = 0
+                return 0
+                
+            dep_depth = 1 + max(get_step_depth(dep) for dep in plan_deps)
+            step_depths[rule_id] = dep_depth
+            return dep_depth
+            
+        for step in plan.execution_steps:
+            get_step_depth(step.rule_id)
+            
+        # Step 2: Group steps by depth layers
+        from collections import defaultdict
+        layers = defaultdict(list)
+        for step in plan.execution_steps:
+            depth = step_depths[step.rule_id]
+            layers[depth].append(step)
+            
+        sorted_depths = sorted(layers.keys())
+        
+        # Step 3: Execute layer by layer
+        for depth in sorted_depths:
+            layer_steps = layers[depth]
+            
+            # Execute all steps in the current layer concurrently
+            tasks = []
+            for step in layer_steps:
+                tasks.append(self._execute_step_async(step, line_item, context, state))
+                
+            results = await asyncio.gather(*tasks)
+            
+            # Process results for this layer
+            for passed, trace, deduction in results:
+                item_traces.append(trace)
+                step_confidences.append(trace.confidence)
+                
+                if deduction:
+                    item_deductions.append(deduction)
+                    admissible_amount -= deduction.amount
+                    payable_amount -= deduction.amount
+                
+                # Check if step failed (rejection)
+                if not passed:
+                    if trace.confidence < self.confidence_threshold:
+                        self.manual_review_count += 1
+                        return self._create_review_decision(
+                            line_item, f"Low confidence: {trace.reason}", item_traces
+                        )
+                    else:
+                        return self._create_rejected_decision(
+                            line_item, trace.reason, item_traces
+                        )
+        
+        # Calculate final payable through financial gates
+        if payable_amount > 0:
+            # Enforce Mutual Exclusivity Constraints before running financials
+            mx_violation = self._validate_mutual_exclusivity(context)
+            if mx_violation:
+                constraint_id, reason = mx_violation
+                self.manual_review_count += 1
+                
+                mx_trace = DecisionTrace(
+                    step=self.current_step + 1,
+                    rule_id=constraint_id,
+                    rule_name="Mutual Exclusivity Validation",
+                    gate="financial_computation",
+                    inputs={
+                        "co_payment_percent": context.policy.co_payment_percent,
+                        "annual_aggregate_deductible": context.policy.annual_aggregate_deductible,
+                    },
+                    evaluation="FAILED",
+                    reason=reason,
+                    confidence=0.0,
+                    source_section="mutual_exclusivity_constraints"
+                )
+                item_traces.append(mx_trace)
+                
+                return LineItemDecision(
+                    line_item_id=line_item.line_item_id,
+                    description=line_item.description,
+                    claimed_amount=claimed_amount,
+                    admissible_amount=0.0,
+                    payable_amount=0.0,
+                    decision="PENDING_REVIEW",
+                    deductions=[],
+                    decision_trace=item_traces,
+                    confidence_score=0.0,
+                    manual_review_required=True,
+                    review_reason=f"Mutual Exclusivity Constraint {constraint_id}: {reason}"
+                )
+
+            final_admissible, final_payable, fin_deductions, fin_traces = \
+                self._execute_financial_gates(context, line_item, payable_amount, state)
+            
+            item_traces.extend(fin_traces)
+            item_deductions.extend(fin_deductions)
+            payable_amount = final_payable
+            admissible_amount = final_admissible
+        
+        # Calculate overall confidence
+        overall_confidence = sum(step_confidences) / len(step_confidences) if step_confidences else 1.0
+        state.overall_confidence = overall_confidence
+        
+        # Check if manual review required
+        requires_review = overall_confidence < self.confidence_threshold
+        
+        # Determine decision status
+        if requires_review:
+            decision_status = "PENDING_REVIEW"
+        elif payable_amount == 0:
+            decision_status = "REJECTED"
+        elif payable_amount < claimed_amount:
+            decision_status = "PARTIALLY_APPROVED"
+        else:
+            decision_status = "APPROVED"
+        
+        return LineItemDecision(
+            line_item_id=line_item.line_item_id,
+            description=line_item.description,
+            claimed_amount=claimed_amount,
+            admissible_amount=admissible_amount,
+            payable_amount=payable_amount,
+            decision=decision_status,
+            deductions=item_deductions,
+            decision_trace=item_traces,
+            confidence_score=overall_confidence,
+            manual_review_required=requires_review,
+            review_reason="Low confidence score" if requires_review else None
+        )
+
+    async def _execute_step_async(
+        self,
+        step: ExecutionStep,
+        line_item,
+        context: ClaimContext,
+        state: PerClaimState
+    ) -> Tuple[bool, DecisionTrace, Optional[DeductionDetail]]:
+        """Route step execution to sync or async/thread-pool executor based on type"""
+        self.current_step += 1
+        
+        if step.execution_type == ExecutionType.DETERMINISTIC.value:
+            # Deterministic steps are pure calculations (no network), run synchronously
+            return self._execute_deterministic_step(step, line_item, context, state)
+            
+        elif step.execution_type == ExecutionType.SEMANTIC.value:
+            # Semantic steps call LLM (network blocking), run in separate thread
+            result = await asyncio.to_thread(
+                self._execute_semantic_step, step, line_item, context, state
+            )
+            self.semantic_calls += 1
+            return result
+            
+        elif step.execution_type == ExecutionType.HYBRID.value:
+            # Hybrid steps are deterministic but fallback to semantic (LLM) if low confidence
+            return await self._execute_hybrid_step_async(step, line_item, context, state)
+            
+        else:
+            return self._execute_deterministic_step(step, line_item, context, state)
+
+    async def _execute_hybrid_step_async(
+        self,
+        step: ExecutionStep,
+        line_item,
+        context: ClaimContext,
+        state: PerClaimState
+    ) -> Tuple[bool, DecisionTrace, Optional[DeductionDetail]]:
+        """Execute hybrid step, calling semantic LLM in thread pool if deterministic confidence is low"""
+        det_passed, det_trace, det_deduction = self._execute_deterministic_step(
+            step, line_item, context, state
+        )
+        
+        if det_trace.confidence < 0.95:
+            sem_passed, sem_trace, _ = await asyncio.to_thread(
+                self._execute_semantic_step, step, line_item, context, state
+            )
+            self.semantic_calls += 1
+            
+            if sem_trace.confidence > det_trace.confidence:
+                return sem_passed, sem_trace, det_deduction
+                
+        return det_passed, det_trace, det_deduction
