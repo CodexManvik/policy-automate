@@ -1,7 +1,16 @@
+
 """
 Phase 2 Integration Tests
 Validates end-to-end functionality of graph-based execution
 """
+
+import sys
+# Ensure consistent Unicode output on Windows terminals (avoid CP1252 crashes)
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except Exception:
+    pass
+
 
 from datetime import datetime, timedelta, timezone
 from schemas import *

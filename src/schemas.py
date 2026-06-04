@@ -223,8 +223,9 @@ class DecisionTrace(BaseModel):
     ]
     inputs: Dict[str, Any]
     evaluation: Literal[
-        "PASSED", "FAILED", "NOT_APPLICABLE", 
-        "EXCLUSION_ACTIVE", "DEDUCTION_APPLIED"
+        "PASSED", "FAILED", "NOT_APPLICABLE",
+        "EXCLUSION_ACTIVE", "DEDUCTION_APPLIED",
+        "PENDING_REVIEW", "ASSISTED_REVIEW"    # Issue 23: these are emitted by pipeline routing
     ]
     reason: str
     confidence: float = 1.0
@@ -241,7 +242,7 @@ class LineItemDecision(BaseModel):
     admissible_amount: float
     payable_amount: float
     
-    decision: Literal["APPROVED", "PARTIALLY_APPROVED", "REJECTED", "PENDING_REVIEW"]
+    decision: Literal["APPROVED", "PARTIALLY_APPROVED", "REJECTED", "ASSISTED_REVIEW", "PENDING_REVIEW"]
     
     deductions: List[DeductionDetail] = Field(default_factory=list)
     decision_trace: List[DecisionTrace] = Field(default_factory=list)
@@ -282,7 +283,7 @@ class ClaimDecision(BaseModel):
     Produced by Decision Composer after all gates execute
     """
     claim_id: str
-    claim_decision: Literal["APPROVED", "PARTIALLY_APPROVED", "REJECTED", "PENDING_REVIEW"]
+    claim_decision: Literal["APPROVED", "PARTIALLY_APPROVED", "REJECTED", "ASSISTED_REVIEW", "PENDING_REVIEW"]
     
     # Financial summary
     total_claimed: float

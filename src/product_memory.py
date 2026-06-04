@@ -7,8 +7,15 @@ Provides structured metadata for AI Planner
 from typing import List, Dict, Any, Optional, Set, Tuple
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 import json
 import re
+
+# Resolve docs directory relative to this source file so the module works
+# regardless of the working directory from which Python is invoked.
+_MODULE_DIR = Path(__file__).parent          # …/src/
+_DOCS_DIR   = _MODULE_DIR.parent / "docs"   # …/project_root/docs/
+_DEFAULT_EXTRACTION_FILE = _DOCS_DIR / "Product and Policy Rules Extraction.txt"
 
 
 class RuleGate(str, Enum):
@@ -109,13 +116,17 @@ class ProductMemoryStore:
         loaded = False
         
         # Determine path to rules extraction file
+        # Determine path to rules extraction file — primary is __file__-relative
+        # (portable across any working directory); CWD-relative paths are kept as
+        # secondary fallbacks for backward compatibility.
         if product_json_path:
             paths_to_try = [product_json_path]
         else:
             paths_to_try = [
-                "docs/Product and Policy Rules Extraction.txt",
-                "../docs/Product and Policy Rules Extraction.txt",
-                "C:\\Project\\nivabupa\\policy automate\\docs\\Product and Policy Rules Extraction.txt"
+                str(_DEFAULT_EXTRACTION_FILE),                                       # portable (primary)
+                "docs/Product and Policy Rules Extraction.txt",                      # CWD-relative (legacy)
+                "../docs/Product and Policy Rules Extraction.txt",                   # one level up (legacy)
+                "C:\\Project\\nivabupa\\policy automate\\docs\\Product and Policy Rules Extraction.txt"  # absolute (last resort)
             ]
             
         for path in paths_to_try:
@@ -504,12 +515,49 @@ Return: {"is_maternity": bool, "is_ectopic": bool, "reason": str, "confidence": 
             rule.depends_on = [x for x in depends if x != rule_id and not (x in seen or seen.add(x))]
 
 
-# Singleton instance
-_product_memory_instance = None
+# ============================================================================
+# PRODUCT MEMORY CACHE — version-aware (Issue 21)
+# ============================================================================
 
-def get_product_memory() -> ProductMemoryStore:
-    """Get singleton instance of Product Memory Store"""
-    global _product_memory_instance
-    if _product_memory_instance is None:
-        _product_memory_instance = ProductMemoryStore()
-    return _product_memory_instance
+# Maps product_json_version string → ProductMemoryStore instance.
+# Each distinct version that appears in ClaimContext gets its own store.
+# Currently all versions resolve to the same extraction file; this dict is
+# the extensibility hook for when version-specific files are introduced.
+_product_memory_cache: Dict[str, ProductMemoryStore] = {}
+
+# Default version string used by the singleton path.
+_DEFAULT_VERSION = "R3_v1.0"
+
+def _version_to_path(version: str) -> Optional[str]:
+    """
+    Map a product_json_version string to the extraction file path.
+
+    Convention: place versioned files as
+        docs/Product and Policy Rules Extraction_<version>.txt
+    If no version-specific file is found, fall back to the canonical file
+    (all current R3 versions share the same rule text).
+    """
+    versioned = _DOCS_DIR / f"Product and Policy Rules Extraction_{version}.txt"
+    if versioned.exists():
+        return str(versioned)
+    # Fall back to the single canonical extraction file
+    return None   # ProductMemoryStore.__init__ will use its own fallback list
+
+
+def get_product_memory(version: str = _DEFAULT_VERSION) -> "ProductMemoryStore":
+    """
+    Return a ProductMemoryStore for the requested product JSON version.
+
+    Caches one instance per version string so re-parsing is avoided.
+    Pass version="" or omit the argument to get the default store.
+    """
+    if not version:
+        version = _DEFAULT_VERSION
+
+    if version not in _product_memory_cache:
+        product_json_path = _version_to_path(version)
+        _product_memory_cache[version] = ProductMemoryStore(
+            product_json_path=product_json_path
+        )
+
+    return _product_memory_cache[version]

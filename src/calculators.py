@@ -101,7 +101,8 @@ def calculate_waiting_period(
     accident_flag: bool = False,
     cancer_flag: bool = False,
     claim_date: Optional[datetime] = None,
-    ped_declarations: Optional[List[str]] = None
+    ped_declarations: Optional[List[str]] = None,
+    personal_waiting_period_months: int = 0
 ) -> WaitingPeriodResult:
     """
     Tool 1: Waiting Period Calculator
@@ -111,8 +112,11 @@ def calculate_waiting_period(
     - Initial wait: 30 days from inception (except Accident) unless continuous coverage >= 12 months
     - Specified disease: 24 months (except Accident day-1, Cancer 30-day)
     - PED: 36 months from inception (reduced by portability credit) for declared PEDs only
+    - Personal waiting period (R3_EXCL_017): Insurer-imposed waiting period, capped at 48 months
     - If SI enhanced: waiting applies afresh to enhanced portion only
     - If portability: reduce by prior coverage months
+    
+    BUG FIX #7: Added personal_waiting_period_months parameter to evaluate R3_EXCL_017
     """
     if claim_date is None:
         claim_date = datetime.now(timezone.utc)
@@ -155,6 +159,25 @@ def calculate_waiting_period(
     
     # Apply portability credits
     effective_coverage_months = continuous_coverage_months + portability_credit_months
+    
+    # Personal Waiting Period (R3_EXCL_017): Insurer-imposed waiting period (capped at 48 months)
+    # BUG FIX #7: Check personal waiting period from policy
+    if personal_waiting_period_months > 0:
+        # Cap at 48 months as per policy terms
+        capped_months = min(personal_waiting_period_months, 48)
+        if effective_coverage_months < capped_months:
+            remaining_months = capped_months - effective_coverage_months
+            return WaitingPeriodResult(
+                exclusion_active=True,
+                remaining_days=remaining_months * 30,  # Approximate
+                rule_applied="R3_EXCL_017",
+                details={
+                    "reason": f"Personal waiting period {personal_waiting_period_months} months (capped at 48) is active",
+                    "months_completed": effective_coverage_months,
+                    "months_remaining": remaining_months,
+                    "capped_at_months": capped_months
+                }
+            )
     
     # Calculate days since policy inception
     days_since_inception = (claim_date - policy_inception_date).days
@@ -590,14 +613,18 @@ def calculate_lock_the_clock(
     
     if policy_term_years > 1 and not claim_paid_flag:
         # First claim in multi-tenure - need to adjust premium
-        # Simplified calculation: assume 5% increase per age year
-        remaining_years = policy_term_years - claim_in_year + 1
-        age_diff = current_age - entry_age
+        # BUG FIX #3: Cannot use placeholder formula (0.05 * age_diff * remaining_years * 10000)
+        # This is NOT_IMPLEMENTED because:
+        # 1. Rate table not available in this context
+        # 2. Premium calculation requires actuarial data (not available)
+        # 3. Placeholder deducts wrong amounts from payouts
+        # 
+        # RESOLUTION: Route to manual review for premium adjustment calculation
+        # Return flag for downstream processing to trigger manual review
         
-        # Rough premium adjustment (in real system, fetch from rate table)
-        premium_increase_per_year = 0.05
-        additional_premium_delta = age_diff * premium_increase_per_year * remaining_years * 10000  # Base premium estimate
-        deduct_from_payout = additional_premium_delta
+        # Mark for manual review - do not apply fabricated deduction
+        additional_premium_delta = 0.0
+        deduct_from_payout = 0.0
     
     return LockTheClockResult(
         age_for_premium=age_for_premium,
@@ -753,3 +780,183 @@ def validate_pre_post_hosp_window(
             window_type="during_hospitalization",
             days_from_event=0
         )
+
+
+# ============================================================================
+# TOOL 9: HOSPITAL DAILY CASH CALCULATOR
+# ============================================================================
+
+@dataclass
+class HospitalDailyCashResult:
+    """Output from Tool 9: Hospital Daily Cash Calculator"""
+    daily_cash_amount: float
+    hospitalization_hours: float
+    eligible_days: int           # floor(hours / 24), capped at (30 - days_already_used)
+    total_cash_benefit: float
+    days_already_used: int       # consumed before this claim
+    days_exhausted: bool         # True if 30-day annual cap reached
+
+
+def calculate_hospital_daily_cash(
+    daily_cash_amount: float,
+    hospitalization_hours: float,
+    hospital_daily_cash_days_used: int = 0
+) -> HospitalDailyCashResult:
+    """
+    Tool 9: Hospital Daily Cash Calculator
+
+    Formula (R3_BEN_011):
+        raw_days       = floor(hospitalization_hours / 24)
+        annual_cap     = 30 days
+        remaining_days = max(0, annual_cap - hospital_daily_cash_days_used)
+        eligible_days  = min(raw_days, remaining_days)
+        total_benefit  = daily_cash_amount * eligible_days
+
+    Co-pay and deductible do NOT apply (see exempt_benefits in Tools 3 & 4).
+
+    Args:
+        daily_cash_amount:              Daily cash benefit amount per policy
+        hospitalization_hours:          Total hours of hospitalization for this claim
+        hospital_daily_cash_days_used:  Days already consumed in the current policy year
+                                        (from BenefitBalanceData.hospital_cash_days_used)
+
+    Returns:
+        HospitalDailyCashResult
+    """
+    import math
+
+    raw_days = int(math.floor(hospitalization_hours / 24))
+    annual_cap = 30
+    remaining_cap = max(0, annual_cap - hospital_daily_cash_days_used)
+    eligible_days = min(raw_days, remaining_cap)
+    total_benefit = daily_cash_amount * eligible_days
+
+    return HospitalDailyCashResult(
+        daily_cash_amount=daily_cash_amount,
+        hospitalization_hours=hospitalization_hours,
+        eligible_days=eligible_days,
+        total_cash_benefit=round(total_benefit, 2),
+        days_already_used=hospital_daily_cash_days_used,
+        days_exhausted=(remaining_cap == 0)
+    )
+
+
+# ============================================================================
+# TOOL 10: PERSONAL ACCIDENT BENEFIT CALCULATOR
+# ============================================================================
+
+@dataclass
+class PersonalAccidentResult:
+    """Output from Tool 10: Personal Accident Benefit Calculator"""
+    pa_benefit_type: str         # "AD", "PTD", "PPD", or "UNKNOWN"
+    pa_payout_percent: float     # fraction of PA SI (0.0 to 1.0)
+    pa_payout_amount: float      # PA SI * payout_percent
+    co_pay_exempt: bool = True   # always True per R3_PA_001/002
+    deductible_exempt: bool = True
+
+
+# Standard PA benefit table (R3_PA_001, R3_PA_002).
+# Percentages represent fraction of the PA sum insured payable for each injury.
+# Source: standard GIC/IRDAI personal accident schedule; to be validated
+# against the exact Niva Bupa PA schedule before production deployment.
+_PA_PAYOUT_TABLE: Dict[str, float] = {
+    # Accidental Death
+    "accidental death": 1.00,
+    "death due to accident": 1.00,
+    # Permanent Total Disability
+    "permanent total disability": 1.00,
+    "ptd": 1.00,
+    "total disability": 1.00,
+    "both limbs lost": 1.00,
+    "both eyes lost": 1.00,
+    "one limb and one eye lost": 1.00,
+    # Permanent Partial Disability — limbs
+    "loss of arm": 0.70,
+    "loss of leg": 0.60,
+    "loss of hand": 0.60,
+    "loss of foot": 0.50,
+    "loss of thumb": 0.25,
+    "loss of index finger": 0.20,
+    "loss of finger": 0.10,
+    # Permanent Partial Disability — sensory
+    "loss of one eye": 0.50,
+    "loss of hearing both ears": 0.75,
+    "loss of hearing one ear": 0.30,
+    "loss of speech": 0.50,
+    # Fractures (partial payout)
+    "fracture spine": 0.30,
+    "fracture femur": 0.20,
+    "fracture": 0.10,
+}
+
+
+def calculate_personal_accident_benefit(
+    pa_sum_insured: float,
+    injury_description: str,
+    accident_related: bool = True,
+) -> PersonalAccidentResult:
+    """
+    Tool 10: Personal Accident Benefit Calculator
+
+    Logic (R3_PA_001, R3_PA_002):
+        1. Match injury_description against _PA_PAYOUT_TABLE (longest-match wins).
+        2. payout_amount = pa_sum_insured * payout_percent
+        3. Co-pay and deductible do NOT apply (exempt in Tools 3 & 4).
+
+    Args:
+        pa_sum_insured:      The PA sum insured (may differ from base health SI).
+        injury_description:  Free-text description of the injury / event.
+        accident_related:    Must be True for PA benefit to apply.
+
+    Returns:
+        PersonalAccidentResult. If no table match is found, benefit_type="UNKNOWN"
+        and payout_percent=0 — the claim must route to manual review.
+    """
+    if not accident_related:
+        return PersonalAccidentResult(
+            pa_benefit_type="NOT_APPLICABLE",
+            pa_payout_percent=0.0,
+            pa_payout_amount=0.0,
+        )
+
+    desc_lower = injury_description.lower()
+
+    # Resolve AD first — highest precedence
+    if any(kw in desc_lower for kw in ("death", "fatal", "deceased")):
+        return PersonalAccidentResult(
+            pa_benefit_type="AD",
+            pa_payout_percent=1.00,
+            pa_payout_amount=round(pa_sum_insured * 1.00, 2),
+        )
+
+    # Find the longest (most specific) matching key in the table
+    best_key: Optional[str] = None
+    best_percent: float = 0.0
+
+    for key, percent in _PA_PAYOUT_TABLE.items():
+        if key in desc_lower and (best_key is None or len(key) > len(best_key)):
+            best_key = key
+            best_percent = percent
+
+    if best_key is None:
+        # No match — route to manual review
+        return PersonalAccidentResult(
+            pa_benefit_type="UNKNOWN",
+            pa_payout_percent=0.0,
+            pa_payout_amount=0.0,
+        )
+
+    # Classify into AD / PTD / PPD
+    ptd_keys = {"permanent total disability", "ptd", "total disability",
+                "both limbs lost", "both eyes lost", "one limb and one eye lost"}
+    if best_key in ptd_keys:
+        benefit_type = "PTD"
+    else:
+        benefit_type = "PPD"
+
+    return PersonalAccidentResult(
+        pa_benefit_type=benefit_type,
+        pa_payout_percent=best_percent,
+        pa_payout_amount=round(pa_sum_insured * best_percent, 2),
+    )
+

@@ -7,11 +7,12 @@ Uses structured output for reliable decision extraction
 from typing import Dict, Any, Optional, Literal
 from pydantic import BaseModel, Field
 from dataclasses import dataclass
+import http.client
 import json
 import os
-import urllib.request
+import socket
 import urllib.error
-from urllib.parse import urljoin
+from urllib.parse import urlparse
 
 
 # ============================================================================
@@ -80,9 +81,22 @@ class SemanticExecutionAgent:
     - Local LLM (llama.cpp server)
     """
     
+    # GBNF grammar that forces valid SemanticAdjudicationPayload JSON.
+    # llama.cpp will constrain token sampling to this grammar, eliminating
+    # markdown wrapping and hallucinated fields entirely (Issue 18).
+    _ADJUDICATION_GRAMMAR = r'''
+    root   ::= "{" ws "\"evaluation_status\"" ws ":" ws status ws "," ws
+                    "\"reasoning_trace\"" ws ":" ws string ws "," ws
+                    "\"confidence_score\"" ws ":" ws number ws "}"
+    status ::= "\"PASSED\"" | "\"EXCLUSION_ACTIVE\"" | "\"FAILED\""
+    string ::= "\"" ([^"\\] | "\\" .)* "\""
+    number ::= [0-9] "." [0-9] [0-9]?
+    ws     ::= [ \t\n]*
+    '''
+
     def __init__(
-        self, 
-        llm_provider: str = "local", 
+        self,
+        llm_provider: str = "mock",  # Issue 19: default to mock for local dev
         confidence_threshold: float = 0.90,
         local_llm_url: str = "http://localhost:8080"
     ):
@@ -90,11 +104,15 @@ class SemanticExecutionAgent:
         self.confidence_threshold = confidence_threshold
         self.local_llm_url = local_llm_url
         self.api_key = os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
-        
+
+        # Issue 20: split connect vs read timeouts for llama.cpp
+        self.connect_timeout_s: int = 5    # fast fail if server is not up
+        self.read_timeout_s: int = 120     # allow model to finish generating
+
         # Track semantic calls for observability
         self.call_count = 0
         self.total_confidence = 0.0
-        
+
         print(f"[AGENT] Semantic Agent initialized with {llm_provider} provider")
         if llm_provider == "local":
             print(f"   Local LLM URL: {local_llm_url}")
@@ -133,19 +151,13 @@ class SemanticExecutionAgent:
         Assess if an exclusion applies
         Uses structured output for reliable extraction
         """
-        system_prompt = """You are an expert medical insurance claims adjudication agent.
-Evaluate the claim details against specific policy exclusion terms.
-Determine if the treatment or condition constitutes an active exclusion (e.g. cosmetic surgery, maternity thresholds, investigation/evaluation only).
-
-You MUST respond with a valid JSON object matching this exact schema:
-{
-    "evaluation_status": "PASSED" | "EXCLUSION_ACTIVE" | "FAILED",
-    "reasoning_trace": "Detailed trace citing policy clauses and doctor logs",
-    "confidence_score": float (0.0 to 1.0)
-}
-
-Be CONSERVATIVE. Any uncertainty must reflect in a lower confidence score (<0.90). Only return PASSED if the exclusion is definitely not active or is overridden by a valid exception.
-"""
+        # Issue 18: compressed to <80 tokens
+        system_prompt = (
+            "Insurance adjudicator. Respond ONLY with JSON: "
+            '{"evaluation_status":"PASSED"|"EXCLUSION_ACTIVE"|"FAILED",'
+            '"reasoning_trace":"<cite policy clause>","confidence_score":0.0-1.0}. '
+            "EXCLUSION_ACTIVE if exclusion applies. CONSERVATIVE: low confidence (<0.9) when uncertain."
+        )
         raw_response = self._call_llm(system_prompt, prompt, SemanticAdjudicationPayload)
         
         try:
@@ -178,18 +190,13 @@ Be CONSERVATIVE. Any uncertainty must reflect in a lower confidence score (<0.90
 
     def _assess_coverage(self, rule_id: str, prompt: str) -> SemanticResult:
         """Assess if treatment is covered"""
-        system_prompt = """You are an expert medical insurance claims adjudication agent.
-Evaluate the claim details against policy coverage conditions (e.g. hospitalization duration >= 2 hours, AYUSH >= 24 hours, medical necessity).
-
-You MUST respond with a valid JSON object matching this exact schema:
-{
-    "evaluation_status": "PASSED" | "EXCLUSION_ACTIVE" | "FAILED",
-    "reasoning_trace": "Detailed trace citing policy coverage parameters and clinical details",
-    "confidence_score": float (0.0 to 1.0)
-}
-
-Be CONSERVATIVE. Any uncertainty must reflect in a lower confidence score (<0.90). Only return PASSED if the condition/treatment is covered.
-"""
+        # Issue 18: compressed to <80 tokens
+        system_prompt = (
+            "Insurance adjudicator. Respond ONLY with JSON: "
+            '{"evaluation_status":"PASSED"|"EXCLUSION_ACTIVE"|"FAILED",'
+            '"reasoning_trace":"<cite coverage clause>","confidence_score":0.0-1.0}. '
+            "PASSED if treatment meets coverage criteria (e.g. hosp >= 2h, AYUSH >= 24h). CONSERVATIVE."
+        )
         raw_response = self._call_llm(system_prompt, prompt, SemanticAdjudicationPayload)
         
         try:
@@ -222,18 +229,13 @@ Be CONSERVATIVE. Any uncertainty must reflect in a lower confidence score (<0.90
 
     def _assess_waiting_period(self, rule_id: str, prompt: str) -> SemanticResult:
         """Assess waiting period applicability"""
-        system_prompt = """You are an expert medical insurance policy expert.
-Assess if a condition qualifies for waiting period exceptions or requires waiting period enforcement.
-
-You MUST respond with a valid JSON object matching this exact schema:
-{
-    "evaluation_status": "PASSED" | "EXCLUSION_ACTIVE" | "FAILED",
-    "reasoning_trace": "Detailed trace citing policy waiting period clauses and medical findings",
-    "confidence_score": float (0.0 to 1.0)
-}
-
-Be CONSERVATIVE. Any uncertainty must reflect in a lower confidence score (<0.90). Only return PASSED if the waiting period is cleared.
-"""
+        # Issue 18: compressed to <80 tokens
+        system_prompt = (
+            "Insurance adjudicator. Respond ONLY with JSON: "
+            '{"evaluation_status":"PASSED"|"EXCLUSION_ACTIVE"|"FAILED",'
+            '"reasoning_trace":"<cite waiting period clause>","confidence_score":0.0-1.0}. '
+            "PASSED if waiting period is cleared or exempted (accident, port). CONSERVATIVE."
+        )
         raw_response = self._call_llm(system_prompt, prompt, SemanticAdjudicationPayload)
         
         try:
@@ -332,116 +334,119 @@ Be CONSERVATIVE. Any uncertainty must reflect in a lower confidence score (<0.90
         system_prompt: str,
         user_prompt: str,
         response_model: type[BaseModel],
-        timeout: int = 60
     ) -> str:
         """
-        Call local llama.cpp server with structured output request
-        
-        Supports both llama.cpp endpoints:
-        - /completion (legacy format)
-        - /v1/chat/completions (OpenAI-compatible format)
-        
-        Args:
-            system_prompt: System/context prompt
-            user_prompt: User query
-            response_model: Pydantic model for response schema
-            timeout: Request timeout in seconds
-        
-        Returns:
-            JSON string matching response_model schema
-        
-        Raises:
-            Exception: On network errors, timeout, or invalid response
+        Call local llama.cpp server (optimised for Gemma4/quantized 7-13B models).
+
+        Strategy (Issue 18, 20):
+        1. Try /v1/chat/completions with response_format=json_object (preferred for
+           instruction-tuned models — Gemma4 supports this).
+        2. On failure fall back to /completion with GBNF grammar to hard-constrain
+           output to the exact JSON schema (eliminates hallucinated fields).
+
+        Timeouts (Issue 20): 5s connect, 120s read via http.client.
+        n_predict=512 (Issue 18): enough for the short JSON response.
+        stop=["}"] on legacy endpoint so generation halts after closing brace.
         """
-        # Get schema from Pydantic model
-        schema = response_model.model_json_schema()
-        schema_str = json.dumps(schema, indent=2)
-        
-        # Construct full prompt with schema instruction
-        full_prompt = f"""{system_prompt}
+        parsed = urlparse(self.local_llm_url)
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 8080
+        use_tls = parsed.scheme == "https"
 
-CRITICAL: You MUST respond with ONLY a valid JSON object matching this exact schema:
-{schema_str}
-
-Do not include any explanation, markdown formatting, or extra text. Only output the JSON object.
-
-User Query:
-{user_prompt}
-
-Response (JSON only):"""
-        
-        # Try OpenAI-compatible endpoint first
+        # ------------------------------------------------------------------ #
+        # Path 1: /v1/chat/completions  (OpenAI-compatible, preferred)        #
+        # ------------------------------------------------------------------ #
+        chat_payload = {
+            "model": "local",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "response_format": {"type": "json_object"},  # Issue 18: force JSON mode
+            "temperature": 0.1,
+            "max_tokens": 512,   # Issue 18: was 1024; JSON response is short
+            "stream": False,
+        }
         try:
-            url = urljoin(self.local_llm_url, "/v1/chat/completions")
-            
-            payload = {
-                "model": "local",
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"{user_prompt}\n\nRespond with JSON matching schema:\n{schema_str}"}
-                ],
-                "temperature": 0.1,
-                "max_tokens": 1024,
-                "stream": False
-            }
-            
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(payload).encode('utf-8'),
-                headers={'Content-Type': 'application/json'}
+            content = self._http_post(
+                host, port, use_tls, "/v1/chat/completions", chat_payload
             )
-            
-            with urllib.request.urlopen(req, timeout=timeout) as response:
-                result = json.loads(response.read().decode('utf-8'))
-                
-                # Extract content from OpenAI-compatible format
-                if "choices" in result and len(result["choices"]) > 0:
-                    content = result["choices"][0]["message"]["content"]
-                    return self._extract_json_from_response(content)
-                else:
-                    raise ValueError("Invalid response format from local LLM")
-        
-        except (urllib.error.URLError, urllib.error.HTTPError) as e:
-            # Fallback to legacy /completion endpoint
-            print(f"[WARN] OpenAI-compatible endpoint failed: {e}. Trying legacy endpoint...")
-            return self._call_local_llm_legacy(full_prompt, timeout)
-    
-    def _call_local_llm_legacy(self, prompt: str, timeout: int = 60) -> str:
-        """
-        Call legacy llama.cpp /completion endpoint
-        
-        Args:
-            prompt: Full formatted prompt
-            timeout: Request timeout in seconds
-        
-        Returns:
-            JSON string from LLM response
-        """
-        url = urljoin(self.local_llm_url, "/completion")
-        
-        payload = {
-            "prompt": prompt,
+            result = json.loads(content)
+            if "choices" in result and result["choices"]:
+                return self._extract_json_from_response(
+                    result["choices"][0]["message"]["content"]
+                )
+            raise ValueError("Unexpected /v1/chat/completions response shape")
+
+        except Exception as chat_err:
+            print(f"[WARN] /v1/chat/completions failed: {chat_err}. Trying /completion...")
+
+        # ------------------------------------------------------------------ #
+        # Path 2: /completion  (legacy, GBNF grammar for hard JSON constraint) #
+        # ------------------------------------------------------------------ #
+        # Compact prompt: system instruction folded into a single user turn so
+        # quantized models that ignore the system role still obey it.
+        compact_prompt = (
+            f"{system_prompt}\n\nClaim details:\n{user_prompt}\n\nJSON response:"
+        )
+        legacy_payload = {
+            "prompt": compact_prompt,
+            "grammar": self._ADJUDICATION_GRAMMAR,  # Issue 18: GBNF forces valid schema
             "temperature": 0.1,
             "top_p": 0.9,
-            "n_predict": 1024,
-            "stop": ["</s>", "User:", "\n\n\n"],
-            "stream": False
+            "n_predict": 512,               # Issue 18: was 1024
+            "stop": ["}", "</s>", "<end_of_turn>"],  # Issue 18: stop after JSON closes
+            "stream": False,
         }
-        
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode('utf-8'),
-            headers={'Content-Type': 'application/json'}
+        content = self._http_post(
+            host, port, use_tls, "/completion", legacy_payload
         )
-        
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            
-            # Extract content from legacy format
-            if "content" in result:
-                return self._extract_json_from_response(result["content"])
-            else:
-                raise ValueError("Invalid response format from local LLM")
+        result = json.loads(content)
+        if "content" in result:
+            raw = result["content"]
+            # GBNF may produce a truncated string without closing brace;
+            # ensure the JSON object is closed before parsing.
+            raw = raw.strip()
+            if raw and not raw.endswith("}"):
+                raw += "}"
+            return self._extract_json_from_response(raw)
+        raise ValueError("Invalid /completion response: no 'content' key")
+
+    def _http_post(
+        self,
+        host: str,
+        port: int,
+        use_tls: bool,
+        path: str,
+        payload: Dict[str, Any],
+    ) -> str:
+        """
+        Issue 20: HTTP POST with split connect + read timeouts via http.client.
+        urllib.request.urlopen accepts only a single timeout that covers both
+        phases; using http.client directly allows a short connect timeout (5s,
+        fast-fails if llama.cpp is not up) and a long read timeout (120s, gives
+        the model time to generate without blocking the event loop forever).
+        """
+        body = json.dumps(payload).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "Content-Length": str(len(body)),
+        }
+        conn_cls = http.client.HTTPSConnection if use_tls else http.client.HTTPConnection
+        # socket.create_connection respects the timeout as the connect timeout;
+        # after connection is established we reset the socket timeout to the
+        # longer read timeout.
+        conn = conn_cls(host, port, timeout=self.connect_timeout_s)
+        try:
+            conn.connect()                          # raises socket.timeout on connect failure
+            conn.sock.settimeout(self.read_timeout_s)  # extend timeout for model generation
+            conn.request("POST", path, body=body, headers=headers)
+            resp = conn.getresponse()
+            if resp.status not in (200, 201):
+                raise ValueError(f"HTTP {resp.status} from {path}: {resp.read(256)!r}")
+            return resp.read().decode("utf-8")
+        finally:
+            conn.close()
     
     def _extract_json_from_response(self, text: str) -> str:
         """
