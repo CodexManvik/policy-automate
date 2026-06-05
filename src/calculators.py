@@ -70,6 +70,7 @@ class LockTheClockResult:
     age_locked: bool
     additional_premium_delta: float
     deduct_from_payout: float
+    age_unlocked: bool = False
 
 
 @dataclass
@@ -657,7 +658,8 @@ def calculate_lock_the_clock(
         age_for_premium=age_for_premium,
         age_locked=age_locked,
         additional_premium_delta=round(additional_premium_delta, 2),
-        deduct_from_payout=round(deduct_from_payout, 2)
+        deduct_from_payout=round(deduct_from_payout, 2),
+        age_unlocked=claim_paid_flag
     )
 
 

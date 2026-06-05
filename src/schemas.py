@@ -25,6 +25,8 @@ class PolicyData(BaseModel):
     status: Literal["Active", "Lapsed", "Cancelled"]
     premium_paid: bool
     grace_period_active: bool = False
+    policy_type: Literal["individual", "floater"] = "individual"
+    policy_term_years: int = 1
     
     # Optional benefits configuration
     co_payment_percent: Optional[float] = None
@@ -392,3 +394,6 @@ class PerClaimState(BaseModel):
     amount_from_base_si: float = 0.0
     amount_from_booster: float = 0.0
     amount_from_forever: float = 0.0
+    
+    # State update transitions
+    lock_the_clock_age_unlocked: bool = False

@@ -51,6 +51,8 @@ interface PolicyData {
   hospital_daily_cash_amount: number | null;
   pa_sum_insured: number | null;
   personal_waiting_period_months: number;
+  policy_type: 'individual' | 'floater';
+  policy_term_years: number;
 }
 
 interface MemberData {
@@ -268,6 +270,8 @@ const PRESETS: Record<string, { name: string; description: string; context: Clai
         status: 'Active',
         premium_paid: true,
         grace_period_active: false,
+        policy_type: 'individual',
+        policy_term_years: 1,
         co_payment_percent: 10.0, // OPTIONAL contract field
         annual_aggregate_deductible: null,
         room_category_entitled: 'Single Private Room',
@@ -387,6 +391,8 @@ const PRESETS: Record<string, { name: string; description: string; context: Clai
         status: 'Active',
         premium_paid: true,
         grace_period_active: false,
+        policy_type: 'individual',
+        policy_term_years: 1,
         co_payment_percent: null,
         annual_aggregate_deductible: null,
         room_category_entitled: 'General Ward',
@@ -506,6 +512,8 @@ const PRESETS: Record<string, { name: string; description: string; context: Clai
         status: 'Active',
         premium_paid: true,
         grace_period_active: false,
+        policy_type: 'individual',
+        policy_term_years: 1,
         co_payment_percent: null,
         annual_aggregate_deductible: null,
         room_category_entitled: 'Single Private Room',
@@ -633,6 +641,8 @@ const PRESETS: Record<string, { name: string; description: string; context: Clai
         status: 'Active',
         premium_paid: true,
         grace_period_active: false,
+        policy_type: 'individual',
+        policy_term_years: 1,
         co_payment_percent: null,
         annual_aggregate_deductible: null,
         room_category_entitled: 'Single Private Room',
@@ -752,6 +762,8 @@ const PRESETS: Record<string, { name: string; description: string; context: Clai
         status: 'Active',
         premium_paid: true,
         grace_period_active: false,
+        policy_type: 'individual',
+        policy_term_years: 1,
         co_payment_percent: null,
         annual_aggregate_deductible: null,
         room_category_entitled: 'Shared Room',
@@ -1159,6 +1171,26 @@ function App() {
                       <option value="Select">Select</option>
                       <option value="Elite">Elite</option>
                     </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Policy Type</label>
+                    <select 
+                      className="input-control"
+                      value={context.policy.policy_type}
+                      onChange={e => handlePolicyChange('policy_type', e.target.value as any)}
+                    >
+                      <option value="individual">Individual</option>
+                      <option value="floater">Floater</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Policy Term (Years)</label>
+                    <input 
+                      type="number" className="input-control" 
+                      min="1" max="5"
+                      value={context.policy.policy_term_years} 
+                      onChange={e => handlePolicyChange('policy_term_years', parseInt(e.target.value) || 1)}
+                    />
                   </div>
                   <div className="form-group">
                     <label className="form-label">Base Sum Insured (INR)</label>

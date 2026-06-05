@@ -795,6 +795,27 @@ class ClaimsAdjudicationPipeline:
                 source_section="6.1.17"
             )
         
+        # Check claim date falls within policy period (Fix 1)
+        policy_start = self._coerce_to_date(context.policy.policy_start_date)
+        policy_end = self._coerce_to_date(context.policy.policy_end_date)
+        claim_date = self._coerce_to_date(line_item.admission_date or line_item.expense_date)
+        
+        if not (policy_start <= claim_date <= policy_end):
+            return False, DecisionTrace(
+                step=self.current_step,
+                rule_id="GATE_1_DATE_RANGE",
+                rule_name="Policy Date Range Check",
+                gate="policy_validation",
+                inputs={
+                    "policy_start": policy_start.isoformat(),
+                    "policy_end": policy_end.isoformat(),
+                    "claim_date": claim_date.isoformat()
+                },
+                evaluation="FAILED",
+                reason=f"Claim date {claim_date} falls outside the policy coverage period ({policy_start} to {policy_end})",
+                source_section="6.1.18"
+            )
+
         return True, DecisionTrace(
             step=self.current_step,
             rule_id="GATE_1_PASSED",
@@ -823,6 +844,25 @@ class ClaimsAdjudicationPipeline:
                 evaluation="FAILED",
                 reason="Member not eligible for coverage"
             )
+        
+        # Check member addition date (Fix 2)
+        if hasattr(context.member, "date_of_addition") and context.member.date_of_addition:
+            addition_date = self._coerce_to_date(context.member.date_of_addition)
+            claim_date = self._coerce_to_date(line_item.admission_date or line_item.expense_date)
+            if claim_date < addition_date:
+                return False, DecisionTrace(
+                    step=self.current_step,
+                    rule_id="GATE_2_ADDITION_DATE",
+                    rule_name="Member Addition Date Check",
+                    gate="member_validation",
+                    inputs={
+                        "member_id": context.member.member_id,
+                        "addition_date": addition_date.isoformat(),
+                        "claim_date": claim_date.isoformat()
+                    },
+                    evaluation="FAILED",
+                    reason=f"Claim date {claim_date} predates member addition date {addition_date}"
+                )
         
         return True, DecisionTrace(
             step=self.current_step,
@@ -2061,9 +2101,38 @@ class ClaimsAdjudicationPipeline:
             # ================================================================
             # 3. UNLOCK LOCK THE CLOCK (if age was unlocked for premium)
             # ================================================================
-            # Check if this claim triggered age unlock (would be in state)
-            # Lock the Clock premium calculation happens in Tool 6, unlocking happens here
-            if hasattr(state, "lock_the_clock_age_unlocked") and state.lock_the_clock_age_unlocked:
+            # Check if this claim triggered age unlock
+            # Lock the Clock premium calculation is checked here using Tool 6
+            trigger_buckets = {
+                "Expenses in reaching a Hospital", "Expenses during Hospitalization", 
+                "Expenses before and after hospitalization", "Home Care / Domiciliary Treatment", 
+                "Organ Donor", "Borderless", "Borderless for Specified Illness"
+            }
+            decision_by_id = {dec.line_item_id: dec.decision for dec in line_item_decisions}
+            has_trigger_bucket_claim = any(
+                decision_by_id.get(li.line_item_id) in ["APPROVED", "PARTIALLY_APPROVED"] and li.benefit_bucket in trigger_buckets
+                for li in context.line_items
+            )
+            
+            if not getattr(context.lifetime_state, "lock_the_clock_unlocked_date", None):
+                entry_age = context.lifetime_state.lock_the_clock_entry_age or context.member.entry_age or context.member.age
+                current_age = context.member.age
+                claim_paid_flag = (context.history.prior_claims_count > 0) or has_trigger_bucket_claim
+                
+                ltc_result = calculate_lock_the_clock(
+                    entry_age=entry_age,
+                    current_age=current_age,
+                    claim_paid_flag=claim_paid_flag,
+                    policy_type=context.policy.policy_type or "individual",
+                    policy_term_years=context.policy.policy_term_years or 1,
+                    claim_in_year=getattr(context.policy, "claim_in_year", 1) or 1,
+                    member_claiming=context.member.member_id
+                )
+                state.lock_the_clock_age_unlocked = ltc_result.age_unlocked
+                context.lifetime_state.lock_the_clock_age_locked = ltc_result.age_locked
+                context.lifetime_state.lock_the_clock_current_premium_age = ltc_result.age_for_premium
+
+            if state.lock_the_clock_age_unlocked:
                 context.lifetime_state.lock_the_clock_unlocked_date = datetime.now(timezone.utc)
             
             # ================================================================

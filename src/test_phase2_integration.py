@@ -234,7 +234,7 @@ def create_test_context() -> ClaimContext:
             product_code="R3",
             variant="Select",
             policy_start_date=datetime(2023, 1, 1),
-            policy_end_date=datetime(2026, 1, 1),
+            policy_end_date=datetime(2030, 1, 1),
             base_sum_insured=1000000.0,
             status="Active",
             premium_paid=True,
