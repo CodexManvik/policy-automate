@@ -3,6 +3,10 @@ FastAPI Microservice Layer for Claims 2.0 Auto-Adjudication Engine
 Exposes high-performance, strictly-typed endpoints for real-time adjudication
 """
 
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent))
+
 import logging
 from fastapi import FastAPI, HTTPException, status
 from pydantic import ValidationError
@@ -22,8 +26,21 @@ app = FastAPI(
     version="2.0.0"
 )
 
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Shared pipeline instance
-pipeline = ClaimsAdjudicationPipeline()
+import os
+pipeline = ClaimsAdjudicationPipeline(
+    llm_provider=os.getenv("LLM_PROVIDER", "default"),
+    local_llm_url=os.getenv("LLM_URL", "http://localhost:8080")
+)
 
 @app.post(
     "/api/v2/adjudicate",

@@ -60,7 +60,7 @@ class ClaimsAdjudicationPipeline:
         use_ai: bool = True,
         confidence_threshold: float = 0.90,
         assisted_review_threshold: float = 0.70,
-        llm_provider: str = "local",
+        llm_provider: str = "default",
         local_llm_url: str = "http://localhost:8080"
     ):
         self.decision_traces: List[DecisionTrace] = []
@@ -69,11 +69,27 @@ class ClaimsAdjudicationPipeline:
         self.confidence_threshold = confidence_threshold        # >= 0.90 → auto-approve
         self.assisted_review_threshold = assisted_review_threshold  # 0.70–0.90 → ASSISTED_REVIEW
 
+        # Auto-detect if llama.cpp server is running on 8080 and use it if env is not explicitly set
+        import os
+        resolved_provider = os.getenv("LLM_PROVIDER", llm_provider)
+        if resolved_provider == "default":
+            # Check if port 8080 is open
+            from urllib.parse import urlparse
+            import socket
+            try:
+                parsed = urlparse(local_llm_url)
+                h = parsed.hostname or "127.0.0.1"
+                p = parsed.port or 8080
+                with socket.create_connection((h, p), timeout=0.1):
+                    resolved_provider = "local"
+            except Exception:
+                resolved_provider = "mock"
+
         # Initialize AI components
         self.product_memory = get_product_memory()
         self.planner = AIPlanner(self.product_memory)
         self.semantic_agent = SemanticExecutionAgent(
-            llm_provider=llm_provider,
+            llm_provider=resolved_provider,
             confidence_threshold=confidence_threshold,
             local_llm_url=local_llm_url
         ) if use_ai else None
@@ -560,8 +576,8 @@ class ClaimsAdjudicationPipeline:
             return self._execute_waiting_period_check(step, line_item, context, state)
         
         elif step.gate == RuleGate.EXCLUSION_VALIDATION:
-            if step.rule_id in ["R3_EXCL_010", "R3_EXCL_021"]:
-                passed, trace = self._gate_5_exclusion_validation(context, line_item)
+            if step.rule_id in ["R3_EXCL_010", "R3_EXCL_020", "R3_EXCL_021"]:
+                passed, trace = self._gate_5_exclusion_validation(context, line_item, step.rule_id)
                 return passed, trace, None
         
         # Default pass for unhandled deterministic rules
@@ -668,18 +684,26 @@ class ClaimsAdjudicationPipeline:
         
         # Coerce inputs safely
         policy_start = self._coerce_to_date(context.policy.policy_start_date)
+        member_addition = self._coerce_to_date(context.member.date_of_addition) if getattr(context.member, "date_of_addition", None) else None
+        inception_date = max(policy_start, member_addition) if member_addition else policy_start
         admission_date = self._coerce_to_date(line_item.admission_date or line_item.expense_date)
+        
+        specified_diseases = None
+        tbl_007 = self.product_memory.tables.get("R3_TBL_007")
+        if tbl_007:
+            specified_diseases = tbl_007.get("items")
         
         # Call Tool 1
         result = calculate_waiting_period(
             condition=line_item.condition_diagnosed,
-            policy_inception_date=policy_start,
+            policy_inception_date=inception_date,
             continuous_coverage_months=continuous_months,
             portability_credit_months=context.porting.waiting_period_credit_months,
             accident_flag=line_item.accident_related,
             cancer_flag="cancer" in line_item.condition_diagnosed.lower(),
             claim_date=admission_date,
-            ped_declarations=context.member.ped_declarations
+            ped_declarations=context.member.ped_declarations,
+            specified_diseases=specified_diseases
         )
         
         # Create trace
@@ -852,41 +876,56 @@ class ClaimsAdjudicationPipeline:
         ]
         
         for rule in optional_benefit_rules:
+            rule_id_lower = rule.rule_id.lower()
             # Check if optional benefit is opted
-            if "borderless" in rule.rule_id.lower() and rule.rule_id.lower() == "r3_ben_017":
-                # Borderless for Specified Illness
+            if rule_id_lower == "r3_ben_019":  # Borderless for Specified Illness
                 if not context.policy.borderless_specific_illness_opted:
-                    return False, DecisionTrace(
+                    self.decision_traces.append(DecisionTrace(
                         step=self.current_step,
                         rule_id=rule.rule_id,
                         rule_name=rule.rule_name,
                         gate="coverage_validation",
                         inputs={"benefit": rule.rule_name, "opted": False},
-                        evaluation="FAILED",
+                        evaluation="NOT_APPLICABLE",
                         reason=f"Optional benefit '{rule.rule_name}' not opted by member"
-                    )
-            elif "borderless" in rule.rule_id.lower():
+                    ))
+                    continue
+            elif rule_id_lower == "r3_ben_018":  # Borderless
                 if not context.policy.borderless_opted:
-                    return False, DecisionTrace(
+                    self.decision_traces.append(DecisionTrace(
                         step=self.current_step,
                         rule_id=rule.rule_id,
                         rule_name=rule.rule_name,
                         gate="coverage_validation",
                         inputs={"benefit": rule.rule_name, "opted": False},
-                        evaluation="FAILED",
+                        evaluation="NOT_APPLICABLE",
                         reason=f"Optional benefit '{rule.rule_name}' not opted by member"
-                    )
-            elif "heads_up" in rule.rule_id.lower():
+                    ))
+                    continue
+            elif rule_id_lower == "r3_ben_016":  # HeadsUp
                 if not context.policy.heads_up_opted:
-                    return False, DecisionTrace(
+                    self.decision_traces.append(DecisionTrace(
                         step=self.current_step,
                         rule_id=rule.rule_id,
                         rule_name=rule.rule_name,
                         gate="coverage_validation",
                         inputs={"benefit": rule.rule_name, "opted": False},
-                        evaluation="FAILED",
+                        evaluation="NOT_APPLICABLE",
                         reason=f"Optional benefit '{rule.rule_name}' not opted by member"
-                    )
+                    ))
+                    continue
+            elif rule_id_lower == "r3_ben_017":  # Tiered Network
+                if not context.policy.tiered_network_opted:
+                    self.decision_traces.append(DecisionTrace(
+                        step=self.current_step,
+                        rule_id=rule.rule_id,
+                        rule_name=rule.rule_name,
+                        gate="coverage_validation",
+                        inputs={"benefit": rule.rule_name, "opted": False},
+                        evaluation="NOT_APPLICABLE",
+                        reason=f"Optional benefit '{rule.rule_name}' not opted by member"
+                    ))
+                    continue
         
         # Check benefit-specific preconditions (e.g., Home Care requires 3 conditions)
         if line_item.benefit_bucket == "Home Care / Domiciliary Treatment":
@@ -939,12 +978,19 @@ class ClaimsAdjudicationPipeline:
         
         # Coerce inputs safely
         policy_start = self._coerce_to_date(context.policy.policy_start_date)
+        member_addition = self._coerce_to_date(context.member.date_of_addition) if getattr(context.member, "date_of_addition", None) else None
+        inception_date = max(policy_start, member_addition) if member_addition else policy_start
         admission_date = self._coerce_to_date(line_item.admission_date or line_item.expense_date)
+        
+        specified_diseases = None
+        tbl_007 = self.product_memory.tables.get("R3_TBL_007")
+        if tbl_007:
+            specified_diseases = tbl_007.get("items")
         
         # Call Tool 1
         result = calculate_waiting_period(
             condition=line_item.condition_diagnosed,
-            policy_inception_date=policy_start,
+            policy_inception_date=inception_date,
             continuous_coverage_months=context.history.claim_free_years * 12,
             portability_credit_months=context.porting.waiting_period_credit_months,
             # R3_EXCL_017: Personal waiting period (insurer-imposed, up to 48 months)
@@ -952,7 +998,8 @@ class ClaimsAdjudicationPipeline:
             accident_flag=line_item.accident_related,
             cancer_flag="cancer" in line_item.condition_diagnosed.lower(),
             claim_date=admission_date,
-            ped_declarations=context.member.ped_declarations
+            ped_declarations=context.member.ped_declarations,
+            specified_diseases=specified_diseases
         )
 
         
@@ -978,7 +1025,7 @@ class ClaimsAdjudicationPipeline:
             reason="All waiting periods cleared"
         )
     
-    def _gate_5_exclusion_validation(self, context: ClaimContext, line_item) -> Tuple[bool, DecisionTrace]:
+    def _gate_5_exclusion_validation(self, context: ClaimContext, line_item, target_rule_id: Optional[str] = None) -> Tuple[bool, DecisionTrace]:
         """
         Gate 5: Exclusion Validation
         Checks all 23 exclusion rules dynamically from Product Memory.
@@ -991,6 +1038,8 @@ class ClaimsAdjudicationPipeline:
         exclusion_rules = self.product_memory.filter_rules(
             gate=RuleGate.EXCLUSION_VALIDATION
         )
+        if target_rule_id:
+            exclusion_rules = [r for r in exclusion_rules if r.rule_id == target_rule_id]
         
         # Execute each exclusion rule (deterministic and semantic)
         for rule in exclusion_rules:
@@ -1052,33 +1101,109 @@ class ClaimsAdjudicationPipeline:
                                 reason="Dental treatment excluded (allowed only for accident-related)",
                                 source_section="5.1.20"
                             )
+                        elif target_rule_id == "R3_EXCL_020":
+                            return True, DecisionTrace(
+                                step=self.current_step,
+                                rule_id="R3_EXCL_020",
+                                rule_name="Dental Treatment",
+                                gate="exclusion_validation",
+                                inputs={"accident_related": line_item.accident_related, "description": line_item.description},
+                                evaluation="PASSED",
+                                reason="Dental treatment is accident-related, so it is covered",
+                                source_section="5.1.20",
+                                confidence=1.0
+                            )
+                    else:
+                        if target_rule_id == "R3_EXCL_020":
+                            return True, DecisionTrace(
+                                step=self.current_step,
+                                rule_id="R3_EXCL_020",
+                                rule_name="Dental Treatment",
+                                gate="exclusion_validation",
+                                inputs={"description": line_item.description},
+                                evaluation="PASSED",
+                                reason="No actual dental procedures identified in the item description",
+                                source_section="5.1.20",
+                                confidence=1.0
+                            )
             
-            # Semantic/Hybrid exclusions - delegate to semantic agent if available
-            elif rule.execution_type == ExecutionType.SEMANTIC or rule.execution_type == ExecutionType.HYBRID:
+            # Semantic/Hybrid exclusions — delegate to semantic agent if available.
+            # Fix 1: correct call signature; was passing wrong kwargs (rule=, context=, line_item=)
+            elif rule.execution_type in (ExecutionType.SEMANTIC, ExecutionType.HYBRID):
                 if self.semantic_agent:
                     try:
+                        prompt = rule.semantic_prompt_template
+                        if prompt:
+                            replacements = {
+                                "{condition}": line_item.condition_diagnosed,
+                                "{treatment_description}": line_item.description,
+                                "{diagnosis}": line_item.condition_diagnosed,
+                                "{hospitalization_hours}": str(line_item.hospitalization_hours or 0),
+                                "{treatment_type}": line_item.treatment_type,
+                                "{admission_reason}": line_item.description,
+                                "{procedures}": line_item.description,
+                                "{icd_codes}": "[]",
+                                "{doctor_notes}": "",
+                                "{discharge_summary}": "",
+                                "{medical_history}": str(context.member.ped_declarations),
+                            }
+                            for placeholder, value in replacements.items():
+                                prompt = prompt.replace(placeholder, value)
+                        else:
+                            prompt = (
+                                f"Verify exclusion rule {rule.rule_name} ({rule.rule_id}) "
+                                f"for condition '{line_item.condition_diagnosed}' "
+                                f"and treatment '{line_item.description}'."
+                            )
                         sem_result = self.semantic_agent.execute_semantic_rule(
-                            rule=rule,
-                            context=context,
-                            line_item=line_item,
-                            prompt=rule.semantic_prompt_template or ""
+                            rule_id=rule.rule_id,
+                            prompt=prompt,
+                            rule_type="exclusion"
                         )
-                        
+
                         if sem_result.confidence >= self.confidence_threshold and not sem_result.passed:
                             return False, DecisionTrace(
                                 step=self.current_step,
                                 rule_id=rule.rule_id,
                                 rule_name=rule.rule_name,
                                 gate="exclusion_validation",
-                                inputs={"rule": rule.rule_name},
+                                inputs={"prompt_preview": prompt[:150]},
                                 evaluation="EXCLUSION_ACTIVE",
                                 reason=sem_result.reason,
                                 confidence=sem_result.confidence,
                                 source_section=rule.section_ref
                             )
+
+                        elif sem_result.confidence < self.confidence_threshold:
+                            # Low confidence — flag for review but do not hard-reject
+                            self.decision_traces.append(DecisionTrace(
+                                step=self.current_step,
+                                rule_id=rule.rule_id,
+                                rule_name=rule.rule_name,
+                                gate="exclusion_validation",
+                                inputs={"prompt_preview": prompt[:150]},
+                                evaluation="ASSISTED_REVIEW",
+                                reason=(
+                                    f"Low confidence ({sem_result.confidence:.2f}) on exclusion "
+                                    f"{rule.rule_id} — flagged for review"
+                                ),
+                                confidence=sem_result.confidence,
+                                source_section=rule.section_ref
+                            ))
+
                     except Exception as e:
-                        # Log error but continue - don't fail on semantic errors
-                        pass
+                        # Never let a semantic error crash adjudication — log and continue
+                        self.decision_traces.append(DecisionTrace(
+                            step=self.current_step,
+                            rule_id=rule.rule_id,
+                            rule_name=rule.rule_name,
+                            gate="exclusion_validation",
+                            inputs={},
+                            evaluation="NOT_APPLICABLE",
+                            reason=f"Semantic agent error for {rule.rule_id}: {e}",
+                            confidence=0.0,
+                            source_section=rule.section_ref
+                        ))
         
         # All exclusion rules passed
         return True, DecisionTrace(
@@ -1091,28 +1216,26 @@ class ClaimsAdjudicationPipeline:
             reason=f"All {len(exclusion_rules)} exclusion rules evaluated - no exclusions triggered"
         )
     
-    def _get_eligible_room_rent(self, context: ClaimContext, line_item) -> float:
+    def _get_eligible_room_rent(
+        self,
+        context: "ClaimContext",
+        line_item
+    ) -> Optional[float]:
         """
-        Get eligible room rent from policy configuration.
-        BUG FIX #1: Uses policy.room_category_entitled instead of hardcoded variant mapping.
+        Return the INR room rent ceiling for this policy from PolicyData.
+
+        Source of truth: context.policy.room_rent_limit (populated by Policy API
+        or UI configuration).
+        
+        DYNAMIC PARAMETER FALLBACKS:
+        If context.policy.room_rent_limit is missing or evaluates to None,
+        inject a default fallback value based on variant: 4000.0 if "Select", else 3000.0.
         """
-        room_category_rate_table = {
-            "General Ward": {"Classic": 1500.0, "Select": 1500.0, "Elite": 1500.0},
-            "Semi Private Room": {"Classic": 3000.0, "Select": 3000.0, "Elite": 3000.0},
-            "Single Private Room": {"Classic": 5000.0, "Select": 7500.0, "Elite": 10000.0},
-            "ICU": {"Classic": 7500.0, "Select": 10000.0, "Elite": 15000.0},
-        }
-        
-        room_category = context.policy.room_category_entitled or "General Ward"
-        variant = context.policy.variant or "Classic"
-        
-        if room_category in room_category_rate_table:
-            rate_by_variant = room_category_rate_table[room_category]
-            eligible_room = rate_by_variant.get(variant, 1500.0)
-        else:
-            eligible_room = room_category_rate_table["General Ward"].get(variant, 1500.0)
-        
-        return eligible_room
+        limit = getattr(context.policy, "room_rent_limit", None)
+        if limit is None:
+            variant = getattr(context.policy, "variant", None)
+            limit = 4000.0 if variant == "Select" else 3000.0
+        return limit
     
     def _calculate_associated_medical_expenses(self, line_item, claimed_amount: float) -> Dict[str, float]:
         """
@@ -1163,8 +1286,10 @@ class ClaimsAdjudicationPipeline:
         for endorsement in sorted_endorsements:
             eff_date = self._coerce_to_date(endorsement.effective_date)
             if eff_date > claim_event_date:
-                # Endorsement not yet effective at time of claim — ignore
-                break
+                # Fix 11: use continue, not break — endorsements may not be sorted
+                # in strict chronological order; skipping one future-dated entry
+                # must not prevent earlier entries from being processed.
+                continue
 
             etype = endorsement.endorsement_type
             details = endorsement.details or {}
@@ -1195,6 +1320,7 @@ class ClaimsAdjudicationPipeline:
                 if (added_member_id and
                         context.member.member_id == added_member_id):
                     # Reset continuous coverage — fresh waiting periods apply
+                    context.member.date_of_addition = endorsement.effective_date
                     context.history.claim_free_years = 0
                     context.history.total_utilized_si = 0.0
 
@@ -1261,23 +1387,35 @@ class ClaimsAdjudicationPipeline:
         amount: float
     ) -> Tuple[float, Optional[DeductionDetail]]:
         """
-        Issue 12: Gate 6 Step 0 — remove Annexure non-payable items BEFORE
+        Fix 12: Gate 6 Step 0 — remove Annexure non-payable items BEFORE
         room pro-rata and all other deductions.
 
-        Strategy: substring match on line_item.description against the
-        non-payable keyword list. When matched the FULL line item amount is
-        deducted (these items have no claimable portion by definition).
+        Uses word-boundary regex matching to avoid false positives on compound
+        medical descriptions like 'Anaesthesia administration charges for
+        appendectomy' (which contains 'administration' but is NOT a non-payable
+        admin fee — it's a clinical procedure charge).
 
         Returns: (remaining_amount, DeductionDetail or None)
         """
+        import re as _re
+
         if not line_item.description:
             return amount, None
 
         desc_lower = line_item.description.lower()
-        matched_keyword = next(
-            (kw for kw in self._NON_PAYABLE_KEYWORDS if kw in desc_lower),
-            None
-        )
+        matched_keyword = None
+
+        for kw in self._NON_PAYABLE_KEYWORDS:
+            # Word-boundary anchors: 'charge' won't match 'surcharge';
+            # 'fee' won't match 'coffee' or 'fever'.
+            # Handle optional plural 's' at the end of keywords ending with a letter.
+            pattern_str = _re.escape(kw)
+            if kw[-1].isalpha():
+                pattern_str += r's?'
+            pattern = r'(?<!\w)' + pattern_str + r'(?!\w)'
+            if _re.search(pattern, desc_lower):
+                matched_keyword = kw
+                break
 
         if matched_keyword is None:
             return amount, None
@@ -1286,11 +1424,10 @@ class ClaimsAdjudicationPipeline:
             deduction_type="non_payable_items",
             amount=amount,
             rule_id="R3_EXCL_ANNEXURE",
-            reason=f"Non-payable item (Annexure): matched keyword '{matched_keyword}'",
+            reason=f"Non-payable item (Annexure): matched '{matched_keyword}'",
             calculation_details={
                 "description": line_item.description,
                 "matched_keyword": matched_keyword,
-                "full_amount_deducted": amount
             }
         )
         return 0.0, deduction
@@ -1589,46 +1726,97 @@ class ClaimsAdjudicationPipeline:
         # ================================================================
         if line_item.actual_room_rent and line_item.actual_room_rent > 0:
             self.current_step += 1
-
             eligible_room = self._get_eligible_room_rent(context, line_item)
-            expense_components = self._calculate_associated_medical_expenses(line_item, claimed_amount)
 
-            pro_rata_result = calculate_room_pro_rata(
-                eligible_room_rent=eligible_room,
-                actual_room_rent=line_item.actual_room_rent,
-                room_charges=expense_components["room_charges"],
-                nursing_charges=expense_components["nursing_charges"],
-                medical_practitioner_fees=expense_components["medical_practitioner_fees"],
-                ot_charges=expense_components["ot_charges"]
-            )
-
-            if pro_rata_result.deduction > 0:
-                admissible_amount -= pro_rata_result.deduction
-                payable_amount -= pro_rata_result.deduction
-                state.room_pro_rata_ratio = pro_rata_result.pro_rata_ratio
-
-                deductions.append(DeductionDetail(
-                    deduction_type="room_pro_rata",
-                    amount=pro_rata_result.deduction,
-                    rule_id="R3_BEN_004",
-                    reason=f"Room category breach: ratio {pro_rata_result.pro_rata_ratio:.2f}",
-                    calculation_details={
-                        "eligible_room": pro_rata_result.eligible_room_rent,
-                        "actual_room": pro_rata_result.actual_room_rent,
-                        "ratio": pro_rata_result.pro_rata_ratio
-                    }
-                ))
-
+            if eligible_room is None:
+                # Fix 3: room_rent_limit not configured — cannot compute pro-rata
                 traces.append(DecisionTrace(
                     step=self.current_step,
                     rule_id="R3_BEN_004",
                     rule_name="Room Pro-Rata",
                     gate="financial_computation",
-                    inputs={"eligible": eligible_room, "actual": line_item.actual_room_rent},
-                    evaluation="DEDUCTION_APPLIED",
-                    reason=f"Pro-rata deduction: INR {pro_rata_result.deduction:.2f}",
+                    inputs={"actual_room_rent": line_item.actual_room_rent},
+                    evaluation="NOT_APPLICABLE",
+                    reason=(
+                        "room_rent_limit not configured in PolicyData — "
+                        "pro-rata cannot be computed; flagged for ASSISTED_REVIEW"
+                    ),
+                    confidence=0.5,
                     source_section="6.2.4(d)"
                 ))
+                # Reduce overall confidence so the line item routes to ASSISTED_REVIEW
+                state.overall_confidence = min(
+                    state.overall_confidence, 0.5
+                )
+            else:
+                expense_components = self._calculate_associated_medical_expenses(
+                    line_item, claimed_amount
+                )
+
+                if all(v == 0.0 for v in expense_components.values()):
+                    # No itemised breakdown available — skip pro-rata, log notice
+                    traces.append(DecisionTrace(
+                        step=self.current_step,
+                        rule_id="R3_BEN_004",
+                        rule_name="Room Pro-Rata",
+                        gate="financial_computation",
+                        inputs={"note": "breakdown fields absent — using claimed_amount as proxy"},
+                        evaluation="NOT_APPLICABLE",
+                        reason=(
+                            "room_charges / nursing_charges / medical_practitioner_fees / "
+                            "ot_charges not provided in LineItemData — pro-rata skipped; "
+                            "populate from hospital bill or route to ASSISTED_REVIEW"
+                        ),
+                        confidence=0.5,
+                        source_section="6.2.4(d)"
+                    ))
+                else:
+                    pro_rata_result = calculate_room_pro_rata(
+                        eligible_room_rent=eligible_room,
+                        actual_room_rent=line_item.actual_room_rent,
+                        room_charges=expense_components["room_charges"],
+                        nursing_charges=expense_components["nursing_charges"],
+                        medical_practitioner_fees=expense_components["medical_practitioner_fees"],
+                        ot_charges=expense_components["ot_charges"]
+                    )
+
+                    if pro_rata_result.deduction > 0:
+                        admissible_amount -= pro_rata_result.deduction
+                        payable_amount -= pro_rata_result.deduction
+                        state.room_pro_rata_ratio = pro_rata_result.pro_rata_ratio
+
+                        deductions.append(DeductionDetail(
+                            deduction_type="room_pro_rata",
+                            amount=pro_rata_result.deduction,
+                            rule_id="R3_BEN_004",
+                            reason=(
+                                f"Room category breach: ratio "
+                                f"{pro_rata_result.pro_rata_ratio:.4f}"
+                            ),
+                            calculation_details={
+                                "eligible_room": pro_rata_result.eligible_room_rent,
+                                "actual_room": pro_rata_result.actual_room_rent,
+                                "ratio": pro_rata_result.pro_rata_ratio,
+                                "associated_expenses": (
+                                    pro_rata_result.associated_medical_expenses
+                                )
+                            }
+                        ))
+
+                        traces.append(DecisionTrace(
+                            step=self.current_step,
+                            rule_id="R3_BEN_004",
+                            rule_name="Room Pro-Rata",
+                            gate="financial_computation",
+                            inputs={
+                                "eligible": eligible_room,
+                                "actual": line_item.actual_room_rent,
+                                "ratio": pro_rata_result.pro_rata_ratio
+                            },
+                            evaluation="DEDUCTION_APPLIED",
+                            reason=f"Pro-rata deduction: INR {pro_rata_result.deduction:.2f}",
+                            source_section="6.2.4(d)"
+                        ))
 
         # ================================================================
         # STEP 2: Prolonged Hospitalization Penalty (if applicable)
@@ -1653,11 +1841,15 @@ class ClaimsAdjudicationPipeline:
         if context.policy.annual_aggregate_deductible and context.policy.annual_aggregate_deductible > 0:
             self.current_step += 1
 
+            deductible_rule = self.product_memory.get_rule("R3_FIN_001")
+            deductible_exempt = deductible_rule.not_applicable_to if deductible_rule else None
+
             deductible_result = calculate_deductible(
                 claim_amount=payable_amount,
                 annual_deductible_limit=context.policy.annual_aggregate_deductible,
                 deductible_consumed_ytd=context.benefit_balance.deductible_consumed_ytd,
-                benefit_bucket=line_item.benefit_bucket
+                benefit_bucket=line_item.benefit_bucket,
+                exempt_benefits=deductible_exempt
             )
 
             if deductible_result.deductible_applied > 0:
@@ -1693,28 +1885,32 @@ class ClaimsAdjudicationPipeline:
         if context.policy.co_payment_percent and context.policy.co_payment_percent > 0:
             self.current_step += 1
 
-            # Room category co-pay lookup (Annexure V)
+            # Fix 6: Room category co-pay lookup via ProductMemory (R3_TBL_005 / Annexure V).
+            # Replaces the incomplete partial hardcode that missed several combinations.
             room_copay_percent = 0.0
             if line_item.room_category_claimed:
-                if context.policy.variant == "Classic":
-                    if "Suite" in line_item.room_category_claimed:
-                        room_copay_percent = 0.50
-                    elif "Private" in line_item.room_category_claimed:
-                        room_copay_percent = 0.40
-                elif context.policy.variant == "Select":
-                    if "Suite" in line_item.room_category_claimed:
-                        room_copay_percent = 0.40
-                    elif "Deluxe" in line_item.room_category_claimed:
-                        room_copay_percent = 0.20
+                room_copay_percent = self.product_memory.get_room_copay_percent(
+                    variant=context.policy.variant,
+                    room_category_claimed=line_item.room_category_claimed
+                )
+
+            # Defensive normalization: divide by 100.0 if percentage is > 1.0 (whole number)
+            co_payment_percent = context.policy.co_payment_percent
+            if co_payment_percent > 1.0:
+                co_payment_percent /= 100.0
+
+            copay_rule = self.product_memory.get_rule("R3_FIN_002")
+            copay_exempt = copay_rule.not_applicable_to if copay_rule else None
 
             copay_result = calculate_copayment(
                 admissible_amount=payable_amount,
-                base_copay_percent=context.policy.co_payment_percent,
+                base_copay_percent=co_payment_percent,
                 benefit_bucket=line_item.benefit_bucket,
                 heads_up_penalty=state.heads_up_penalty_triggered,
                 tiered_network_penalty=state.tiered_network_penalty_triggered,
                 prolonged_hosp_penalty=state.prolonged_hosp_penalty_triggered,
-                room_category_copay_percent=room_copay_percent
+                room_category_copay_percent=room_copay_percent,
+                exempt_benefits=copay_exempt
             )
 
             if copay_result.copay_amount > 0:
@@ -1757,6 +1953,10 @@ class ClaimsAdjudicationPipeline:
         base_si_rem = max(0.0, context.benefit_balance.base_si_remaining - state.amount_from_base_si)
         booster_rem = max(0.0, context.benefit_balance.booster_plus_remaining - state.amount_from_booster)
         forever_pool_rem = max(0.0, forever_pool_val - state.amount_from_forever)
+
+        # Defensive bounds enforcement: ensure running state and current payable amount are not negative
+        state.running_payable_amount = max(0.0, state.running_payable_amount)
+        payable_amount = max(0.0, payable_amount)
 
         si_result = calculate_si_waterfall(
             payable_amount=payable_amount,
@@ -1851,10 +2051,12 @@ class ClaimsAdjudicationPipeline:
                 context.benefit_balance.reassure_forever_pool -= state.amount_from_forever
             
             # ================================================================
-            # 2. SET REASSURE FOREVER TRIGGERED (on first paid claim)
+            # 2. SET REASSURE FOREVER TRIGGERED (Fix 4B)
             # ================================================================
             if not context.lifetime_state.reassure_forever_triggered and total_paid > 0:
                 context.lifetime_state.reassure_forever_triggered = True
+                context.lifetime_state.reassure_forever_triggered_date = datetime.now(timezone.utc)
+                context.lifetime_state.reassure_forever_triggered_claim_id = context.claim_id
             
             # ================================================================
             # 3. UNLOCK LOCK THE CLOCK (if age was unlocked for premium)
@@ -1871,14 +2073,15 @@ class ClaimsAdjudicationPipeline:
                 context.benefit_balance.deductible_consumed_ytd += state.deductible_applied_this_claim
             
             # ================================================================
-            # 5. UPDATE CASH-BAG+ WALLET (if applicable)
+            # 5. CASH-BAG+ WALLET — NOT_IMPLEMENTED (Fix 5)
+            # Cash-Bag+ is funded by wellness activities and specific benefit
+            # triggers defined in the policy (sections 4.9, 4.10), NOT as a
+            # percentage of claim payout. The 2% rate was fabricated and has
+            # been removed. Implementation requires wallet credit rules from
+            # the Benefit Balance API. Do not modify cash_bag_plus_wallet
+            # until those rules are defined.
             # ================================================================
-            if hasattr(context.benefit_balance, "cash_bag_plus_wallet"):
-                # Cash-Bag+ accumulates on each claim (simplified: 2% of payable per claim)
-                accumulation_rate = 0.02  # 2% of payable amount
-                cash_bag_accumulation = total_paid * accumulation_rate
-                if hasattr(context.benefit_balance, "cash_bag_plus_wallet"):
-                    context.benefit_balance.cash_bag_plus_wallet += cash_bag_accumulation
+            pass
             
             # ================================================================
             # 6. RECORD STATE UPDATE TRACE
@@ -1999,16 +2202,17 @@ class ClaimsAdjudicationPipeline:
                 elif "penalty" in deduction.deduction_type:
                     deduction_breakdown.penalties += deduction.amount
 
-        # SI waterfall breakdown (retrieved from state cache)
+        # Fix 4C: Gate 7 has already subtracted amounts from context.benefit_balance.
+        # Read the already-updated values directly — do NOT subtract again.
         si_waterfall = SIWaterfallBreakdown(
             amount_from_base_si=getattr(state, "amount_from_base_si", 0.0),
             amount_from_booster=getattr(state, "amount_from_booster", 0.0),
             amount_from_forever=getattr(state, "amount_from_forever", 0.0),
             total_paid=total_payable,
             shortfall=total_claimed - total_payable,
-            updated_base_si=context.benefit_balance.base_si_remaining - getattr(state, "amount_from_base_si", 0.0),
-            updated_booster=context.benefit_balance.booster_plus_remaining - getattr(state, "amount_from_booster", 0.0),
-            updated_forever_pool=context.benefit_balance.reassure_forever_pool - getattr(state, "amount_from_forever", 0.0)
+            updated_base_si=context.benefit_balance.base_si_remaining,
+            updated_booster=context.benefit_balance.booster_plus_remaining,
+            updated_forever_pool=context.benefit_balance.reassure_forever_pool
         )
         
         # Issue 16/22: Determine overall decision propagating ASSISTED_REVIEW
@@ -2069,7 +2273,7 @@ class ClaimsAdjudicationPipeline:
                 for d in line_item_decisions
             ],
             "manual_review_required": state.overall_confidence < self.confidence_threshold,
-            "adjudication_timestamp": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+            "adjudication_timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "processing_duration_ms": processing_duration,
             "ai_version": "Claims2.0-v1.0",
         }

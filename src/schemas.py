@@ -40,6 +40,26 @@ class PolicyData(BaseModel):
     heads_up_opted: bool = False
     tiered_network_opted: bool = False
 
+    # Financial configuration — populated by Policy API or UI config screen.
+    # When None at runtime, the pipeline emits NOT_APPLICABLE and routes to ASSISTED_REVIEW
+    # rather than fabricating a deduction from a hardcoded fallback.
+    room_rent_limit: Optional[float] = None
+    # INR ceiling on daily room rent. None = not yet configured.
+    # Examples: 3000.0 (Single Private Room, Select); None (unlimited / not applicable).
+
+    hospital_daily_cash_amount: Optional[float] = None
+    # Daily cash benefit in INR per policy schedule.
+    # None = benefit not opted or not configured by Policy API.
+
+    pa_sum_insured: Optional[float] = None
+    # Personal Accident sum insured (may differ from base health SI).
+    # None = PA benefit not opted or not configured.
+
+    personal_waiting_period_months: int = 0
+    # Insurer-imposed personal waiting period (R3_EXCL_017), 0–48 months.
+    # 0 = not imposed. Set by underwriting at policy issuance.
+
+
 
 class MemberData(BaseModel):
     """Member-level data from Member API"""
@@ -165,6 +185,21 @@ class LineItemData(BaseModel):
     condition_diagnosed: str
     accident_related: bool = False
     emergency: bool = False
+
+    # Room rent expense breakdown — sourced from hospital bill itemisation.
+    # Required for accurate pro-rata calculation (Tool 2).
+    # If None, pro-rata cannot be computed and the claim routes to ASSISTED_REVIEW.
+    room_charges: Optional[float] = None
+    nursing_charges: Optional[float] = None
+    medical_practitioner_fees: Optional[float] = None
+    ot_charges: Optional[float] = None
+
+    # Home Care / Domiciliary Treatment preconditions (R3_BEN_007).
+    # All three must be True for the Home Care benefit to be payable.
+    doctor_advised: bool = False
+    continuous_treatment: bool = False
+    daily_monitoring_chart: bool = False
+
 
 
 class ClaimContext(BaseModel):

@@ -90,7 +90,7 @@ class SemanticExecutionAgent:
                     "\"confidence_score\"" ws ":" ws number ws "}"
     status ::= "\"PASSED\"" | "\"EXCLUSION_ACTIVE\"" | "\"FAILED\""
     string ::= "\"" ([^"\\] | "\\" .)* "\""
-    number ::= [0-9] "." [0-9] [0-9]?
+    number ::= [0-9]+ ("." [0-9]+)?
     ws     ::= [ \t\n]*
     '''
 
@@ -153,10 +153,14 @@ class SemanticExecutionAgent:
         """
         # Issue 18: compressed to <80 tokens
         system_prompt = (
-            "Insurance adjudicator. Respond ONLY with JSON: "
-            '{"evaluation_status":"PASSED"|"EXCLUSION_ACTIVE"|"FAILED",'
-            '"reasoning_trace":"<cite policy clause>","confidence_score":0.0-1.0}. '
-            "EXCLUSION_ACTIVE if exclusion applies. CONSERVATIVE: low confidence (<0.9) when uncertain."
+            "You are an expert health insurance adjudicator. Evaluate the context against exclusion clauses. "
+            "You MUST respond with a valid JSON object matching this exact schema:\n"
+            '{"evaluation_status": "PASSED" or "EXCLUSION_ACTIVE" or "FAILED", '
+            '"reasoning_trace": "string", "confidence_score": float}\n'
+            "CRITICAL TOKEN DEFINITIONS:\n"
+            "- Set 'evaluation_status' to 'PASSED' ONLY if the exclusion is NOT active (the claim is covered/allowed).\n"
+            "- Set 'evaluation_status' to 'EXCLUSION_ACTIVE' if the exclusion applies (the claim must be rejected).\n"
+            "- Set 'evaluation_status' to 'FAILED' ONLY if there is a system processing error or critical missing data."
         )
         raw_response = self._call_llm(system_prompt, prompt, SemanticAdjudicationPayload)
         
@@ -192,10 +196,14 @@ class SemanticExecutionAgent:
         """Assess if treatment is covered"""
         # Issue 18: compressed to <80 tokens
         system_prompt = (
-            "Insurance adjudicator. Respond ONLY with JSON: "
-            '{"evaluation_status":"PASSED"|"EXCLUSION_ACTIVE"|"FAILED",'
-            '"reasoning_trace":"<cite coverage clause>","confidence_score":0.0-1.0}. '
-            "PASSED if treatment meets coverage criteria (e.g. hosp >= 2h, AYUSH >= 24h). CONSERVATIVE."
+            "You are an expert health insurance adjudicator. Evaluate the context against coverage clauses. "
+            "You MUST respond with a valid JSON object matching this exact schema:\n"
+            '{"evaluation_status": "PASSED" or "EXCLUSION_ACTIVE" or "FAILED", '
+            '"reasoning_trace": "string", "confidence_score": float}\n'
+            "CRITICAL TOKEN DEFINITIONS:\n"
+            "- Set 'evaluation_status' to 'PASSED' if the treatment satisfies coverage criteria (allowed).\n"
+            "- Set 'evaluation_status' to 'EXCLUSION_ACTIVE' if it fails coverage sublimits or parameters (not allowed).\n"
+            "- Set 'evaluation_status' to 'FAILED' if data is missing or unparseable."
         )
         raw_response = self._call_llm(system_prompt, prompt, SemanticAdjudicationPayload)
         
@@ -231,10 +239,14 @@ class SemanticExecutionAgent:
         """Assess waiting period applicability"""
         # Issue 18: compressed to <80 tokens
         system_prompt = (
-            "Insurance adjudicator. Respond ONLY with JSON: "
-            '{"evaluation_status":"PASSED"|"EXCLUSION_ACTIVE"|"FAILED",'
-            '"reasoning_trace":"<cite waiting period clause>","confidence_score":0.0-1.0}. '
-            "PASSED if waiting period is cleared or exempted (accident, port). CONSERVATIVE."
+            "You are an expert health insurance adjudicator. Evaluate the context against waiting periods. "
+            "You MUST respond with a valid JSON object matching this exact schema:\n"
+            '{"evaluation_status": "PASSED" or "EXCLUSION_ACTIVE" or "FAILED", '
+            '"reasoning_trace": "string", "confidence_score": float}\n'
+            "CRITICAL TOKEN DEFINITIONS:\n"
+            "- Set 'evaluation_status' to 'PASSED' if the waiting period is successfully cleared or exempted.\n"
+            "- Set 'evaluation_status' to 'EXCLUSION_ACTIVE' if the waiting period is still actively running (excluded).\n"
+            "- Set 'evaluation_status' to 'FAILED' if timelines cannot be verified."
         )
         raw_response = self._call_llm(system_prompt, prompt, SemanticAdjudicationPayload)
         
@@ -395,7 +407,7 @@ class SemanticExecutionAgent:
             "temperature": 0.1,
             "top_p": 0.9,
             "n_predict": 512,               # Issue 18: was 1024
-            "stop": ["}", "</s>", "<end_of_turn>"],  # Issue 18: stop after JSON closes
+            "stop": ["</s>", "<end_of_turn>", "<|eot_id|>"],
             "stream": False,
         }
         content = self._http_post(
@@ -438,7 +450,13 @@ class SemanticExecutionAgent:
         # longer read timeout.
         conn = conn_cls(host, port, timeout=self.connect_timeout_s)
         try:
-            conn.connect()                          # raises socket.timeout on connect failure
+            try:
+                conn.connect()  # raises socket.timeout on connect failure
+            except (socket.timeout, ConnectionRefusedError, OSError) as connect_err:
+                raise RuntimeError(
+                    f"Cannot connect to local LLM at {host}:{port} — "
+                    f"ensure llama.cpp server is running. Error: {connect_err}"
+                ) from connect_err
             conn.sock.settimeout(self.read_timeout_s)  # extend timeout for model generation
             conn.request("POST", path, body=body, headers=headers)
             resp = conn.getresponse()

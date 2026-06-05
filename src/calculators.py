@@ -102,7 +102,8 @@ def calculate_waiting_period(
     cancer_flag: bool = False,
     claim_date: Optional[datetime] = None,
     ped_declarations: Optional[List[str]] = None,
-    personal_waiting_period_months: int = 0
+    personal_waiting_period_months: int = 0,
+    specified_diseases: Optional[List[str]] = None
 ) -> WaitingPeriodResult:
     """
     Tool 1: Waiting Period Calculator
@@ -192,17 +193,39 @@ def calculate_waiting_period(
         )
     
     # Specified disease list (Code-Excl02) - 24 months
-    specified_diseases = [
-        "pancreatitis", "stones", "cataract", "glaucoma", "retinal detachment",
-        "hyperplasia of prostate", "hydrocele", "spermatocele",
-        "prolapse uterus", "endometriosis", "fibroids", "pcod", "hysterectomy",
-        "hemorrhoids", "fissure", "fistula", "hernia",
-        "osteoarthritis", "joint replacement", "osteoporosis", "rheumatoid arthritis",
-        "varicose veins", "benign neoplasm", "tumour", "cyst", "polyp",
-        "ulcer", "erosion", "varices", "otitis media", "tonsils", "adenoids"
-    ]
+    if specified_diseases is None:
+        specified_diseases = [
+            "pancreatitis", "stones", "cataract", "glaucoma", "retinal detachment",
+            "hyperplasia of prostate", "hydrocele", "spermatocele",
+            "prolapse uterus", "endometriosis", "fibroids", "pcod", "hysterectomy",
+            "hemorrhoids", "fissure", "fistula", "hernia",
+            "osteoarthritis", "joint replacement", "osteoporosis", "rheumatoid arthritis",
+            "varicose veins", "benign neoplasm", "tumour", "cyst", "polyp",
+            "ulcer", "erosion", "varices", "otitis media", "tonsils", "adenoids"
+        ]
     
-    is_specified_disease = any(disease in condition.lower() for disease in specified_diseases)
+    import re
+    is_specified_disease = False
+    for disease in specified_diseases:
+        disease_lower = disease.lower()
+        cond_lower = condition.lower()
+        if disease_lower in cond_lower or cond_lower in disease_lower:
+            is_specified_disease = True
+            break
+        # Split on common separators to match individual diseases within long phrases
+        parts = re.split(r',|;|\band\b|\bor\b', disease_lower)
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            if part in cond_lower or cond_lower in part:
+                # Exclude very generic matching words
+                stop_words = {"site", "type", "system", "tract", "extremities", "lower", "unless", "necessitated", "surgical", "treatment", "diseases", "diseases of", "treatment for"}
+                if cond_lower not in stop_words and part not in stop_words:
+                    is_specified_disease = True
+                    break
+        if is_specified_disease:
+            break
     
     if is_specified_disease:
         # Cancer has a 30-day wait under specific illness waiting periods, not 24 months
@@ -339,7 +362,8 @@ def calculate_copayment(
     heads_up_penalty: bool = False,
     tiered_network_penalty: bool = False,
     prolonged_hosp_penalty: bool = False,
-    room_category_copay_percent: float = 0.0
+    room_category_copay_percent: float = 0.0,
+    exempt_benefits: Optional[List[str]] = None
 ) -> CoPaymentResult:
     """
     Tool 3: Co-Payment Calculator
@@ -370,11 +394,12 @@ def calculate_copayment(
         CoPaymentResult with total co-payment and payable amount
     """
     # Check if co-payment exempt benefits
-    exempt_benefits = [
-        "Annual Health Check-up", "Live Healthy", "Second Medical Opinion",
-        "Shared Accommodation Cash", "e-consultation", "Personal Accident",
-        "Hospital Daily Cash"
-    ]
+    if exempt_benefits is None:
+        exempt_benefits = [
+            "Annual Health Check-up", "Live Healthy", "Second Medical Opinion",
+            "Shared Accommodation Cash", "e-consultation", "Personal Accident",
+            "Hospital Daily Cash"
+        ]
     
     if any(exempt in benefit_bucket for exempt in exempt_benefits):
         return CoPaymentResult(
@@ -434,7 +459,8 @@ def calculate_deductible(
     claim_amount: float,
     annual_deductible_limit: float,
     deductible_consumed_ytd: float,
-    benefit_bucket: str
+    benefit_bucket: str,
+    exempt_benefits: Optional[List[str]] = None
 ) -> DeductibleResult:
     """
     Tool 4: Deductible Calculator
@@ -456,11 +482,12 @@ def calculate_deductible(
         DeductibleResult with deductible applied and remaining
     """
     # Check if deductible exempt benefits
-    exempt_benefits = [
-        "Annual Health Check-up", "Live Healthy", "Second Medical Opinion",
-        "Shared Accommodation Cash", "e-consultation", "Personal Accident",
-        "Hospital Daily Cash"
-    ]
+    if exempt_benefits is None:
+        exempt_benefits = [
+            "Annual Health Check-up", "Live Healthy", "Second Medical Opinion",
+            "Shared Accommodation Cash", "e-consultation", "Personal Accident",
+            "Hospital Daily Cash"
+        ]
     
     if any(exempt in benefit_bucket for exempt in exempt_benefits):
         return DeductibleResult(

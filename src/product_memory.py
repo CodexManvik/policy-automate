@@ -78,6 +78,7 @@ class RuleBlueprint:
     # Additional context
     notes: List[str] = None
     exclusions_within_benefit: List[str] = None
+    not_applicable_to: Optional[List[str]] = None
     
     def __post_init__(self):
         if self.preconditions is None:
@@ -86,6 +87,8 @@ class RuleBlueprint:
             self.notes = []
         if self.exclusions_within_benefit is None:
             self.exclusions_within_benefit = []
+        if self.not_applicable_to is None:
+            self.not_applicable_to = []
         if self.applicable_buckets is None:
             self.applicable_buckets = self.benefit_bucket_filter
         if self.benefit_bucket_filter is None:
@@ -110,6 +113,9 @@ class ProductMemoryStore:
         # Mutual Exclusivity Constraints - loaded from extraction file
         self.mutual_exclusivity_constraints: List[Dict[str, Any]] = []
         self.mutual_exclusivity_by_id: Dict[str, Dict[str, Any]] = {}
+
+        # Tables - loaded from extraction file
+        self.tables: Dict[str, Dict[str, Any]] = {}
         
         # Ingest rules from standard extraction file or fallback to embedded
         import os
@@ -152,6 +158,10 @@ class ProductMemoryStore:
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
+        # Load tables
+        self.tables = {t['table_id']: t for t in data.get('tables', [])}
+        print(f"[OK] Loaded {len(self.tables)} tables from Product JSON")
+
         # Load mutual exclusivity constraints
         mx_constraints = data.get('mutual_exclusivity_constraints', [])
         self.mutual_exclusivity_constraints = mx_constraints
@@ -181,6 +191,7 @@ class ProductMemoryStore:
             section_ref = r_data.get('section_ref', '')
             formula = r_data.get('formula', '')
             preconditions = r_data.get('preconditions', [])
+            not_applicable_to = r_data.get('not_applicable_to', [])
             
             # Set semantic prompt template for semantic rules if they don't have one
             semantic_prompt_template = None
@@ -275,7 +286,8 @@ Return: {"is_maternity": bool, "is_ectopic": bool, "reason": str, "confidence": 
                 preconditions=preconditions,
                 semantic_prompt_template=semantic_prompt_template,
                 benefit_bucket_filter=benefit_bucket_filter,
-                applicable_buckets=applicable_buckets
+                applicable_buckets=applicable_buckets,
+                not_applicable_to=not_applicable_to
             )
 
             self.add_rule(rule)
@@ -323,7 +335,7 @@ Return: {"is_maternity": bool, "is_ectopic": bool, "reason": str, "confidence": 
         # 2. Exclusions
         elif rule_id_upper.startswith("R3_EXCL"):
             gate = RuleGate.EXCLUSION_VALIDATION
-            if rule_id_upper in ["R3_EXCL_010", "R3_EXCL_021"]:
+            if rule_id_upper in ["R3_EXCL_010", "R3_EXCL_020", "R3_EXCL_021"]:
                 exec_type = ExecutionType.DETERMINISTIC
                 priority = 38
             else:
@@ -410,7 +422,8 @@ Return: {"is_maternity": bool, "is_ectopic": bool, "reason": str, "confidence": 
             formula=data.get('formula'),
             source_page=data.get('source_page'),
             preconditions=data.get('preconditions', []),
-            notes=data.get('notes', [])
+            notes=data.get('notes', []),
+            not_applicable_to=data.get('not_applicable_to', [])
         )
     
     def add_rule(self, rule: RuleBlueprint):
@@ -451,7 +464,105 @@ Return: {"is_maternity": bool, "is_ectopic": bool, "reason": str, "confidence": 
                     benefit_bucket in r.benefit_bucket_filter]
         
         return rules
-    
+
+    def get_room_copay_percent(
+        self,
+        variant: str,
+        room_category_claimed: str
+    ) -> float:
+        """
+        Look up room co-payment percentage from R3_TBL_005 (Annexure V).
+        Returns 0.0 if no match found (no co-pay applies).
+
+        The table encodes the canonical Annexure V schedule (policy page 62).
+        Key: (variant, room_category_keyword) → copay fraction (0.0–1.0).
+        Matching: lowercase substring, longest-match wins to avoid false positives
+        (e.g. 'private' matching inside 'semi-private').
+
+        Source: R3_TBL_005 in rules extraction JSON.
+        """
+        # Try dynamic lookup first
+        tbl = self.tables.get("R3_TBL_005")
+        if tbl:
+            rows = tbl.get("rows", [])
+            room_lower = (room_category_claimed or "").lower()
+            best_match = 0.0
+            best_len = -1
+            
+            for row in rows:
+                row_variant = row.get("variant")
+                if row_variant != variant:
+                    continue
+                
+                keyword = row.get("room_category", "").lower()
+                percent = float(row.get("copay_percent", 0.0))
+                # Normalize copay percent to fraction if it was loaded as an integer (e.g. 20 -> 0.20)
+                if percent > 1.0:
+                    percent /= 100.0
+                
+                # Check for "except" clause: "all room categories except deluxe and suite"
+                if "except" in keyword:
+                    parts = keyword.split("except")
+                    exceptions_str = parts[1].strip()
+                    # Split exception keywords
+                    exceptions = [e.strip() for e in exceptions_str.replace("and", ",").split(",") if e.strip()]
+                    
+                    # If room matches "all room categories" and does NOT contain any exceptions
+                    if not any(exc in room_lower for exc in exceptions):
+                        if len(keyword) > best_len:
+                            best_match = percent
+                            best_len = len(keyword)
+                elif keyword == "all room categories":
+                    if len(keyword) > best_len:
+                        best_match = percent
+                        best_len = len(keyword)
+                elif keyword in room_lower:
+                    if len(keyword) > best_len:
+                        best_match = percent
+                        best_len = len(keyword)
+            return best_match
+
+        # Canonical Annexure V table fallback
+        _ANNEXURE_V: Dict[str, Dict[str, float]] = {
+            "Classic": {
+                "general ward":  0.00,
+                "twin sharing":  0.20,
+                "semi private":  0.10,
+                "deluxe":        0.40,
+                "suite":         0.50,
+                "private":       0.40,
+            },
+            "Select": {
+                "general ward":  0.00,
+                "twin sharing":  0.00,
+                "semi private":  0.00,
+                "deluxe":        0.20,
+                "suite":         0.40,
+                "private":       0.00,
+            },
+            "Elite": {
+                "general ward":  0.00,
+                "twin sharing":  0.00,
+                "semi private":  0.00,
+                "deluxe":        0.00,
+                "suite":         0.20,
+                "private":       0.00,
+            },
+        }
+
+        variant_table = _ANNEXURE_V.get(variant, {})
+        room_lower = (room_category_claimed or "").lower()
+
+        # Longest-match wins — prevents 'private' from matching 'semi private'
+        best_match = 0.0
+        best_len = -1
+        for keyword, percent in variant_table.items():
+            if keyword in room_lower and len(keyword) > best_len:
+                best_match = percent
+                best_len = len(keyword)
+
+        return best_match
+
     def _assign_dependencies_dynamically(self):
         """
         Dynamically assign depends_on list to rules based on logical gate hierarchy
@@ -471,7 +582,7 @@ Return: {"is_maternity": bool, "is_ectopic": bool, "reason": str, "confidence": 
         financial_ids = get_ids_for_gate(RuleGate.FINANCIAL_COMPUTATION)
 
         for rule_id, rule in self.rules.items():
-            depends = []
+            depends = list(rule.depends_on)
             
             # 1. Gate order dependencies
             if rule.gate == RuleGate.MEMBER_VALIDATION:
@@ -498,7 +609,7 @@ Return: {"is_maternity": bool, "is_ectopic": bool, "reason": str, "confidence": 
                 if rule_id in ["R3_FIN_001", "R3_FIN_003"]:  # Deductible
                     depends.extend([dep for dep in ["R3_BEN_004", "R3_GEN_002"] if dep in loaded_rule_ids])
                 elif rule_id == "R3_FIN_002":  # Co-payment
-                    depends.extend([dep for dep in ["R3_BEN_004", "R3_GEN_002", "R3_BEN_016", "R3_BEN_017"] if dep in loaded_rule_ids])
+                    depends.extend([dep for dep in ["R3_BEN_004", "R3_GEN_002", "R3_BEN_016", "R3_BEN_017", "R3_BEN_018", "R3_BEN_019"] if dep in loaded_rule_ids])
                 elif rule_id == "R3_SUM_001":  # SI waterfall
                     depends.extend([dep for dep in ["R3_FIN_001", "R3_FIN_002"] if dep in loaded_rule_ids])
                     
@@ -525,8 +636,10 @@ Return: {"is_maternity": bool, "is_ectopic": bool, "reason": str, "confidence": 
 # the extensibility hook for when version-specific files are introduced.
 _product_memory_cache: Dict[str, ProductMemoryStore] = {}
 
-# Default version string used by the singleton path.
-_DEFAULT_VERSION = "R3_v1.0"
+# Default version string — MUST match ClaimContext.product_json_version default (Fix 9).
+# Keeping these identical ensures all calls without an explicit version resolve to
+# the same cache entry and the singleton pattern stays effective.
+_DEFAULT_VERSION = "R3_v2.1_2025-01-15"
 
 def _version_to_path(version: str) -> Optional[str]:
     """

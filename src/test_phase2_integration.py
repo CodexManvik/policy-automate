@@ -306,7 +306,12 @@ def test_async_adjudication():
     
     decision = asyncio.run(pipeline.adjudicate_claim_async(context))
     
-    assert decision.claim_decision in ["APPROVED", "PARTIALLY_APPROVED", "REJECTED", "PENDING_REVIEW"]
+    # Fix 10: ASSISTED_REVIEW is a valid outcome when a required policy field
+    # (e.g. room_rent_limit) is not yet configured. Including it here keeps the
+    # test passing once the data-driven contract is enforced end-to-end.
+    assert decision.claim_decision in [
+        "APPROVED", "PARTIALLY_APPROVED", "REJECTED", "PENDING_REVIEW", "ASSISTED_REVIEW"
+    ]
     assert decision.total_claimed == 150000.0
     assert len(decision.line_items) == 1
     assert decision.confidence_score > 0.0
@@ -314,6 +319,251 @@ def test_async_adjudication():
     print(f"  Overall Decision: {decision.claim_decision}")
     print(f"  Total Payable: INR {decision.total_payable:,.2f}")
     print("[PASS] PASSED: Asynchronous adjudication matches schema and succeeds")
+    return True
+
+
+def test_endorsement_processing():
+    """Test endorsement processing in the pipeline"""
+    print("\n" + "="*70)
+    print("TEST: Endorsement Processing Integration")
+    print("="*70)
+    
+    from pipeline import ClaimsAdjudicationPipeline
+    
+    # 1. MemberAddition endorsement resets waiting periods
+    context = create_test_context()
+    context.policy.room_rent_limit = 10000.0
+    context.endorsements = [
+        EndorsementData(
+            endorsement_id="END-001",
+            policy_id=context.policy.policy_id,
+            endorsement_type="MemberAddition",
+            effective_date=datetime(2024, 6, 1),
+            details={"member_id": context.member.member_id}
+        )
+    ]
+    
+    # Line item is after addition date, so reset applies
+    context.line_items[0].admission_date = datetime(2024, 6, 15)
+    context.line_items[0].expense_date = datetime(2024, 6, 15)
+    context.line_items[0].condition_diagnosed = "Fever"
+    
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    decision = pipeline.adjudicate_claim(context)
+    
+    # Resetting coverage continuous months means initial waiting period is active
+    # Fever (diagnosed at day 15 since addition) is rejected
+    assert decision.claim_decision == "REJECTED"
+    print("  MemberAddition waiting period reset verified [PASS]")
+    
+    # 2. PlanUpgrade endorsement upgrade variant Select -> Elite
+    context = create_test_context()
+    context.policy.room_rent_limit = 10000.0
+    context.endorsements = [
+        EndorsementData(
+            endorsement_id="END-002",
+            policy_id=context.policy.policy_id,
+            endorsement_type="PlanUpgrade",
+            effective_date=datetime(2024, 6, 1),
+            details={"new_variant": "Elite", "room_category_entitled": "Suite"}
+        )
+    ]
+    context.line_items[0].admission_date = datetime(2024, 6, 15)
+    context.line_items[0].expense_date = datetime(2024, 6, 15)
+    
+    decision = pipeline.adjudicate_claim(context)
+    assert context.policy.variant == "Elite"
+    assert context.policy.room_category_entitled == "Suite"
+    print("  PlanUpgrade variant upgrade verified [PASS]")
+    return True
+
+
+def test_non_payable_deduction():
+    """Test non-payable item removal (Annexure exclusions)"""
+    print("\n" + "="*70)
+    print("TEST: Non-Payable Items Deduction (Annexure)")
+    print("="*70)
+    
+    from pipeline import ClaimsAdjudicationPipeline
+    
+    context = create_test_context()
+    context.policy.room_rent_limit = 10000.0
+    context.line_items = [
+        LineItemData(
+            line_item_id="LI-NP",
+            description="Attendant charges for 5 days",
+            claimed_amount=10000.0,
+            expense_date=datetime.now(timezone.utc),
+            benefit_bucket="Expenses during Hospitalization",
+            admission_date=datetime.now(timezone.utc) - timedelta(days=2),
+            discharge_date=datetime.now(timezone.utc) - timedelta(days=1),
+            hospitalization_hours=30.0,
+            condition_diagnosed="Acute Appendicitis",
+            accident_related=False
+        )
+    ]
+    
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    decision = pipeline.adjudicate_claim(context)
+    
+    # Should be fully rejected/deducted as non-payable items
+    assert decision.claim_decision == "REJECTED"
+    assert decision.total_payable == 0.0
+    assert decision.deduction_breakdown.non_payable_items == 10000.0
+    print("  Non-payable items deducted correctly [PASS]")
+    return True
+
+
+def test_modern_treatment_sublimit():
+    """Test modern treatment sub-limits (R3_BEN_005 / R3_BEN_005A)"""
+    print("\n" + "="*70)
+    print("TEST: Modern Treatment Sublimit")
+    print("="*70)
+    
+    from pipeline import ClaimsAdjudicationPipeline
+    
+    # Select variant with robotic surgery, SI is 100,000. Cap should be 50% = 50,000
+    context = create_test_context()
+    context.policy.base_sum_insured = 100000.0
+    context.policy.room_rent_limit = 10000.0
+    context.policy.modern_treatments_plus_opted = False
+    context.benefit_balance.base_si_remaining = 100000.0
+    context.benefit_balance.booster_plus_remaining = 0.0
+    context.benefit_balance.reassure_forever_pool = 0.0
+    context.policy.co_payment_percent = 0.0  # remove co-pay for simpler math
+    
+    context.line_items = [
+        LineItemData(
+            line_item_id="LI-MT",
+            description="Robotic Surgery for prostate cancer",
+            claimed_amount=80000.0,
+            expense_date=datetime.now(timezone.utc),
+            benefit_bucket="Expenses during Hospitalization",
+            admission_date=datetime.now(timezone.utc) - timedelta(days=2),
+            discharge_date=datetime.now(timezone.utc) - timedelta(days=1),
+            hospitalization_hours=30.0,
+            condition_diagnosed="Prostate Cancer",
+            accident_related=False
+        )
+    ]
+    
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    decision = pipeline.adjudicate_claim(context)
+    
+    # Sub-limit of 50% = 50,000. Claimed = 80,000.
+    # Payable should be capped at 50,000.
+    assert decision.total_payable == 50000.0
+    assert decision.deduction_breakdown.sublimits == 30000.0
+    print("  Modern treatment sublimit cap of 50% applied [PASS]")
+    
+    # With modern_treatments_plus_opted, sub-limit is removed
+    context.policy.modern_treatments_plus_opted = True
+    context.benefit_balance.base_si_remaining = 100000.0
+    context.benefit_balance.booster_plus_remaining = 0.0
+    context.benefit_balance.reassure_forever_pool = 0.0
+    context.lifetime_state.reassure_forever_triggered = False
+    context.lifetime_state.reassure_forever_triggered_date = None
+    context.lifetime_state.reassure_forever_triggered_claim_id = None
+    decision_opted = pipeline.adjudicate_claim(context)
+    assert decision_opted.total_payable == 80000.0
+    assert decision_opted.deduction_breakdown.sublimits == 0.0
+    print("  Modern treatment sublimit bypassed with Modern Treatments Plus [PASS]")
+    return True
+
+
+def test_hospital_daily_cash():
+    """Test Hospital Daily Cash benefit calculation"""
+    print("\n" + "="*70)
+    print("TEST: Hospital Daily Cash Benefit")
+    print("="*70)
+    
+    from pipeline import ClaimsAdjudicationPipeline
+    
+    context = create_test_context()
+    context.policy.hospital_daily_cash_amount = 2000.0
+    context.benefit_balance.hospital_cash_days_used = 5
+    
+    # 72 hours = 3 days. Total cash benefit: 3 * 2000 = 6000. Co-pay & deductible exempt.
+    context.line_items = [
+        LineItemData(
+            line_item_id="LI-HDC",
+            description="Hospital Daily Cash Claim",
+            claimed_amount=10000.0,  # claimed_amount doesn't limit cash benefit math directly
+            expense_date=datetime.now(timezone.utc),
+            benefit_bucket="Hospital Daily Cash",
+            admission_date=datetime.now(timezone.utc) - timedelta(days=4),
+            discharge_date=datetime.now(timezone.utc) - timedelta(days=1),
+            hospitalization_hours=72.0,
+            condition_diagnosed="Acute appendicitis",
+            accident_related=False
+        )
+    ]
+    
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    decision = pipeline.adjudicate_claim(context)
+    
+    assert decision.total_payable == 6000.0
+    assert context.benefit_balance.hospital_cash_days_used == 8  # 5 + 3
+    print("  Hospital Daily Cash calculation verified [PASS]")
+    return True
+
+
+def test_pa_benefit():
+    """Test Personal Accident benefit calculation"""
+    print("\n" + "="*70)
+    print("TEST: Personal Accident Benefit")
+    print("="*70)
+    
+    from pipeline import ClaimsAdjudicationPipeline
+    
+    context = create_test_context()
+    context.policy.pa_sum_insured = 500000.0
+    
+    # AD (Accidental Death) = 100% of PA SI
+    context.line_items = [
+        LineItemData(
+            line_item_id="LI-PA",
+            description="Accidental Death claim",
+            claimed_amount=500000.0,
+            expense_date=datetime.now(timezone.utc),
+            benefit_bucket="Personal Accident",
+            admission_date=datetime.now(timezone.utc) - timedelta(days=1),
+            discharge_date=datetime.now(timezone.utc),
+            hospitalization_hours=2.0,
+            condition_diagnosed="Accidental Death",
+            accident_related=True
+        )
+    ]
+    
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    decision = pipeline.adjudicate_claim(context)
+    
+    assert decision.total_payable == 500000.0
+    assert decision.claim_decision == "APPROVED"
+    print("  Personal Accident benefit AD payout verified [PASS]")
+    return True
+
+
+def test_confidence_routing_assisted():
+    """Test confidence-based routing to ASSISTED_REVIEW"""
+    print("\n" + "="*70)
+    print("TEST: Confidence-Based Routing to ASSISTED_REVIEW")
+    print("="*70)
+    
+    from pipeline import ClaimsAdjudicationPipeline
+    
+    # "routine body optimization" in mock LLM triggers 0.75 confidence.
+    # 0.75 is in [0.70, 0.90) range which should trigger ASSISTED_REVIEW.
+    context = create_test_context()
+    context.policy.room_rent_limit = 10000.0
+    context.line_items[0].description = "routine body optimization"
+    
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock", confidence_threshold=0.99)
+    decision = pipeline.adjudicate_claim(context)
+    
+    assert decision.claim_decision == "ASSISTED_REVIEW"
+    assert decision.manual_review_required == True
+    print("  Confidence-based routing to ASSISTED_REVIEW verified [PASS]")
     return True
 
 
@@ -331,7 +581,13 @@ def run_all_tests():
         test_semantic_agent_coverage,
         test_confidence_based_routing,
         test_execution_plan_generation,
-        test_async_adjudication
+        test_async_adjudication,
+        test_endorsement_processing,
+        test_non_payable_deduction,
+        test_modern_treatment_sublimit,
+        test_hospital_daily_cash,
+        test_pa_benefit,
+        test_confidence_routing_assisted
     ]
     
     passed = 0
