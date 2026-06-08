@@ -39,7 +39,7 @@ app.add_middleware(
 import os
 pipeline = ClaimsAdjudicationPipeline(
     llm_provider=os.getenv("LLM_PROVIDER", "default"),
-    local_llm_url=os.getenv("LLM_URL", "http://localhost:8080")
+    local_llm_url=os.getenv("LLM_URL", "http://127.0.0.1:8080")
 )
 
 @app.post(

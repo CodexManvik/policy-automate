@@ -1713,7 +1713,8 @@ function App() {
           {result && (
             <>
               {/* Decision Header */}
-              <div className="glass-card result-header-panel">
+              <div className="glass-card result-header-panel"
+                  style={{ overflow: 'visible', marginTop: '1.5rem' }}>
                 <div className={`result-badge ${
                   result.claim_decision === 'APPROVED' ? 'approved' : 
                   result.claim_decision === 'REJECTED' ? 'rejected' : 'review'

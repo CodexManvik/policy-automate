@@ -10,9 +10,12 @@ from dataclasses import dataclass
 import http.client
 import json
 import os
+import re
 import socket
 import urllib.error
 from urllib.parse import urlparse
+
+from agent_reasoning import AgentReasoningLogger
 
 
 # ============================================================================
@@ -98,12 +101,18 @@ class SemanticExecutionAgent:
         self,
         llm_provider: str = "mock",  # Issue 19: default to mock for local dev
         confidence_threshold: float = 0.90,
-        local_llm_url: str = "http://localhost:8080"
+        local_llm_url: str = "http://127.0.0.1:8080",
+        reasoning_on: Optional[bool] = None
     ):
         self.llm_provider = llm_provider
         self.confidence_threshold = confidence_threshold
         self.local_llm_url = local_llm_url
         self.api_key = os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+
+        if reasoning_on is not None:
+            self.reasoning_on = reasoning_on
+        else:
+            self.reasoning_on = os.getenv("REASONING_ON", "false").lower() in ("true", "1", "yes")
 
         # Issue 20: split connect vs read timeouts for llama.cpp
         self.connect_timeout_s: int = 5    # fast fail if server is not up
@@ -113,7 +122,7 @@ class SemanticExecutionAgent:
         self.call_count = 0
         self.total_confidence = 0.0
 
-        print(f"[AGENT] Semantic Agent initialized with {llm_provider} provider")
+        print(f"[AGENT] Semantic Agent initialized with {llm_provider} provider (reasoning_on={self.reasoning_on})")
         if llm_provider == "local":
             print(f"   Local LLM URL: {local_llm_url}")
     
@@ -121,7 +130,9 @@ class SemanticExecutionAgent:
         self,
         rule_id: str,
         prompt: str,
-        rule_type: Literal["exclusion", "coverage", "waiting_period"]
+        rule_type: Literal["exclusion", "coverage", "waiting_period"],
+        claim_id: str = "UNKNOWN_CLAIM",
+        line_item_id: Optional[str] = None
     ) -> SemanticResult:
         """
         Execute semantic reasoning for a rule
@@ -130,6 +141,8 @@ class SemanticExecutionAgent:
             rule_id: Rule identifier
             prompt: Prepared semantic prompt
             rule_type: Type of rule (exclusion, coverage, waiting_period)
+            claim_id: Claim ID for logging
+            line_item_id: Line Item ID for logging
         
         Returns:
             SemanticResult with structured decision
@@ -138,29 +151,33 @@ class SemanticExecutionAgent:
         
         # Route to appropriate handler based on rule type
         if rule_type == "exclusion":
-            return self._assess_exclusion(rule_id, prompt)
+            return self._assess_exclusion(rule_id, prompt, claim_id, line_item_id)
         elif rule_type == "coverage":
-            return self._assess_coverage(rule_id, prompt)
+            return self._assess_coverage(rule_id, prompt, claim_id, line_item_id)
         elif rule_type == "waiting_period":
-            return self._assess_waiting_period(rule_id, prompt)
+            return self._assess_waiting_period(rule_id, prompt, claim_id, line_item_id)
         else:
             raise ValueError(f"Unknown rule type: {rule_type}")
     
-    def _assess_exclusion(self, rule_id: str, prompt: str) -> SemanticResult:
+    def _assess_exclusion(self, rule_id: str, prompt: str, claim_id: str, line_item_id: Optional[str]) -> SemanticResult:
         """
         Assess if an exclusion applies
         Uses structured output for reliable extraction
         """
-        # Issue 18: compressed to <80 tokens
         system_prompt = (
-            "You are an expert health insurance adjudicator. Evaluate the context against exclusion clauses. "
-            "You MUST respond with a valid JSON object matching this exact schema:\n"
-            '{"evaluation_status": "PASSED" or "EXCLUSION_ACTIVE" or "FAILED", '
-            '"reasoning_trace": "string", "confidence_score": float}\n'
-            "CRITICAL TOKEN DEFINITIONS:\n"
-            "- Set 'evaluation_status' to 'PASSED' ONLY if the exclusion is NOT active (the claim is covered/allowed).\n"
-            "- Set 'evaluation_status' to 'EXCLUSION_ACTIVE' if the exclusion applies (the claim must be rejected).\n"
-            "- Set 'evaluation_status' to 'FAILED' ONLY if there is a system processing error or critical missing data."
+            "You are an expert health insurance adjudicator specializing in policy exclusion assessment.\n\n"
+            "RESPONSE FORMAT CONTRACT:\n"
+            "If reasoning/thinking is enabled, you may output your thinking process first (using standard thinking tags like <think>...</think> or <|think|>...</|think|>).\n"
+            "The final part of your response MUST contain a single raw JSON object. "
+            "Do NOT write any other text, explanation, preamble, or markdown outside the JSON (except the thinking tags/blocks if reasoning is enabled).\n"
+            "Required schema:\n"
+            '{"evaluation_status": "PASSED", "reasoning_trace": "step-by-step analysis", "confidence_score": 0.95}\n\n'
+            "evaluation_status token definitions:\n"
+            "  PASSED           — exclusion does NOT apply; the claim is allowed through this gate\n"
+            "  EXCLUSION_ACTIVE — exclusion applies; the claim must be blocked at this gate\n"
+            "  FAILED           — use ONLY when critical data is entirely absent preventing evaluation\n\n"
+            "Correct response example (output EXACTLY this structure, with your own content):\n"
+            '{"evaluation_status": "PASSED", "reasoning_trace": "The treatment is an appendectomy (active surgery), not a diagnostic-only admission. Exclusion R3_EXCL_004 does not apply.", "confidence_score": 0.96}'
         )
         raw_response = self._call_llm(system_prompt, prompt, SemanticAdjudicationPayload)
         
@@ -174,6 +191,21 @@ class SemanticExecutionAgent:
             # Accumulate confidence for tracking
             self.total_confidence += assessment.confidence_score
             
+            # Log structured agent reasoning
+            AgentReasoningLogger.log_llm_call(
+                claim_id=claim_id,
+                line_item_id=line_item_id,
+                rule_id=rule_id,
+                provider=self.llm_provider,
+                url=self.local_llm_url if self.llm_provider == "local" else None,
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                raw_response=raw_response,
+                structured_output=assessment.model_dump(),
+                confidence=assessment.confidence_score,
+                requires_manual_review=requires_review
+            )
+            
             return SemanticResult(
                 passed=passed,
                 confidence=assessment.confidence_score,
@@ -183,6 +215,19 @@ class SemanticExecutionAgent:
                 requires_manual_review=requires_review
             )
         except Exception as e:
+            AgentReasoningLogger.log_llm_call(
+                claim_id=claim_id,
+                line_item_id=line_item_id,
+                rule_id=rule_id,
+                provider=self.llm_provider,
+                url=self.local_llm_url if self.llm_provider == "local" else None,
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                raw_response=raw_response,
+                structured_output={"error": str(e)},
+                confidence=0.0,
+                requires_manual_review=True
+            )
             return SemanticResult(
                 passed=False,
                 confidence=0.0,
@@ -192,18 +237,22 @@ class SemanticExecutionAgent:
                 requires_manual_review=True
             )
 
-    def _assess_coverage(self, rule_id: str, prompt: str) -> SemanticResult:
+    def _assess_coverage(self, rule_id: str, prompt: str, claim_id: str, line_item_id: Optional[str]) -> SemanticResult:
         """Assess if treatment is covered"""
-        # Issue 18: compressed to <80 tokens
         system_prompt = (
-            "You are an expert health insurance adjudicator. Evaluate the context against coverage clauses. "
-            "You MUST respond with a valid JSON object matching this exact schema:\n"
-            '{"evaluation_status": "PASSED" or "EXCLUSION_ACTIVE" or "FAILED", '
-            '"reasoning_trace": "string", "confidence_score": float}\n'
-            "CRITICAL TOKEN DEFINITIONS:\n"
-            "- Set 'evaluation_status' to 'PASSED' if the treatment satisfies coverage criteria (allowed).\n"
-            "- Set 'evaluation_status' to 'EXCLUSION_ACTIVE' if it fails coverage sublimits or parameters (not allowed).\n"
-            "- Set 'evaluation_status' to 'FAILED' if data is missing or unparseable."
+            "You are an expert health insurance adjudicator specializing in coverage validation.\n\n"
+            "RESPONSE FORMAT CONTRACT:\n"
+            "If reasoning/thinking is enabled, you may output your thinking process first (using standard thinking tags like <think>...</think> or <|think|>...</|think|>).\n"
+            "The final part of your response MUST contain a single raw JSON object. "
+            "Do NOT write any other text, explanation, preamble, or markdown outside the JSON (except the thinking tags/blocks if reasoning is enabled).\n"
+            "Required schema:\n"
+            '{"evaluation_status": "PASSED", "reasoning_trace": "step-by-step analysis", "confidence_score": 0.95}\n\n'
+            "evaluation_status token definitions:\n"
+            "  PASSED           — treatment satisfies coverage criteria; claim passes this gate\n"
+            "  EXCLUSION_ACTIVE — treatment fails coverage sublimits or parameters; claim must be blocked\n"
+            "  FAILED           — use ONLY when critical data is entirely absent preventing evaluation\n\n"
+            "Correct response example (output EXACTLY this structure, with your own content):\n"
+            '{"evaluation_status": "PASSED", "reasoning_trace": "Hospitalization exceeds 24 hours and is for active surgical treatment. Coverage criteria are met.", "confidence_score": 0.97}'
         )
         raw_response = self._call_llm(system_prompt, prompt, SemanticAdjudicationPayload)
         
@@ -217,6 +266,21 @@ class SemanticExecutionAgent:
             # Accumulate confidence
             self.total_confidence += assessment.confidence_score
             
+            # Log structured agent reasoning
+            AgentReasoningLogger.log_llm_call(
+                claim_id=claim_id,
+                line_item_id=line_item_id,
+                rule_id=rule_id,
+                provider=self.llm_provider,
+                url=self.local_llm_url if self.llm_provider == "local" else None,
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                raw_response=raw_response,
+                structured_output=assessment.model_dump(),
+                confidence=assessment.confidence_score,
+                requires_manual_review=requires_review
+            )
+            
             return SemanticResult(
                 passed=passed,
                 confidence=assessment.confidence_score,
@@ -226,6 +290,19 @@ class SemanticExecutionAgent:
                 requires_manual_review=requires_review
             )
         except Exception as e:
+            AgentReasoningLogger.log_llm_call(
+                claim_id=claim_id,
+                line_item_id=line_item_id,
+                rule_id=rule_id,
+                provider=self.llm_provider,
+                url=self.local_llm_url if self.llm_provider == "local" else None,
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                raw_response=raw_response,
+                structured_output={"error": str(e)},
+                confidence=0.0,
+                requires_manual_review=True
+            )
             return SemanticResult(
                 passed=False,
                 confidence=0.0,
@@ -235,18 +312,22 @@ class SemanticExecutionAgent:
                 requires_manual_review=True
             )
 
-    def _assess_waiting_period(self, rule_id: str, prompt: str) -> SemanticResult:
+    def _assess_waiting_period(self, rule_id: str, prompt: str, claim_id: str, line_item_id: Optional[str]) -> SemanticResult:
         """Assess waiting period applicability"""
-        # Issue 18: compressed to <80 tokens
         system_prompt = (
-            "You are an expert health insurance adjudicator. Evaluate the context against waiting periods. "
-            "You MUST respond with a valid JSON object matching this exact schema:\n"
-            '{"evaluation_status": "PASSED" or "EXCLUSION_ACTIVE" or "FAILED", '
-            '"reasoning_trace": "string", "confidence_score": float}\n'
-            "CRITICAL TOKEN DEFINITIONS:\n"
-            "- Set 'evaluation_status' to 'PASSED' if the waiting period is successfully cleared or exempted.\n"
-            "- Set 'evaluation_status' to 'EXCLUSION_ACTIVE' if the waiting period is still actively running (excluded).\n"
-            "- Set 'evaluation_status' to 'FAILED' if timelines cannot be verified."
+            "You are an expert health insurance adjudicator specializing in waiting period assessment.\n\n"
+            "RESPONSE FORMAT CONTRACT:\n"
+            "If reasoning/thinking is enabled, you may output your thinking process first (using standard thinking tags like <think>...</think> or <|think|>...</|think|>).\n"
+            "The final part of your response MUST contain a single raw JSON object. "
+            "Do NOT write any other text, explanation, preamble, or markdown outside the JSON (except the thinking tags/blocks if reasoning is enabled).\n"
+            "Required schema:\n"
+            '{"evaluation_status": "PASSED", "reasoning_trace": "step-by-step analysis", "confidence_score": 0.95}\n\n'
+            "evaluation_status token definitions:\n"
+            "  PASSED           — waiting period has been served or is not applicable; claim passes this gate\n"
+            "  EXCLUSION_ACTIVE — waiting period is still actively running; claim must be blocked\n"
+            "  FAILED           — use ONLY when timeline data is entirely absent preventing evaluation\n\n"
+            "Correct response example (output EXACTLY this structure, with your own content):\n"
+            '{"evaluation_status": "PASSED", "reasoning_trace": "Policy inception was 2022-01-01. Claim date is 2025-06-01. The 36-month PED waiting period has been fully served.", "confidence_score": 0.98}'
         )
         raw_response = self._call_llm(system_prompt, prompt, SemanticAdjudicationPayload)
         
@@ -260,6 +341,21 @@ class SemanticExecutionAgent:
             # Accumulate confidence
             self.total_confidence += assessment.confidence_score
             
+            # Log structured agent reasoning
+            AgentReasoningLogger.log_llm_call(
+                claim_id=claim_id,
+                line_item_id=line_item_id,
+                rule_id=rule_id,
+                provider=self.llm_provider,
+                url=self.local_llm_url if self.llm_provider == "local" else None,
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                raw_response=raw_response,
+                structured_output=assessment.model_dump(),
+                confidence=assessment.confidence_score,
+                requires_manual_review=requires_review
+            )
+            
             return SemanticResult(
                 passed=passed,
                 confidence=assessment.confidence_score,
@@ -269,6 +365,19 @@ class SemanticExecutionAgent:
                 requires_manual_review=requires_review
             )
         except Exception as e:
+            AgentReasoningLogger.log_llm_call(
+                claim_id=claim_id,
+                line_item_id=line_item_id,
+                rule_id=rule_id,
+                provider=self.llm_provider,
+                url=self.local_llm_url if self.llm_provider == "local" else None,
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                raw_response=raw_response,
+                structured_output={"error": str(e)},
+                confidence=0.0,
+                requires_manual_review=True
+            )
             return SemanticResult(
                 passed=False,
                 confidence=0.0,
@@ -374,11 +483,13 @@ class SemanticExecutionAgent:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "response_format": {"type": "json_object"},  # Issue 18: force JSON mode
             "temperature": 0.1,
             "max_tokens": 512,   # Issue 18: was 1024; JSON response is short
             "stream": False,
         }
+        if not self.reasoning_on:
+            chat_payload["response_format"] = {"type": "json_object"}  # Issue 18: force JSON mode
+
         try:
             content = self._http_post(
                 host, port, use_tls, "/v1/chat/completions", chat_payload
@@ -403,13 +514,14 @@ class SemanticExecutionAgent:
         )
         legacy_payload = {
             "prompt": compact_prompt,
-            "grammar": self._ADJUDICATION_GRAMMAR,  # Issue 18: GBNF forces valid schema
             "temperature": 0.1,
             "top_p": 0.9,
             "n_predict": 512,               # Issue 18: was 1024
             "stop": ["</s>", "<end_of_turn>", "<|eot_id|>"],
             "stream": False,
         }
+        if not self.reasoning_on:
+            legacy_payload["grammar"] = self._ADJUDICATION_GRAMMAR  # Issue 18: GBNF forces valid schema
         content = self._http_post(
             host, port, use_tls, "/completion", legacy_payload
         )
@@ -478,6 +590,27 @@ class SemanticExecutionAgent:
         Returns:
             Clean JSON string
         """
+        text = text.strip()
+        
+        # Strip thinking process blocks first if present (helpful for reasoning models)
+        import re
+        text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+        text = re.sub(r'<\|think\|>.*?</\|think\|>', '', text, flags=re.DOTALL)
+        text = re.sub(r'<\|think\|>.*?<\|turn\|>', '<|turn|>', text, flags=re.DOTALL)
+        text = re.sub(r'<\|think\|>.*?<turn\|>', '<turn|>', text, flags=re.DOTALL)
+        
+        # Clean up unclosed thinking blocks if they exist at the start
+        if '<think>' in text and '</think>' not in text:
+            first_brace = text.find("{")
+            first_think = text.find("<think>")
+            if first_brace > first_think:
+                text = text[first_brace:]
+        if '<|think|>' in text and '</|think|>' not in text:
+            first_brace = text.find("{")
+            first_think = text.find("<|think|>")
+            if first_brace > first_think:
+                text = text[first_brace:]
+
         text = text.strip()
         
         # Remove markdown code blocks if present

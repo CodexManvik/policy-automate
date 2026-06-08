@@ -193,44 +193,126 @@ class ProductMemoryStore:
             preconditions = r_data.get('preconditions', [])
             not_applicable_to = r_data.get('not_applicable_to', [])
             
-            # Set semantic prompt template for semantic rules if they don't have one
+            # Set semantic prompt template for semantic rules if they don't have one.
+            # CRITICAL: All templates MUST instruct the model to return the canonical
+            # SemanticAdjudicationPayload schema:
+            #   {"evaluation_status": "PASSED"|"EXCLUSION_ACTIVE"|"FAILED",
+            #    "reasoning_trace": "...", "confidence_score": 0.0-1.0}
+            # Do NOT define alternative return schemas in templates — the agent parser
+            # only accepts this exact shape. Prior templates with {"investigation_only": bool}
+            # etc. caused schema mismatch failures (Issue: "Extra data" parsing errors).
             semantic_prompt_template = None
             if exec_type == ExecutionType.SEMANTIC or exec_type == ExecutionType.HYBRID:
+                _SCHEMA_BLOCK = (
+                    "\n\n"
+                    "OUTPUT REQUIREMENT:\n"
+                    "If your model has reasoning/thinking enabled, you may output your thinking/reasoning process first (e.g., inside <think>...</think> or <|think|>...</|think|> tags).\n"
+                    "However, the final response part MUST be a single raw JSON object matching the schema below. "
+                    "Do NOT write any other text, explanation, or markdown outside the JSON object (except for the thinking tags/blocks if reasoning is enabled):\n"
+                    '{"evaluation_status": "PASSED", "reasoning_trace": "your analysis", "confidence_score": 0.95}\n\n'
+                    "evaluation_status token definitions:\n"
+                    "  PASSED           = exclusion does NOT apply; the claim passes this gate\n"
+                    "  EXCLUSION_ACTIVE = exclusion applies; the claim must be blocked at this gate\n"
+                    "  FAILED           = use ONLY when critical data is entirely absent preventing evaluation\n"
+                )
                 embedded_templates = {
-                    "R3_EXCL_007": """Analyze if this treatment is cosmetic/plastic surgery:
-Treatment: {treatment_description}
-Diagnosis: {diagnosis}
-Doctor Notes: {doctor_notes}
-
-EXCLUDE if cosmetic.
-ALLOW if: reconstruction after Accident/Burns/Cancer OR medically necessary to remove immediate health risk (certified by physician).
-
-Return: {"is_cosmetic": bool, "reason": str, "confidence": float}""",
-                    "R3_EXCL_004": """Assess if admission was primarily for diagnostics only:
-Admission Reason: {admission_reason}
-Procedures Performed: {procedures}
-Treatment Given: {treatment_description}
-Discharge Summary: {discharge_summary}
-
-EXCLUDE if: admission solely for tests (MRI, CT, Endoscopy, Colonoscopy) with no treatment.
-ALLOW if: tests were part of active treatment protocol.
-
-Return: {"investigation_only": bool, "reason": str, "confidence": float}""",
-                    "R3_EXCL_016": """Check if claim involves maternity:
-Diagnosis: {diagnosis}
-Procedures: {procedures}
-ICD Codes: {icd_codes}
-
-EXCLUDE: Childbirth (normal/complicated/caesarean), Miscarriage (except due to Accident), Lawful medical termination.
-ALLOW: Ectopic pregnancy.
-
-Return: {"is_maternity": bool, "is_ectopic": bool, "reason": str, "confidence": float}""",
-                    "R3_EXCL_002": "Analyze if condition '{condition}' matches any specified disease in list: {disease_list}",
-                    "R3_EXCL_001": "Assess if condition '{condition}' could be pre-existing based on: {medical_history}"
+                    "R3_EXCL_007": (
+                        "EXCLUSION RULE R3_EXCL_007 — Cosmetic / Plastic Surgery (Policy Section 5.1.7)\n"
+                        "Policy rule: Exclude expenses for cosmetic or plastic surgery. "
+                        "EXCEPTION — allow if: (a) reconstruction after Accident, Burns, or Cancer, OR "
+                        "(b) medically necessary to remove an immediate health risk certified by a physician.\n\n"
+                        "Claim details:\n"
+                        "  Diagnosis          : {diagnosis}\n"
+                        "  Treatment/Procedure: {treatment_description}\n"
+                        "  Doctor notes       : {doctor_notes}\n\n"
+                        "Evaluate step-by-step: Is the treatment cosmetic? Does an exception apply?"
+                        + _SCHEMA_BLOCK
+                    ),
+                    "R3_EXCL_004": (
+                        "EXCLUSION RULE R3_EXCL_004 — Admission Solely for Diagnostics (Policy Section 5.1.4)\n"
+                        "Policy rule: Exclude if admission was SOLELY for diagnostic tests "
+                        "(MRI, CT, Endoscopy, Colonoscopy, etc.) with NO active treatment performed. "
+                        "ALLOW if tests were integral to an active treatment protocol "
+                        "(surgery, procedure, medication administered).\n\n"
+                        "Claim details:\n"
+                        "  Admission reason            : {admission_reason}\n"
+                        "  Procedures / treatments done: {procedures}\n"
+                        "  Treatment description        : {treatment_description}\n"
+                        "  Discharge summary            : {discharge_summary}\n\n"
+                        "Evaluate step-by-step: Was active treatment performed? Or was this purely diagnostic?"
+                        + _SCHEMA_BLOCK
+                    ),
+                    "R3_EXCL_016": (
+                        "EXCLUSION RULE R3_EXCL_016 — Maternity Expenses (Policy Section 5.1.16)\n"
+                        "Policy rule: Exclude expenses for Childbirth (normal, complicated, caesarean), "
+                        "Miscarriage (except due to Accident), or lawful medical termination of pregnancy. "
+                        "EXCEPTION — Ectopic pregnancy is always covered.\n\n"
+                        "Claim details:\n"
+                        "  Diagnosis : {diagnosis}\n"
+                        "  Procedures: {procedures}\n"
+                        "  ICD codes : {icd_codes}\n\n"
+                        "Evaluate step-by-step: Is this maternity-related? Is it ectopic pregnancy (exception)?"
+                        + _SCHEMA_BLOCK
+                    ),
+                    "R3_EXCL_002": (
+                        "EXCLUSION RULE R3_EXCL_002 — Specified Disease Waiting Period (Policy Section 5.2.1)\n"
+                        "Policy rule: Exclude if the condition is in the specified disease list AND the "
+                        "waiting period has not been served. Specified diseases: {disease_list}.\n\n"
+                        "Claim details:\n"
+                        "  Condition/Diagnosis: {condition}\n"
+                        "  Medical history    : {medical_history}\n\n"
+                        "Evaluate: Does the condition match the specified disease list? Has the waiting period elapsed?"
+                        + _SCHEMA_BLOCK
+                    ),
+                    "R3_EXCL_001": (
+                        "EXCLUSION RULE R3_EXCL_001 — Pre-Existing Disease (PED) Waiting Period (Policy Section 4.1)\n"
+                        "Policy rule: Exclude if the condition is a declared Pre-Existing Disease (PED) "
+                        "and the 36-month waiting period has NOT been completed.\n\n"
+                        "Claim details:\n"
+                        "  Condition/Diagnosis       : {condition}\n"
+                        "  Declared PED history      : {medical_history}\n\n"
+                        "Evaluate: Is this a PED? Have 36 months elapsed since policy inception?"
+                        + _SCHEMA_BLOCK
+                    ),
                 }
                 semantic_prompt_template = r_data.get('semantic_prompt_template') or embedded_templates.get(rule_id)
                 if not semantic_prompt_template:
-                    semantic_prompt_template = f"Verify coverage and exclusion terms for {rule_name} (ID: {rule_id}) given condition '{{condition}}' and treatment '{{treatment_description}}'."
+                    # Fallback for any rule without a bespoke template.
+                    # Inject the formula text so the model knows the actual exclusion criteria.
+                    formula_str = r_data.get('formula') or r_data.get('description') or ""
+                    _fallback_schema = (
+                        "\n\n"
+                        "OUTPUT REQUIREMENT:\n"
+                        "If your model has reasoning/thinking enabled, you may output your thinking/reasoning process first (e.g., inside <think>...</think> or <|think|>...</|think|> tags).\n"
+                        "However, the final response part MUST be a single raw JSON object matching the schema below. "
+                        "Do NOT write any other text, explanation, or markdown outside the JSON object (except for the thinking tags/blocks if reasoning is enabled):\n"
+                        '{"evaluation_status": "PASSED", "reasoning_trace": "your analysis", "confidence_score": 0.95}\n\n'
+                        "evaluation_status token definitions:\n"
+                        "  PASSED           = exclusion does NOT apply; the claim passes this gate\n"
+                        "  EXCLUSION_ACTIVE = exclusion applies; the claim must be blocked at this gate\n"
+                        "  FAILED           = use ONLY when critical data is entirely absent preventing evaluation\n"
+                    )
+                    if formula_str:
+                        semantic_prompt_template = (
+                            f"EXCLUSION/COVERAGE RULE {rule_id} — {rule_name} (Policy Section {section_ref})\n"
+                            f"Policy rule text: {formula_str}\n\n"
+                            f"Claim details:\n"
+                            f"  Condition/Diagnosis : {{condition}}\n"
+                            f"  Treatment/Procedure : {{treatment_description}}\n\n"
+                            f"Evaluate whether the claim falls under this rule criteria. "
+                            f"Set EXCLUSION_ACTIVE if the exclusion applies, PASSED if it does not."
+                            + _fallback_schema
+                        )
+                    else:
+                        semantic_prompt_template = (
+                            f"EXCLUSION/COVERAGE RULE {rule_id} — {rule_name} (Policy Section {section_ref})\n"
+                            f"Claim details:\n"
+                            f"  Condition/Diagnosis : {{condition}}\n"
+                            f"  Treatment/Procedure : {{treatment_description}}\n\n"
+                            f"Evaluate whether this exclusion/coverage rule applies to the claim. "
+                            f"Set EXCLUSION_ACTIVE if exclusion applies, PASSED if it does not."
+                            + _fallback_schema
+                        )
             
             # Map tools
             tool_required = r_data.get('tool_required')

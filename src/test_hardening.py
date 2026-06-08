@@ -267,3 +267,42 @@ def test_deductible_dynamic_exempt_benefits():
     assert res_custom.deductible_applied == 0.0
     assert res_custom.payable_amount == 1000.0
 
+
+def test_reasoning_model_thinking_extraction():
+    """Test 5: Verify that _extract_json_from_response correctly strips thinking blocks and parses JSON"""
+    from semantic_agent import SemanticExecutionAgent
+    agent = SemanticExecutionAgent(llm_provider="mock", reasoning_on=True)
+    
+    # CASE A: Standard DeepSeek style <think> block
+    raw_response_ds = (
+        "<think>\n"
+        "We are analyzing the claim for Appendectomy.\n"
+        "An appendectomy is active surgery, not diagnostics.\n"
+        "Therefore, R3_EXCL_004 is PASSED.\n"
+        "</think>\n"
+        '{"evaluation_status": "PASSED", "reasoning_trace": "Appendectomy is surgery", "confidence_score": 0.95}'
+    )
+    extracted_ds = agent._extract_json_from_response(raw_response_ds)
+    assert "PASSED" in extracted_ds
+    assert "Appendectomy is surgery" in extracted_ds
+    
+    # CASE B: Gemma style <|think|> block
+    raw_response_gemma = (
+        "<|think|>\n"
+        "Hospitalization was for surgery.\n"
+        "Matches exception.\n"
+        "</|think|>\n"
+        '{"evaluation_status": "PASSED", "reasoning_trace": "Reconstructive surgery following cancer", "confidence_score": 0.92}'
+    )
+    extracted_gemma = agent._extract_json_from_response(raw_response_gemma)
+    assert "PASSED" in extracted_gemma
+    
+    # CASE C: Unclosed thinking block at the start of output
+    raw_response_unclosed = (
+        "<think>\n"
+        "Checking if exclusion applies...\n"
+        '{"evaluation_status": "PASSED", "reasoning_trace": "Not diagnostic-only", "confidence_score": 0.96}'
+    )
+    extracted_unclosed = agent._extract_json_from_response(raw_response_unclosed)
+    assert "PASSED" in extracted_unclosed
+

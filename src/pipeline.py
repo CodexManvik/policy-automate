@@ -21,6 +21,7 @@ from calculators import (
 from product_memory import get_product_memory, RuleGate, ExecutionType
 from planner import AIPlanner, ExecutionPlan, ExecutionStep
 from semantic_agent import SemanticExecutionAgent
+from agent_reasoning import AgentReasoningLogger
 
 
 class ClaimsAdjudicationPipeline:
@@ -55,13 +56,32 @@ class ClaimsAdjudicationPipeline:
             return datetime.strptime(target.split("T")[0], "%Y-%m-%d").date()
         raise ValueError(f"Unable to parse target type to date object payload: {type(target)}")
 
+    def _execute_tool(
+        self,
+        context: ClaimContext,
+        line_item: Optional[Any],
+        tool_name: str,
+        tool_func: Any,
+        **kwargs: Any
+    ) -> Any:
+        """Helper to invoke a mathematical calculator tool and log its inputs and outputs."""
+        result = tool_func(**kwargs)
+        AgentReasoningLogger.log_tool_call(
+            claim_id=context.claim_id,
+            line_item_id=line_item.line_item_id if line_item else None,
+            tool_name=tool_name,
+            arguments=kwargs,
+            output=result
+        )
+        return result
+
     def __init__(
         self,
         use_ai: bool = True,
         confidence_threshold: float = 0.90,
         assisted_review_threshold: float = 0.70,
         llm_provider: str = "default",
-        local_llm_url: str = "http://localhost:8080"
+        local_llm_url: str = "http://127.0.0.1:8080"
     ):
         self.decision_traces: List[DecisionTrace] = []
         self.current_step = 0
@@ -79,8 +99,10 @@ class ClaimsAdjudicationPipeline:
             try:
                 parsed = urlparse(local_llm_url)
                 h = parsed.hostname or "127.0.0.1"
+                if h == "localhost":
+                    h = "127.0.0.1"
                 p = parsed.port or 8080
-                with socket.create_connection((h, p), timeout=0.1):
+                with socket.create_connection((h, p), timeout=1.0):
                     resolved_provider = "local"
             except Exception:
                 resolved_provider = "mock"
@@ -100,7 +122,7 @@ class ClaimsAdjudicationPipeline:
         self.manual_review_count = 0
 
     def _validate_mutual_exclusivity(
-        self, context: ClaimContext
+        self, context: ClaimContext, gate: str = "policy_validation"
     ) -> Optional[Tuple[str, str]]:
         """
         Validate mutual exclusivity constraints from ProductMemoryStore dynamically.
@@ -129,6 +151,7 @@ class ClaimsAdjudicationPipeline:
                 return bool(getattr(context.policy, attr_name))
             return False
 
+        violation_detected = None
         for constraint in mx_constraints:
             constraint_id = constraint.get('constraint_id')
             benefits = constraint.get('benefits', [])
@@ -139,7 +162,23 @@ class ClaimsAdjudicationPipeline:
                     f"Policy configured with contradictory benefits: {', '.join(active_benefits)} "
                     f"- mutually exclusive benefits matching constraint {constraint_id}"
                 )
-                return (constraint_id, reason)
+                violation_detected = {
+                    "constraint_id": constraint_id,
+                    "active_benefits": active_benefits,
+                    "reason": reason
+                }
+                break
+
+        # Log mutual exclusivity check
+        AgentReasoningLogger.log_mutual_exclusivity(
+            claim_id=context.claim_id,
+            gate=gate,
+            constraints=mx_constraints,
+            violation=violation_detected
+        )
+
+        if violation_detected:
+            return (violation_detected["constraint_id"], violation_detected["reason"])
 
         return None
 
@@ -180,7 +219,7 @@ class ClaimsAdjudicationPipeline:
 
 
         # Validate mutual exclusivity constraints before processing
-        mx_violation = self._validate_mutual_exclusivity(context)
+        mx_violation = self._validate_mutual_exclusivity(context, gate="policy_validation")
         if mx_violation:
             constraint_id, reason = mx_violation
             self.manual_review_count += 1
@@ -206,6 +245,17 @@ class ClaimsAdjudicationPipeline:
             )
             self.decision_traces.append(mx_trace)
 
+            # Log gate evaluation
+            AgentReasoningLogger.log_gate_evaluation(
+                claim_id=context.claim_id,
+                line_item_id=None,
+                gate="policy_validation",
+                rule_id=constraint_id,
+                inputs=mx_trace.inputs,
+                evaluation_status=mx_trace.evaluation,
+                reason=mx_trace.reason
+            )
+
             # Return claim with PENDING_REVIEW status
             return self._create_claim_review_decision(
                 context, constraint_id, reason, [mx_trace], start_time
@@ -229,6 +279,31 @@ class ClaimsAdjudicationPipeline:
             # Phase 2: Create execution plan using AI Planner
             execution_plan = self.planner.create_execution_plan(context, line_item)
             self.plans_created += 1
+            
+            # Log plan compilation
+            steps_serialized = []
+            for step in execution_plan.execution_steps:
+                step_dict = {
+                    "step_number": step.step_number,
+                    "rule_id": step.rule_id,
+                    "rule_name": step.rule_name,
+                    "gate": step.gate.value if hasattr(step.gate, "value") else str(step.gate),
+                    "priority": step.priority,
+                    "reason": step.reason,
+                    "execution_type": step.execution_type,
+                    "tool_required": step.tool_required,
+                    "semantic_prompt": step.semantic_prompt[:100] + "..." if step.semantic_prompt else None,
+                    "depends_on": step.depends_on
+                }
+                steps_serialized.append(step_dict)
+            AgentReasoningLogger.log_planning(
+                claim_id=context.claim_id,
+                line_item_id=line_item.line_item_id,
+                variant=context.policy.variant,
+                benefit_bucket=line_item.benefit_bucket,
+                steps=steps_serialized,
+                depth=execution_plan.dependency_depth
+            )
             
             # Execute the plan
             decision = self._execute_plan(execution_plan, line_item, context, state)
@@ -310,15 +385,44 @@ class ClaimsAdjudicationPipeline:
                 admissible_amount -= deduction.amount
                 payable_amount -= deduction.amount
             
+            # Log the gate evaluation
+            AgentReasoningLogger.log_gate_evaluation(
+                claim_id=context.claim_id,
+                line_item_id=line_item.line_item_id if line_item else None,
+                gate=step.gate.value if hasattr(step.gate, "value") else str(step.gate),
+                rule_id=step.rule_id,
+                inputs=trace.inputs if trace.inputs else {},
+                evaluation_status=trace.evaluation,
+                reason=trace.reason
+            )
+            
             # Check if step failed (rejection)
             if not passed:
                 # Low confidence or explicit rejection
                 if trace.confidence < self.confidence_threshold:
                     self.manual_review_count += 1
+                    AgentReasoningLogger.log_routing(
+                        claim_id=context.claim_id,
+                        line_item_id=line_item.line_item_id if line_item else None,
+                        gate=step.gate.value if hasattr(step.gate, "value") else str(step.gate),
+                        rule_id=step.rule_id,
+                        confidence=trace.confidence,
+                        action="PENDING_REVIEW",
+                        reason=f"Low confidence ({trace.confidence:.2f}) on failed step: {trace.reason}"
+                    )
                     return self._create_review_decision(
                         line_item, f"Low confidence: {trace.reason}", item_traces
                     )
                 else:
+                    AgentReasoningLogger.log_routing(
+                        claim_id=context.claim_id,
+                        line_item_id=line_item.line_item_id if line_item else None,
+                        gate=step.gate.value if hasattr(step.gate, "value") else str(step.gate),
+                        rule_id=step.rule_id,
+                        confidence=trace.confidence,
+                        action="REJECTED",
+                        reason=f"High confidence ({trace.confidence:.2f}) rule rejection: {trace.reason}"
+                    )
                     return self._create_rejected_decision(
                         line_item, trace.reason, item_traces
                     )
@@ -326,7 +430,7 @@ class ClaimsAdjudicationPipeline:
         # Calculate final payable through financial gates
         if payable_amount > 0:
             # Enforce Mutual Exclusivity Constraints before running financials
-            mx_violation = self._validate_mutual_exclusivity(context)
+            mx_violation = self._validate_mutual_exclusivity(context, gate="financial_computation")
             if mx_violation:
                 constraint_id, reason = mx_violation
                 self.manual_review_count += 1
@@ -346,6 +450,28 @@ class ClaimsAdjudicationPipeline:
                     source_section="mutual_exclusivity_constraints"
                 )
                 item_traces.append(mx_trace)
+                
+                # Log gate evaluation
+                AgentReasoningLogger.log_gate_evaluation(
+                    claim_id=context.claim_id,
+                    line_item_id=line_item.line_item_id if line_item else None,
+                    gate="financial_computation",
+                    rule_id=constraint_id,
+                    inputs=mx_trace.inputs,
+                    evaluation_status=mx_trace.evaluation,
+                    reason=mx_trace.reason
+                )
+                
+                # Log routing action
+                AgentReasoningLogger.log_routing(
+                    claim_id=context.claim_id,
+                    line_item_id=line_item.line_item_id if line_item else None,
+                    gate="financial_computation",
+                    rule_id=constraint_id,
+                    confidence=0.0,
+                    action="PENDING_REVIEW",
+                    reason=f"Mutual exclusivity violation on financial computation: {reason}"
+                )
                 
                 return LineItemDecision(
                     line_item_id=line_item.line_item_id,
@@ -368,6 +494,18 @@ class ClaimsAdjudicationPipeline:
             item_deductions.extend(fin_deductions)
             payable_amount = final_payable
             admissible_amount = final_admissible
+            
+            # Log financial computation gate evaluations
+            for ft in fin_traces:
+                AgentReasoningLogger.log_gate_evaluation(
+                    claim_id=context.claim_id,
+                    line_item_id=line_item.line_item_id if line_item else None,
+                    gate="financial_computation",
+                    rule_id=ft.rule_id,
+                    inputs=ft.inputs if ft.inputs else {},
+                    evaluation_status=ft.evaluation,
+                    reason=ft.reason
+                )
         
         # Calculate overall confidence
         overall_confidence = sum(step_confidences) / len(step_confidences) if step_confidences else 1.0
@@ -379,6 +517,15 @@ class ClaimsAdjudicationPipeline:
         #   < 0.70    → PENDING_REVIEW: full manual review
         if overall_confidence < self.assisted_review_threshold:
             self.manual_review_count += 1
+            AgentReasoningLogger.log_routing(
+                claim_id=context.claim_id,
+                line_item_id=line_item.line_item_id if line_item else None,
+                gate="final_adjudication",
+                rule_id="OVERALL_CONFIDENCE_PENDING",
+                confidence=overall_confidence,
+                action="PENDING_REVIEW",
+                reason=f"Overall confidence {overall_confidence:.2f} is below assisted review threshold {self.assisted_review_threshold:.2f}"
+            )
             return LineItemDecision(
                 line_item_id=line_item.line_item_id,
                 description=line_item.description,
@@ -402,6 +549,16 @@ class ClaimsAdjudicationPipeline:
                 assisted_status = "PARTIALLY_APPROVED"
             else:
                 assisted_status = "APPROVED"
+            
+            AgentReasoningLogger.log_routing(
+                claim_id=context.claim_id,
+                line_item_id=line_item.line_item_id if line_item else None,
+                gate="final_adjudication",
+                rule_id="OVERALL_CONFIDENCE_ASSISTED",
+                confidence=overall_confidence,
+                action="ASSISTED_REVIEW",
+                reason=f"Overall confidence {overall_confidence:.2f} is between {self.assisted_review_threshold:.2f} and {self.confidence_threshold:.2f}"
+            )
             return LineItemDecision(
                 line_item_id=line_item.line_item_id,
                 description=line_item.description,
@@ -424,6 +581,15 @@ class ClaimsAdjudicationPipeline:
         else:
             decision_status = "APPROVED"
 
+        AgentReasoningLogger.log_routing(
+            claim_id=context.claim_id,
+            line_item_id=line_item.line_item_id if line_item else None,
+            gate="final_adjudication",
+            rule_id="OVERALL_CONFIDENCE_AUTO",
+            confidence=overall_confidence,
+            action=decision_status,
+            reason=f"Overall confidence {overall_confidence:.2f} meets auto-adjudication threshold {self.confidence_threshold:.2f}"
+        )
         return LineItemDecision(
             line_item_id=line_item.line_item_id,
             description=line_item.description,
@@ -694,7 +860,8 @@ class ClaimsAdjudicationPipeline:
             specified_diseases = tbl_007.get("items")
         
         # Call Tool 1
-        result = calculate_waiting_period(
+        result = self._execute_tool(
+            context, line_item, "calculate_waiting_period", calculate_waiting_period,
             condition=line_item.condition_diagnosed,
             policy_inception_date=inception_date,
             continuous_coverage_months=continuous_months,
@@ -1028,7 +1195,8 @@ class ClaimsAdjudicationPipeline:
             specified_diseases = tbl_007.get("items")
         
         # Call Tool 1
-        result = calculate_waiting_period(
+        result = self._execute_tool(
+            context, line_item, "calculate_waiting_period", calculate_waiting_period,
             condition=line_item.condition_diagnosed,
             policy_inception_date=inception_date,
             continuous_coverage_months=context.history.claim_free_years * 12,
@@ -1333,6 +1501,14 @@ class ClaimsAdjudicationPipeline:
 
             etype = endorsement.endorsement_type
             details = endorsement.details or {}
+
+            # Log endorsement mutation
+            AgentReasoningLogger.log_endorsement(
+                claim_id=context.claim_id,
+                endorsement_type=etype,
+                effective_date=endorsement.effective_date,
+                mutations=details
+            )
 
             if etype == "SIEnhancement":
                 # Fresh waiting period applies to the *enhanced portion* only.
@@ -1664,7 +1840,8 @@ class ClaimsAdjudicationPipeline:
                 ))
                 return 0.0, 0.0, deductions, traces
 
-            dc_result = calculate_hospital_daily_cash(
+            dc_result = self._execute_tool(
+                context, line_item, "calculate_hospital_daily_cash", calculate_hospital_daily_cash,
                 daily_cash_amount=daily_cash_amount,
                 hospitalization_hours=hosp_hours,
                 hospital_daily_cash_days_used=context.benefit_balance.hospital_cash_days_used
@@ -1714,7 +1891,8 @@ class ClaimsAdjudicationPipeline:
             self.current_step += 1
             pa_si = getattr(context.policy, "pa_sum_insured", 0.0) or context.policy.base_sum_insured
 
-            pa_result = calculate_personal_accident_benefit(
+            pa_result = self._execute_tool(
+                context, line_item, "calculate_personal_accident_benefit", calculate_personal_accident_benefit,
                 pa_sum_insured=pa_si,
                 injury_description=line_item.description or line_item.condition_diagnosed,
                 accident_related=line_item.accident_related
@@ -1811,7 +1989,8 @@ class ClaimsAdjudicationPipeline:
                         source_section="6.2.4(d)"
                     ))
                 else:
-                    pro_rata_result = calculate_room_pro_rata(
+                    pro_rata_result = self._execute_tool(
+                        context, line_item, "calculate_room_pro_rata", calculate_room_pro_rata,
                         eligible_room_rent=eligible_room,
                         actual_room_rent=line_item.actual_room_rent,
                         room_charges=expense_components["room_charges"],
@@ -1884,7 +2063,8 @@ class ClaimsAdjudicationPipeline:
             deductible_rule = self.product_memory.get_rule("R3_FIN_001")
             deductible_exempt = deductible_rule.not_applicable_to if deductible_rule else None
 
-            deductible_result = calculate_deductible(
+            deductible_result = self._execute_tool(
+                context, line_item, "calculate_deductible", calculate_deductible,
                 claim_amount=payable_amount,
                 annual_deductible_limit=context.policy.annual_aggregate_deductible,
                 deductible_consumed_ytd=context.benefit_balance.deductible_consumed_ytd,
@@ -1942,7 +2122,8 @@ class ClaimsAdjudicationPipeline:
             copay_rule = self.product_memory.get_rule("R3_FIN_002")
             copay_exempt = copay_rule.not_applicable_to if copay_rule else None
 
-            copay_result = calculate_copayment(
+            copay_result = self._execute_tool(
+                context, line_item, "calculate_copayment", calculate_copayment,
                 admissible_amount=payable_amount,
                 base_copay_percent=co_payment_percent,
                 benefit_bucket=line_item.benefit_bucket,
@@ -1998,7 +2179,8 @@ class ClaimsAdjudicationPipeline:
         state.running_payable_amount = max(0.0, state.running_payable_amount)
         payable_amount = max(0.0, payable_amount)
 
-        si_result = calculate_si_waterfall(
+        si_result = self._execute_tool(
+            context, line_item, "calculate_si_waterfall", calculate_si_waterfall,
             payable_amount=payable_amount,
             base_si_remaining=base_si_rem,
             booster_plus_remaining=booster_rem,
@@ -2119,7 +2301,8 @@ class ClaimsAdjudicationPipeline:
                 current_age = context.member.age
                 claim_paid_flag = (context.history.prior_claims_count > 0) or has_trigger_bucket_claim
                 
-                ltc_result = calculate_lock_the_clock(
+                ltc_result = self._execute_tool(
+                    context, None, "calculate_lock_the_clock", calculate_lock_the_clock,
                     entry_age=entry_age,
                     current_age=current_age,
                     claim_paid_flag=claim_paid_flag,
@@ -2174,6 +2357,16 @@ class ClaimsAdjudicationPipeline:
             )
 
             self.decision_traces.append(trace)
+            # Log state update gate evaluation
+            AgentReasoningLogger.log_gate_evaluation(
+                claim_id=context.claim_id,
+                line_item_id=None,
+                gate="state_update",
+                rule_id="GATE_7_STATE_UPDATE",
+                inputs=trace.inputs,
+                evaluation_status=trace.evaluation,
+                reason=trace.reason
+            )
     
     
     
