@@ -68,6 +68,26 @@ class Settings(BaseSettings):
         le=1.0,
         description="Confidence in [assisted_review_threshold, auto_approve_threshold) routes to ASSISTED_REVIEW",
     )
+    medical_review_threshold: float = Field(
+        default=0.50,
+        ge=0.0,
+        le=1.0,
+        description="Confidence in [medical_review_threshold, assisted_review_threshold) routes to MEDICAL_REVIEW",
+    )
+
+    # ------------------------------------------------------------------
+    # Context Staleness Guard (Gap 11)
+    # ------------------------------------------------------------------
+    context_max_age_minutes: int = Field(
+        default=120,
+        ge=1,
+        description=(
+            "Maximum age in minutes for a ClaimContext.context_assembled_at timestamp. "
+            "Contexts older than this are rejected before adjudication begins to prevent "
+            "stale SI balances or policy state from producing incorrect decisions."
+        ),
+    )
+
 
     # ------------------------------------------------------------------
     # API Server

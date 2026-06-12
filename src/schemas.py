@@ -27,6 +27,7 @@ class PolicyData(BaseModel):
     grace_period_active: bool = False
     policy_type: Literal["individual", "floater"] = "individual"
     policy_term_years: int = 1
+    fraud_flagged: bool = False
     
     # Optional benefits configuration
     co_payment_percent: Optional[float] = None
@@ -132,10 +133,15 @@ class LifetimeStateData(BaseModel):
     """Lifetime state flags from Lifetime State API"""
     policy_id: str
     
-    # ReAssure Forever state
+    # ReAssure Forever state — full 4-state machine (spec Section 4.6 / Gap 2)
+    # NOT_TRIGGERED → TRIGGERED (first paid claim) → ACTIVE (claim-free renewal) → LAPSED (break-in)
     reassure_forever_triggered: bool = False
     reassure_forever_triggered_date: Optional[datetime] = None
     reassure_forever_triggered_claim_id: Optional[str] = None
+    reassure_forever_state: Literal["NOT_TRIGGERED", "TRIGGERED", "ACTIVE", "LAPSED"] = "NOT_TRIGGERED"
+    reassure_forever_lapsed_date: Optional[datetime] = None
+    reassure_forever_last_renewal_date: Optional[datetime] = None
+    break_in_policy_detected: bool = False
     
     # Lock the Clock state
     lock_the_clock_age_locked: bool = True
@@ -246,6 +252,8 @@ class ClaimContext(BaseModel):
     product_json_version: str = Field("R3_v2.1_2025-01-15", description="Version string of the policy rules product JSON to apply.")
     context_assembled_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Timestamp of claim context generation.")
     renewal_event_simulation: Optional[bool] = Field(None, description="Simulate a renewal event to trigger Cash-Bag+ wellness conversions.")
+    fraud_flagged: bool = False
+
 
 
 
@@ -281,7 +289,7 @@ class DecisionTrace(BaseModel):
     evaluation: Literal[
         "PASSED", "FAILED", "NOT_APPLICABLE",
         "EXCLUSION_ACTIVE", "DEDUCTION_APPLIED",
-        "PENDING_REVIEW", "ASSISTED_REVIEW"    # Issue 23: these are emitted by pipeline routing
+        "PENDING_REVIEW", "ASSISTED_REVIEW", "MEDICAL_REVIEW"  # Gap 8: added MEDICAL_REVIEW tier
     ]
     reason: str
     confidence: float = 1.0
@@ -298,7 +306,10 @@ class LineItemDecision(BaseModel):
     admissible_amount: float
     payable_amount: float
     
-    decision: Literal["APPROVED", "PARTIALLY_APPROVED", "REJECTED", "ASSISTED_REVIEW", "PENDING_REVIEW"]
+    decision: Literal[
+        "APPROVED", "PARTIALLY_APPROVED", "REJECTED",
+        "ASSISTED_REVIEW", "PENDING_REVIEW", "MEDICAL_REVIEW"  # Gap 8: MEDICAL_REVIEW tier
+    ]
     
     deductions: List[DeductionDetail] = Field(default_factory=list)
     decision_trace: List[DecisionTrace] = Field(default_factory=list)
@@ -340,7 +351,10 @@ class ClaimDecision(BaseModel):
     Produced by Decision Composer after all gates execute
     """
     claim_id: str
-    claim_decision: Literal["APPROVED", "PARTIALLY_APPROVED", "REJECTED", "ASSISTED_REVIEW", "PENDING_REVIEW"]
+    claim_decision: Literal[
+        "APPROVED", "PARTIALLY_APPROVED", "REJECTED",
+        "ASSISTED_REVIEW", "PENDING_REVIEW", "MEDICAL_REVIEW"  # Gap 8: MEDICAL_REVIEW
+    ]
     
     # Financial summary
     total_claimed: float
@@ -399,6 +413,7 @@ class PerClaimState(BaseModel):
     room_pro_rata_ratio: float = 1.0
     copay_percent_total: float = 0.0
     deductible_applied_this_claim: float = 0.0
+    cash_bag_copay_offset: float = 0.0
     
     # Flags for penalties and special conditions
     prolonged_hosp_penalty_triggered: bool = False
@@ -429,9 +444,9 @@ class ManualReviewExceptionPayload(BaseModel):
         ...,
         description="Unique identifier for the claim undergoing adjudication."
     )
-    assigned_queue: Literal["ASSISTED_REVIEW", "PENDING_REVIEW"] = Field(
+    assigned_queue: Literal["ASSISTED_REVIEW", "PENDING_REVIEW", "MEDICAL_REVIEW"] = Field(
         ...,
-        description="The target operational queue. ASSISTED_REVIEW represents medium confidence, PENDING_REVIEW represents low confidence."
+        description="The target operational queue. MEDICAL_REVIEW = low-confidence exclusion. ASSISTED_REVIEW = medium confidence. PENDING_REVIEW = low confidence."
     )
     suggested_decision: ClaimDecision = Field(
         ...,
@@ -446,3 +461,30 @@ class ManualReviewExceptionPayload(BaseModel):
         description="Audit trail and decision trace of all rules processed up to the exception point."
     )
 
+
+# ============================================================================
+# PAS RECONCILIATION MODELS (Gap 9 — Section 11)
+# ============================================================================
+
+class PASMismatch(BaseModel):
+    """A single field-level discrepancy between engine decision and PAS output"""
+    field: str = Field(..., description="Field name that differs (e.g. 'total_payable', 'line_item[0].decision')")
+    engine_value: Any = Field(..., description="Value produced by the adjudication engine")
+    pas_value: Any = Field(..., description="Value recorded in the PAS system")
+    delta: Optional[float] = Field(None, description="Numeric delta (engine - pas) for financial fields; None for categorical")
+    category: Literal[
+        "RULE_EXTRACTION", "CALCULATION", "STATEFUL_ACCUMULATION", "ROUTING"
+    ] = Field(..., description="Root-cause category for mismatch triage")
+    tolerance_applied: bool = Field(False, description="True if delta <= TOLERANCE_INR and still flagged")
+
+
+class PASReconciliationResult(BaseModel):
+    """Result of comparing one engine ClaimDecision against its PAS counterpart"""
+    claim_id: str
+    concordant: bool = Field(..., description="True if engine and PAS agree within tolerance on all fields")
+    mismatches: List[PASMismatch] = Field(default_factory=list)
+    mismatch_categories: List[str] = Field(default_factory=list, description="Unique category set from all mismatches")
+    engine_total_payable: float
+    pas_total_payable: Optional[float] = None
+    checked_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    check_duration_ms: Optional[float] = None

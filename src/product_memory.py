@@ -4,6 +4,7 @@ Parses and stores rule blueprints from Product JSON
 Provides structured metadata for AI Planner
 """
 
+from datetime import date, datetime
 from typing import List, Dict, Any, Optional, Set, Tuple
 from dataclasses import dataclass
 from enum import Enum
@@ -518,7 +519,9 @@ class ProductMemoryStore:
             source_page=data.get('source_page'),
             preconditions=data.get('preconditions', []),
             notes=data.get('notes', []),
-            not_applicable_to=data.get('not_applicable_to', [])
+            not_applicable_to=data.get('not_applicable_to', []),
+            auto_adjudicable=data.get('auto_adjudicable', True),
+            confidence_weight=data.get('confidence_weight', 1.0)
         )
     
     def add_rule(self, rule: RuleBlueprint):
@@ -731,26 +734,88 @@ class ProductMemoryStore:
 # the extensibility hook for when version-specific files are introduced.
 _product_memory_cache: Dict[str, ProductMemoryStore] = {}
 
-# Default version string — MUST match ClaimContext.product_json_version default (Fix 9).
+# Default version string - MUST match ClaimContext.product_json_version default (Fix 9).
 # Keeping these identical ensures all calls without an explicit version resolve to
 # the same cache entry and the singleton pattern stays effective.
 _DEFAULT_VERSION = "R3_v2.1_2025-01-15"
 
+def _load_registry() -> List[Dict[str, Any]]:
+    # Resolve file path
+    reg_path = Path(__file__).parent / "data" / "product_version_registry.json"
+    if not reg_path.exists():
+        reg_path = Path("C:/Project/nivabupa/policy automate/src/data/product_version_registry.json")
+    if reg_path.exists():
+        try:
+            import json
+            with open(reg_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            _logger.error(f"Error loading product version registry: {e}")
+    return []
+
+def resolve_version_by_id(version_id: str) -> Optional[Dict[str, Any]]:
+    registry = _load_registry()
+    for entry in registry:
+        if entry.get("version_id") == version_id:
+            return entry
+    return None
+
+def resolve_product_version(
+    product_id: str,
+    variant: str,
+    effective_date: date
+) -> Optional[Dict[str, Any]]:
+    """
+    Look up the correct version registry entry by (product_id, variant, effective_date).
+    Finds the latest APPROVED version with effective_date <= requested date.
+    """
+    registry = _load_registry()
+    best_match = None
+    
+    for entry in registry:
+        if entry.get("status") != "APPROVED":
+            continue
+        if entry.get("product_id") != product_id:
+            continue
+        
+        # Variant match (entry variant 'all' matches any variant)
+        entry_variant = entry.get("variant", "all")
+        if entry_variant != "all" and entry_variant != variant:
+            continue
+            
+        try:
+            entry_eff_date = date.fromisoformat(entry.get("effective_date"))
+        except Exception:
+            continue
+            
+        if entry_eff_date <= effective_date:
+            if best_match is None:
+                best_match = (entry_eff_date, entry)
+            else:
+                if entry_eff_date > best_match[0]:
+                    best_match = (entry_eff_date, entry)
+                    
+    return best_match[1] if best_match else None
+
 def _version_to_path(version: str) -> Optional[str]:
     """
     Map a product_json_version string to the extraction file path.
-
-    Convention: place versioned files as
-        docs/Product and Policy Rules Extraction_<version>.txt
-    If no version-specific file is found, fall back to the canonical file
-    (all current R3 versions share the same rule text).
+    Loads product_version_registry.json to find a match, otherwise falls back.
     """
+    # Look up version in registry
+    entry = resolve_version_by_id(version)
+    if entry:
+        json_path = entry.get("json_path")
+        if json_path:
+            full_path = _DOCS_DIR / json_path
+            if full_path.exists():
+                return str(full_path)
+            
+    # Fallback to older convention
     versioned = _DOCS_DIR / f"Product and Policy Rules Extraction_{version}.txt"
     if versioned.exists():
         return str(versioned)
-    # Fall back to the single canonical extraction file
-    return None   # ProductMemoryStore.__init__ will use its own fallback list
-
+    return None
 
 def get_product_memory(version: str = _DEFAULT_VERSION) -> "ProductMemoryStore":
     """

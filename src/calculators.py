@@ -101,6 +101,7 @@ def calculate_waiting_period(
     si_enhancement_date: Optional[datetime] = None,
     accident_flag: bool = False,
     cancer_flag: bool = False,
+    critical_illness_flag: bool = False,  # Gap 6: 90-day CI waiting period
     claim_date: Optional[datetime] = None,
     ped_declarations: Optional[List[str]] = None,
     personal_waiting_period_months: int = 0,
@@ -112,13 +113,12 @@ def calculate_waiting_period(
     Logic (from Section 4.5):
     - Accident claims: Covered from Day-1 (overrides all waiting periods)
     - Initial wait: 30 days from inception (except Accident) unless continuous coverage >= 12 months
+    - Critical Illness: 90-day waiting period (Gap 6 — Section 5, R3_CI_WP_001)
     - Specified disease: 24 months (except Accident day-1, Cancer 30-day)
     - PED: 36 months from inception (reduced by portability credit) for declared PEDs only
     - Personal waiting period (R3_EXCL_017): Insurer-imposed waiting period, capped at 48 months
-    - If SI enhanced: waiting applies afresh to enhanced portion only
+    - If SI enhanced: waiting applies afresh to enhanced portion only (Gap 4 — delta-SI only)
     - If portability: reduce by prior coverage months
-    
-    BUG FIX #7: Added personal_waiting_period_months parameter to evaluate R3_EXCL_017
     """
     if claim_date is None:
         claim_date = datetime.now(timezone.utc)
@@ -162,6 +162,63 @@ def calculate_waiting_period(
     # Apply portability credits
     effective_coverage_months = continuous_coverage_months + portability_credit_months
     
+    # -----------------------------------------------------------------------
+    # Gap 6: Critical Illness 90-day waiting period (R3_CI_WP_001, Section 5)
+    # Applies to: cancer, heart attack, stroke, kidney failure, organ transplant,
+    # multiple sclerosis, paralysis, coma, etc.
+    # This check runs BEFORE the standard 30-day wait.
+    # -----------------------------------------------------------------------
+    if critical_illness_flag:
+        days_since_inception = (claim_date_dt - policy_inc_dt).days
+        ci_wait_days = 90
+        ci_months_required = 3  # 90 days ~ 3 months
+        if days_since_inception < ci_wait_days and effective_coverage_months < ci_months_required:
+            return WaitingPeriodResult(
+                exclusion_active=True,
+                remaining_days=ci_wait_days - days_since_inception,
+                rule_applied="R3_CI_WP_001",
+                details={
+                    "reason": f"Critical Illness 90-day waiting period active for '{condition}'",
+                    "days_since_inception": days_since_inception,
+                    "remaining_days": ci_wait_days - days_since_inception,
+                    "condition": condition
+                }
+            )
+
+    # -----------------------------------------------------------------------
+    # Gap 4: SI Enhancement — waiting period applies afresh to enhanced portion
+    # If the policy SI was enhanced via endorsement, apply fresh 30-day wait
+    # only if the claim_date is within 30 days of the enhancement effective date.
+    # The original base SI portion is NOT re-subjected to waiting period.
+    # -----------------------------------------------------------------------
+    if si_enhancement_date is not None:
+        # Normalize si_enhancement_date timezone
+        if isinstance(si_enhancement_date, str):
+            si_enh_dt = datetime.strptime(si_enhancement_date.split("T")[0], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        elif isinstance(si_enhancement_date, datetime):
+            si_enh_dt = si_enhancement_date.replace(tzinfo=timezone.utc) if si_enhancement_date.tzinfo is None else si_enhancement_date
+        else:
+            si_enh_dt = None
+        
+        if si_enh_dt is not None:
+            days_since_enhancement = (claim_date_dt - si_enh_dt).days
+            if 0 <= days_since_enhancement < 30:
+                return WaitingPeriodResult(
+                    exclusion_active=True,
+                    remaining_days=30 - days_since_enhancement,
+                    rule_applied="R3_EXCL_SI_ENHANCEMENT",
+                    details={
+                        "reason": (
+                            f"SI enhancement waiting period active: enhanced portion has "
+                            f"{30 - days_since_enhancement} days remaining. "
+                            "Only the pre-enhancement base SI is payable during this window."
+                        ),
+                        "si_enhancement_date": si_enh_dt.isoformat(),
+                        "days_since_enhancement": days_since_enhancement,
+                        "remaining_days": 30 - days_since_enhancement
+                    }
+                )
+
     # Personal Waiting Period (R3_EXCL_017): Insurer-imposed waiting period (capped at 48 months)
     # BUG FIX #7: Check personal waiting period from policy
     if personal_waiting_period_months > 0:

@@ -1,0 +1,13 @@
+[
+  {
+    "version_id": "R3_v2.1_2025-01-15",
+    "product_id": "R3",
+    "variant": "all",
+    "effective_date": "2025-01-15",
+    "approved_by": "SME_TEAM",
+    "approval_date": "2025-01-10",
+    "json_path": "Product and Policy Rules Extraction.txt",
+    "status": "APPROVED",
+    "changelog": []
+  }
+]
