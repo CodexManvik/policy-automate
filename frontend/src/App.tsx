@@ -1,1889 +1,734 @@
-import { useState, useEffect } from 'react';
-import { 
-  Shield, 
-  User, 
-  Receipt, 
-  Play, 
-  Moon, 
-  Sun, 
-  Plus, 
-  Trash2, 
-  Activity, 
-  CheckCircle2, 
-  XCircle, 
-  AlertCircle, 
-  FileText, 
-  BarChart3, 
-  Sparkles
+import { useState } from 'react';
+import {
+  Sparkles, Activity, Shield, ShieldCheck, ShieldAlert,
+  ChevronDown, ChevronRight, Plus, Trash2, Cpu, DollarSign, Wallet,
+  RefreshCw, AlertTriangle, AlertCircle, Clock, BookOpen, User, Building2
 } from 'lucide-react';
 
-// ============================================================================
-// TYPES & SCHEMAS DEFINITION
-// ============================================================================
+import { useClaimContext } from './hooks/useClaimContext';
+import { useAdjudication } from './hooks/useAdjudication';
 
-interface PolicyData {
-  policy_id: string;
-  product_code: string;
-  variant: 'Classic' | 'Select' | 'Elite';
-  policy_start_date: string;
-  policy_end_date: string;
-  base_sum_insured: number;
-  status: 'Active' | 'Lapsed' | 'Cancelled';
-  premium_paid: boolean;
-  grace_period_active: boolean;
-  
-  // Optional config (API contract)
-  co_payment_percent: number | null;
-  annual_aggregate_deductible: number | null;
-  room_category_entitled: string;
-  
-  // Riders/opts
-  borderless_opted: boolean;
-  borderless_specific_illness_opted: boolean;
-  unlimited_si_opted: boolean;
-  modern_treatments_plus_opted: boolean;
-  air_ambulance_plus_opted: boolean;
-  heads_up_opted: boolean;
-  tiered_network_opted: boolean;
-  
-  // Optional config (API contract)
-  room_rent_limit: number | null;
-  hospital_daily_cash_amount: number | null;
-  pa_sum_insured: number | null;
-  personal_waiting_period_months: number;
-  policy_type: 'individual' | 'floater';
-  policy_term_years: number;
-}
 
-interface MemberData {
-  member_id: string;
-  policy_id: string;
-  name: string;
-  age: number;
-  entry_age: number;
-  relationship: 'Self' | 'Spouse' | 'Child' | 'Parent' | 'Parent-in-law';
-  date_of_addition: string;
-  ped_declarations: string[];
-  eligibility_active: boolean;
-}
 
-interface ClaimsHistoryData {
-  policy_id: string;
-  member_id: string;
-  prior_claims_count: number;
-  total_utilized_si: number;
-  last_claim_date: string | null;
-  prior_exclusions_triggered: string[];
-  claim_free_years: number;
-}
 
-interface PortingMigrationData {
-  policy_id: string;
-  porting_applicable: boolean;
-  prior_coverage_months: number;
-  waiting_period_credit_months: number;
-  moratorium_eligible: boolean;
-}
 
-interface NetworkData {
-  provider_id: string;
-  provider_name: string;
-  provider_type: 'Network' | 'Non-Network' | 'Excluded';
-  tiered_network_member: boolean;
-  heads_up_recommended: boolean;
-}
-
-interface BenefitBalanceData {
-  policy_id: string;
-  base_si_remaining: number;
-  booster_plus_remaining: number;
-  reassure_forever_pool: number;
-  cash_bag_plus_wallet: number;
-  hospital_cash_days_used: number;
-  deductible_consumed_ytd: number;
-}
-
-interface LifetimeStateData {
-  policy_id: string;
-  reassure_forever_triggered: boolean;
-  reassure_forever_triggered_date: string | null;
-  reassure_forever_triggered_claim_id: string | null;
-  lock_the_clock_age_locked: boolean;
-  lock_the_clock_entry_age: number;
-  lock_the_clock_unlocked_date: string | null;
-  lock_the_clock_current_premium_age: number;
-  booster_plus_accumulated: number;
-  booster_plus_last_updated: string | null;
-  convalescence_claimed: boolean;
-  critical_illness_claimed: boolean;
-  critical_illness_type: string | null;
-}
-
-interface LineItemData {
-  line_item_id: string;
-  description: string;
-  claimed_amount: number;
-  expense_date: string;
-  benefit_bucket: 
-    | "Expenses in reaching a Hospital"
-    | "Expenses during Hospitalization"
-    | "Expenses before and after hospitalization"
-    | "Home Care / Domiciliary Treatment"
-    | "Organ Donor"
-    | "Hospital Daily Cash"
-    | "Personal Accident"
-    | "Other";
-  
-  // Optional configs (API contract)
-  admission_date: string | null;
-  discharge_date: string | null;
-  hospitalization_hours: number | null;
-  
-  actual_room_rent: number | null;
-  room_category_claimed: string | null;
-  
-  treatment_type: string;
-  condition_diagnosed: string;
-  accident_related: boolean;
-  emergency: boolean;
-  
-  // Room rent bill breakdown (API contract)
-  room_charges: number | null;
-  nursing_charges: number | null;
-  medical_practitioner_fees: number | null;
-  ot_charges: number | null;
-  
-  // Domiciliary conditions
-  doctor_advised: boolean;
-  continuous_treatment: boolean;
-  daily_monitoring_chart: boolean;
-}
-
-interface ClaimContext {
-  claim_id: string;
-  claim_received_at: string;
-  policy: PolicyData;
-  member: MemberData;
-  history: ClaimsHistoryData;
-  porting: PortingMigrationData;
-  network: NetworkData;
-  benefit_balance: BenefitBalanceData;
-  lifetime_state: LifetimeStateData;
-  endorsements: any[];
-  line_items: LineItemData[];
-  product_json_version: string;
-  context_assembled_at: string;
-}
-
-// Response output structures
-interface DeductionDetail {
-  deduction_type: string;
-  amount: number;
-  rule_id: string;
-  reason: string;
-  calculation_details: Record<string, any>;
-}
-
-interface LineItemDecision {
-  line_item_id: string;
-  decision: 'APPROVED' | 'PARTIALLY_APPROVED' | 'REJECTED' | 'ASSISTED_REVIEW' | 'PENDING_REVIEW';
-  claimed_amount: number;
-  admissible_amount: number;
-  payable_amount: number;
-  deductions: DeductionDetail[];
-  decision_trace: DecisionTrace[];
-  confidence_score: number;
-  manual_review_required: boolean;
-  review_reason: string | null;
-}
-
-interface DecisionTrace {
-  step: number;
-  rule_id: string;
-  rule_name: string;
-  gate: string;
-  evaluation: 'PASSED' | 'FAILED' | 'NOT_APPLICABLE' | 'EXCLUSION_ACTIVE' | 'DEDUCTION_APPLIED' | 'PENDING_REVIEW' | 'ASSISTED_REVIEW';
-  reason: string;
-  confidence: number;
-}
-
-interface DeductionBreakdown {
-  room_pro_rata: number;
-  co_payment: number;
-  deductible: number;
-  non_payable_items: number;
-  si_cap: number;
-  sublimits: number;
-  penalties: number;
-}
-
-interface SIWaterfallBreakdown {
-  amount_from_base_si: number;
-  amount_from_booster: number;
-  amount_from_forever: number;
-  total_paid: number;
-  shortfall: number;
-  updated_base_si: number;
-  updated_booster: number;
-  updated_forever_pool: number;
-}
-
-interface ClaimDecision {
-  claim_id: string;
-  claim_decision: 'APPROVED' | 'PARTIALLY_APPROVED' | 'REJECTED' | 'ASSISTED_REVIEW' | 'PENDING_REVIEW';
-  total_claimed: number;
-  total_admissible: number;
-  total_payable: number;
-  total_deductions: number;
-  deduction_breakdown: DeductionBreakdown;
-  si_waterfall_breakdown: SIWaterfallBreakdown;
-  line_items: LineItemDecision[];
-  decision_trace: DecisionTrace[];
-  confidence_score: number;
-  manual_review_required: boolean;
-  review_reasons: string[];
-  decision_timestamp: string;
-  processing_duration_ms: number | null;
-}
-
-// ============================================================================
-// SCENARIO PRESETS
+// MAIN APP COMPONENT
 // ============================================================================
 
-const PRESETS: Record<string, { name: string; description: string; context: ClaimContext }> = {
-  PRESET_APPENDICITIS: {
-    name: 'Appendicitis Room Pro-Rata Match',
-    description: 'Standard hospitalization claim where room rents match entitlement. Full pro-rata approval with standard 10% co-payment.',
-    context: {
-      claim_id: 'CLM-APP-001',
-      claim_received_at: new Date().toISOString(),
-      product_json_version: 'R3_v2.1_2025-01-15',
-      context_assembled_at: new Date().toISOString(),
-      endorsements: [],
-      policy: {
-        policy_id: 'POL-1001',
-        product_code: 'R3',
-        variant: 'Select',
-        policy_start_date: '2024-06-01T00:00:00Z',
-        policy_end_date: '2025-05-31T00:00:00Z',
-        base_sum_insured: 500000.0,
-        status: 'Active',
-        premium_paid: true,
-        grace_period_active: false,
-        policy_type: 'individual',
-        policy_term_years: 1,
-        co_payment_percent: 10.0, // OPTIONAL contract field
-        annual_aggregate_deductible: null,
-        room_category_entitled: 'Single Private Room',
-        room_rent_limit: null, // OPTIONAL contract field (None = Unlimited for Single Private Room)
-        hospital_daily_cash_amount: null,
-        pa_sum_insured: null,
-        personal_waiting_period_months: 0,
-        borderless_opted: false,
-        borderless_specific_illness_opted: false,
-        unlimited_si_opted: false,
-        modern_treatments_plus_opted: false,
-        air_ambulance_plus_opted: false,
-        heads_up_opted: false,
-        tiered_network_opted: false,
-      },
-      member: {
-        member_id: 'MEM-1001',
-        policy_id: 'POL-1001',
-        name: 'Amit Patel',
-        age: 35,
-        entry_age: 32,
-        relationship: 'Self',
-        date_of_addition: '2024-06-01T00:00:00Z',
-        ped_declarations: [],
-        eligibility_active: true
-      },
-      history: {
-        policy_id: 'POL-1001',
-        member_id: 'MEM-1001',
-        prior_claims_count: 0,
-        total_utilized_si: 0.0,
-        last_claim_date: null,
-        prior_exclusions_triggered: [],
-        claim_free_years: 2
-      },
-      porting: {
-        policy_id: 'POL-1001',
-        porting_applicable: false,
-        prior_coverage_months: 0,
-        waiting_period_credit_months: 0,
-        moratorium_eligible: false
-      },
-      network: {
-        provider_id: 'HOSP-201',
-        provider_name: 'Apollo Hospital Ahmedabad',
-        provider_type: 'Network',
-        tiered_network_member: false,
-        heads_up_recommended: false
-      },
-      benefit_balance: {
-        policy_id: 'POL-1001',
-        base_si_remaining: 500000.0,
-        booster_plus_remaining: 100000.0,
-        reassure_forever_pool: 0.0,
-        cash_bag_plus_wallet: 0.0,
-        hospital_cash_days_used: 0,
-        deductible_consumed_ytd: 0.0
-      },
-      lifetime_state: {
-        policy_id: 'POL-1001',
-        reassure_forever_triggered: false,
-        reassure_forever_triggered_date: null,
-        reassure_forever_triggered_claim_id: null,
-        lock_the_clock_age_locked: true,
-        lock_the_clock_entry_age: 32,
-        lock_the_clock_unlocked_date: null,
-        lock_the_clock_current_premium_age: 32,
-        booster_plus_accumulated: 100000.0,
-        booster_plus_last_updated: '2025-06-01T00:00:00Z',
-        convalescence_claimed: false,
-        critical_illness_claimed: false,
-        critical_illness_type: null
-      },
-      line_items: [
-        {
-          line_item_id: 'LI-APP-01',
-          description: 'Appendectomy Surgical Room Charges',
-          claimed_amount: 50000.0,
-          expense_date: '2024-10-15T00:00:00Z',
-          benefit_bucket: 'Expenses during Hospitalization',
-          admission_date: '2024-10-13T00:00:00Z', // OPTIONAL contract field
-          discharge_date: '2024-10-15T00:00:00Z', // OPTIONAL contract field
-          hospitalization_hours: 48.0,            // OPTIONAL contract field
-          actual_room_rent: 8000.0,               // OPTIONAL contract field (matches entitlement single private)
-          room_category_claimed: 'Single Private Room', // OPTIONAL contract field
-          treatment_type: 'Allopathic',
-          condition_diagnosed: 'Acute Appendicitis',
-          accident_related: false,
-          emergency: false,
-          room_charges: 16000.0,                 // OPTIONAL contract field
-          nursing_charges: 8000.0,                  // OPTIONAL contract field
-          medical_practitioner_fees: 20000.0,     // OPTIONAL contract field
-          ot_charges: 6000.0,                     // OPTIONAL contract field
-          doctor_advised: false,
-          continuous_treatment: false,
-          daily_monitoring_chart: false
-        }
-      ]
-    }
-  },
-  PRESET_MODERN_LIMIT: {
-    name: 'Robotic Surgery (Sub-limit Applied)',
-    description: 'Robotic Surgery claim under Classic variant which imposes a 50% sub-limit. Watch how it caps payout, then toggle "Modern Treatments Plus" to remove it.',
-    context: {
-      claim_id: 'CLM-ROB-001',
-      claim_received_at: new Date().toISOString(),
-      product_json_version: 'R3_v2.1_2025-01-15',
-      context_assembled_at: new Date().toISOString(),
-      endorsements: [],
-      policy: {
-        policy_id: 'POL-1002',
-        product_code: 'R3',
-        variant: 'Classic',
-        policy_start_date: '2024-06-01T00:00:00Z',
-        policy_end_date: '2025-05-31T00:00:00Z',
-        base_sum_insured: 100000.0,
-        status: 'Active',
-        premium_paid: true,
-        grace_period_active: false,
-        policy_type: 'individual',
-        policy_term_years: 1,
-        co_payment_percent: null,
-        annual_aggregate_deductible: null,
-        room_category_entitled: 'General Ward',
-        room_rent_limit: null,
-        hospital_daily_cash_amount: null,
-        pa_sum_insured: null,
-        personal_waiting_period_months: 0,
-        borderless_opted: false,
-        borderless_specific_illness_opted: false,
-        unlimited_si_opted: false,
-        modern_treatments_plus_opted: false, // Turn this ON to bypass sub-limit
-        air_ambulance_plus_opted: false,
-        heads_up_opted: false,
-        tiered_network_opted: false,
-      },
-      member: {
-        member_id: 'MEM-1002',
-        policy_id: 'POL-1002',
-        name: 'Rita Sen',
-        age: 42,
-        entry_age: 40,
-        relationship: 'Self',
-        date_of_addition: '2024-06-01T00:00:00Z',
-        ped_declarations: [],
-        eligibility_active: true
-      },
-      history: {
-        policy_id: 'POL-1002',
-        member_id: 'MEM-1002',
-        prior_claims_count: 0,
-        total_utilized_si: 0.0,
-        last_claim_date: null,
-        prior_exclusions_triggered: [],
-        claim_free_years: 1
-      },
-      porting: {
-        policy_id: 'POL-1002',
-        porting_applicable: false,
-        prior_coverage_months: 0,
-        waiting_period_credit_months: 0,
-        moratorium_eligible: false
-      },
-      network: {
-        provider_id: 'HOSP-202',
-        provider_name: 'Fortis Hospital Noida',
-        provider_type: 'Network',
-        tiered_network_member: false,
-        heads_up_recommended: false
-      },
-      benefit_balance: {
-        policy_id: 'POL-1002',
-        base_si_remaining: 100000.0,
-        booster_plus_remaining: 0.0,
-        reassure_forever_pool: 0.0,
-        cash_bag_plus_wallet: 0.0,
-        hospital_cash_days_used: 0,
-        deductible_consumed_ytd: 0.0
-      },
-      lifetime_state: {
-        policy_id: 'POL-1002',
-        reassure_forever_triggered: false,
-        reassure_forever_triggered_date: null,
-        reassure_forever_triggered_claim_id: null,
-        lock_the_clock_age_locked: true,
-        lock_the_clock_entry_age: 40,
-        lock_the_clock_unlocked_date: null,
-        lock_the_clock_current_premium_age: 40,
-        booster_plus_accumulated: 0.0,
-        booster_plus_last_updated: null,
-        convalescence_claimed: false,
-        critical_illness_claimed: false,
-        critical_illness_type: null
-      },
-      line_items: [
-        {
-          line_item_id: 'LI-ROB-01',
-          description: 'Robotic Surgery for prostate cancer',
-          claimed_amount: 80000.0,
-          expense_date: '2024-11-20T00:00:00Z',
-          benefit_bucket: 'Expenses during Hospitalization',
-          admission_date: '2024-11-18T00:00:00Z',
-          discharge_date: '2024-11-20T00:00:00Z',
-          hospitalization_hours: 48.0,
-          actual_room_rent: 4000.0,
-          room_category_claimed: 'Single Private Room',
-          treatment_type: 'Allopathic',
-          condition_diagnosed: 'Prostate Cancer',
-          accident_related: false,
-          emergency: false,
-          room_charges: 8000.0,
-          nursing_charges: 4000.0,
-          medical_practitioner_fees: 50000.0,
-          ot_charges: 18000.0,
-          doctor_advised: false,
-          continuous_treatment: false,
-          daily_monitoring_chart: false
-        }
-      ]
-    }
-  },
-  PRESET_DAILY_CASH: {
-    name: 'Hospital Daily Cash Payout',
-    description: 'Special fixed benefit payout of Daily Cash amount for 3 days of hospitalization (exempt from deductibles/co-payments).',
-    context: {
-      claim_id: 'CLM-HDC-001',
-      claim_received_at: new Date().toISOString(),
-      product_json_version: 'R3_v2.1_2025-01-15',
-      context_assembled_at: new Date().toISOString(),
-      endorsements: [],
-      policy: {
-        policy_id: 'POL-1003',
-        product_code: 'R3',
-        variant: 'Select',
-        policy_start_date: '2024-06-01T00:00:00Z',
-        policy_end_date: '2025-05-31T00:00:00Z',
-        base_sum_insured: 400000.0,
-        status: 'Active',
-        premium_paid: true,
-        grace_period_active: false,
-        policy_type: 'individual',
-        policy_term_years: 1,
-        co_payment_percent: null,
-        annual_aggregate_deductible: null,
-        room_category_entitled: 'Single Private Room',
-        room_rent_limit: null,
-        hospital_daily_cash_amount: 2000.0, // OPTIONAL contract field (Rider cash benefit)
-        pa_sum_insured: null,
-        personal_waiting_period_months: 0,
-        borderless_opted: false,
-        borderless_specific_illness_opted: false,
-        unlimited_si_opted: false,
-        modern_treatments_plus_opted: false,
-        air_ambulance_plus_opted: false,
-        heads_up_opted: false,
-        tiered_network_opted: false,
-      },
-      member: {
-        member_id: 'MEM-1003',
-        policy_id: 'POL-1003',
-        name: 'Vikas Kumar',
-        age: 28,
-        entry_age: 28,
-        relationship: 'Self',
-        date_of_addition: '2024-06-01T00:00:00Z',
-        ped_declarations: [],
-        eligibility_active: true
-      },
-      history: {
-        policy_id: 'POL-1003',
-        member_id: 'MEM-1003',
-        prior_claims_count: 0,
-        total_utilized_si: 0.0,
-        last_claim_date: null,
-        prior_exclusions_triggered: [],
-        claim_free_years: 0
-      },
-      porting: {
-        policy_id: 'POL-1003',
-        porting_applicable: false,
-        prior_coverage_months: 0,
-        waiting_period_credit_months: 0,
-        moratorium_eligible: false
-      },
-      network: {
-        provider_id: 'HOSP-203',
-        provider_name: 'Max Healthcare Delhi',
-        provider_type: 'Network',
-        tiered_network_member: false,
-        heads_up_recommended: false
-      },
-      benefit_balance: {
-        policy_id: 'POL-1003',
-        base_si_remaining: 400000.0,
-        booster_plus_remaining: 0.0,
-        reassure_forever_pool: 0.0,
-        cash_bag_plus_wallet: 0.0,
-        hospital_cash_days_used: 0, // Track YTD days
-        deductible_consumed_ytd: 0.0
-      },
-      lifetime_state: {
-        policy_id: 'POL-1003',
-        reassure_forever_triggered: false,
-        reassure_forever_triggered_date: null,
-        reassure_forever_triggered_claim_id: null,
-        lock_the_clock_age_locked: true,
-        lock_the_clock_entry_age: 28,
-        lock_the_clock_unlocked_date: null,
-        lock_the_clock_current_premium_age: 28,
-        booster_plus_accumulated: 0.0,
-        booster_plus_last_updated: null,
-        convalescence_claimed: false,
-        critical_illness_claimed: false,
-        critical_illness_type: null
-      },
-      line_items: [
-        {
-          line_item_id: 'LI-HDC-01',
-          description: 'Daily cash benefit during recovery',
-          claimed_amount: 10000.0,
-          expense_date: '2024-09-10T00:00:00Z',
-          benefit_bucket: 'Hospital Daily Cash',
-          admission_date: '2024-09-07T00:00:00Z',
-          discharge_date: '2024-09-10T00:00:00Z',
-          hospitalization_hours: 72.0, // 3 full days
-          actual_room_rent: null,
-          room_category_claimed: null,
-          treatment_type: 'Allopathic',
-          condition_diagnosed: 'Viral Fever',
-          accident_related: false,
-          emergency: false,
-          room_charges: null,
-          nursing_charges: null,
-          medical_practitioner_fees: null,
-          ot_charges: null,
-          doctor_advised: false,
-          continuous_treatment: false,
-          daily_monitoring_chart: false
-        }
-      ]
-    }
-  },
-  PRESET_WAITING_PERIOD: {
-    name: 'New Member Waiting Period Reject',
-    description: 'A member added to an active policy mid-term files a claim for Fever within the initial 30 days of addition. It gets completely rejected.',
-    context: {
-      claim_id: 'CLM-WAIT-001',
-      claim_received_at: new Date().toISOString(),
-      product_json_version: 'R3_v2.1_2025-01-15',
-      context_assembled_at: new Date().toISOString(),
-      endorsements: [
-        {
-          endorsement_id: 'END-MEMBER-01',
-          policy_id: 'POL-1004',
-          endorsement_type: 'MemberAddition',
-          effective_date: '2024-07-01T00:00:00Z',
-          details: { member_id: 'MEM-1004B' }
-        }
-      ],
-      policy: {
-        policy_id: 'POL-1004',
-        product_code: 'R3',
-        variant: 'Select',
-        policy_start_date: '2024-06-01T00:00:00Z',
-        policy_end_date: '2025-05-31T00:00:00Z',
-        base_sum_insured: 500000.0,
-        status: 'Active',
-        premium_paid: true,
-        grace_period_active: false,
-        policy_type: 'individual',
-        policy_term_years: 1,
-        co_payment_percent: null,
-        annual_aggregate_deductible: null,
-        room_category_entitled: 'Single Private Room',
-        room_rent_limit: null,
-        hospital_daily_cash_amount: null,
-        pa_sum_insured: null,
-        personal_waiting_period_months: 0,
-        borderless_opted: false,
-        borderless_specific_illness_opted: false,
-        unlimited_si_opted: false,
-        modern_treatments_plus_opted: false,
-        air_ambulance_plus_opted: false,
-        heads_up_opted: false,
-        tiered_network_opted: false,
-      },
-      member: {
-        member_id: 'MEM-1004B',
-        policy_id: 'POL-1004',
-        name: 'Sunita Patel',
-        age: 30,
-        entry_age: 30,
-        relationship: 'Spouse',
-        date_of_addition: '2024-07-01T00:00:00Z', // Added mid-term
-        ped_declarations: [],
-        eligibility_active: true
-      },
-      history: {
-        policy_id: 'POL-1004',
-        member_id: 'MEM-1004B',
-        prior_claims_count: 0,
-        total_utilized_si: 0.0,
-        last_claim_date: null,
-        prior_exclusions_triggered: [],
-        claim_free_years: 0 // Fresh waiting period
-      },
-      porting: {
-        policy_id: 'POL-1004',
-        porting_applicable: false,
-        prior_coverage_months: 0,
-        waiting_period_credit_months: 0,
-        moratorium_eligible: false
-      },
-      network: {
-        provider_id: 'HOSP-204',
-        provider_name: 'Sterling Hospital Vadodara',
-        provider_type: 'Network',
-        tiered_network_member: false,
-        heads_up_recommended: false
-      },
-      benefit_balance: {
-        policy_id: 'POL-1004',
-        base_si_remaining: 500000.0,
-        booster_plus_remaining: 0.0,
-        reassure_forever_pool: 0.0,
-        cash_bag_plus_wallet: 0.0,
-        hospital_cash_days_used: 0,
-        deductible_consumed_ytd: 0.0
-      },
-      lifetime_state: {
-        policy_id: 'POL-1004',
-        reassure_forever_triggered: false,
-        reassure_forever_triggered_date: null,
-        reassure_forever_triggered_claim_id: null,
-        lock_the_clock_age_locked: true,
-        lock_the_clock_entry_age: 30,
-        lock_the_clock_unlocked_date: null,
-        lock_the_clock_current_premium_age: 30,
-        booster_plus_accumulated: 0.0,
-        booster_plus_last_updated: null,
-        convalescence_claimed: false,
-        critical_illness_claimed: false,
-        critical_illness_type: null
-      },
-      line_items: [
-        {
-          line_item_id: 'LI-WAIT-01',
-          description: 'Treatment for Acute Viral Fever',
-          claimed_amount: 15000.0,
-          expense_date: '2024-07-15T00:00:00Z', // Only 14 days after addition!
-          benefit_bucket: 'Expenses during Hospitalization',
-          admission_date: '2024-07-12T00:00:00Z',
-          discharge_date: '2024-07-15T00:00:00Z',
-          hospitalization_hours: 72.0,
-          actual_room_rent: 3000.0,
-          room_category_claimed: 'General Ward',
-          treatment_type: 'Allopathic',
-          condition_diagnosed: 'Viral Fever',
-          accident_related: false,
-          emergency: false,
-          room_charges: 6000.0,
-          nursing_charges: 3000.0,
-          medical_practitioner_fees: 4000.0,
-          ot_charges: 2000.0,
-          doctor_advised: false,
-          continuous_treatment: false,
-          daily_monitoring_chart: false
-        }
-      ]
-    }
-  },
-  PRESET_MISSING_CONFIG: {
-    name: 'Missing Room Rent Limit (Assisted Review)',
-    description: 'We intentionally set "room_rent_limit" to None/Empty and claim room charges, causing the pro-rata step to yield NOT_APPLICABLE and route the claim to ASSISTED_REVIEW.',
-    context: {
-      claim_id: 'CLM-MISS-001',
-      claim_received_at: new Date().toISOString(),
-      product_json_version: 'R3_v2.1_2025-01-15',
-      context_assembled_at: new Date().toISOString(),
-      endorsements: [],
-      policy: {
-        policy_id: 'POL-1005',
-        product_code: 'R3',
-        variant: 'Classic', // Classic variants require either room rent limits or Single Private Room
-        policy_start_date: '2024-06-01T00:00:00Z',
-        policy_end_date: '2025-05-31T00:00:00Z',
-        base_sum_insured: 200000.0,
-        status: 'Active',
-        premium_paid: true,
-        grace_period_active: false,
-        policy_type: 'individual',
-        policy_term_years: 1,
-        co_payment_percent: null,
-        annual_aggregate_deductible: null,
-        room_category_entitled: 'Shared Room',
-        room_rent_limit: null, // CONTRACT FIELD SET TO NULL (None)
-        hospital_daily_cash_amount: null,
-        pa_sum_insured: null,
-        personal_waiting_period_months: 0,
-        borderless_opted: false,
-        borderless_specific_illness_opted: false,
-        unlimited_si_opted: false,
-        modern_treatments_plus_opted: false,
-        air_ambulance_plus_opted: false,
-        heads_up_opted: false,
-        tiered_network_opted: false,
-      },
-      member: {
-        member_id: 'MEM-1005',
-        policy_id: 'POL-1005',
-        name: 'Alok Sharma',
-        age: 50,
-        entry_age: 48,
-        relationship: 'Self',
-        date_of_addition: '2024-06-01T00:00:00Z',
-        ped_declarations: [],
-        eligibility_active: true
-      },
-      history: {
-        policy_id: 'POL-1005',
-        member_id: 'MEM-1005',
-        prior_claims_count: 0,
-        total_utilized_si: 0.0,
-        last_claim_date: null,
-        prior_exclusions_triggered: [],
-        claim_free_years: 3
-      },
-      porting: {
-        policy_id: 'POL-1005',
-        porting_applicable: false,
-        prior_coverage_months: 0,
-        waiting_period_credit_months: 0,
-        moratorium_eligible: false
-      },
-      network: {
-        provider_id: 'HOSP-205',
-        provider_name: 'Care Hospital Hyderabad',
-        provider_type: 'Network',
-        tiered_network_member: false,
-        heads_up_recommended: false
-      },
-      benefit_balance: {
-        policy_id: 'POL-1005',
-        base_si_remaining: 200000.0,
-        booster_plus_remaining: 0.0,
-        reassure_forever_pool: 0.0,
-        cash_bag_plus_wallet: 0.0,
-        hospital_cash_days_used: 0,
-        deductible_consumed_ytd: 0.0
-      },
-      lifetime_state: {
-        policy_id: 'POL-1005',
-        reassure_forever_triggered: false,
-        reassure_forever_triggered_date: null,
-        reassure_forever_triggered_claim_id: null,
-        lock_the_clock_age_locked: true,
-        lock_the_clock_entry_age: 48,
-        lock_the_clock_unlocked_date: null,
-        lock_the_clock_current_premium_age: 48,
-        booster_plus_accumulated: 0.0,
-        booster_plus_last_updated: null,
-        convalescence_claimed: false,
-        critical_illness_claimed: false,
-        critical_illness_type: null
-      },
-      line_items: [
-        {
-          line_item_id: 'LI-MISS-01',
-          description: 'Surgical recovery room stay',
-          claimed_amount: 30000.0,
-          expense_date: '2024-09-05T00:00:00Z',
-          benefit_bucket: 'Expenses during Hospitalization',
-          admission_date: '2024-09-02T00:00:00Z',
-          discharge_date: '2024-09-05T00:00:00Z',
-          hospitalization_hours: 72.0,
-          actual_room_rent: 6000.0, // Higher than shared room rates
-          room_category_claimed: 'Single Private Room',
-          treatment_type: 'Allopathic',
-          condition_diagnosed: 'Gastroenteritis',
-          accident_related: false,
-          emergency: false,
-          room_charges: 18000.0,
-          nursing_charges: 4000.0,
-          medical_practitioner_fees: 5000.0,
-          ot_charges: 3000.0,
-          doctor_advised: false,
-          continuous_treatment: false,
-          daily_monitoring_chart: false
-        }
-      ]
-    }
-  }
-};
+export default function App() {
+  const {
+    context, activePreset, endType, endVal,
+    setEndType, setEndVal,
+    handlePresetChange, updatePolicy, updateMember,
+    updateLiveHealthy, updateCashBagPlus,
+    updateBenefitBalance, toggleRenewalSimulation,
+    updateLineItem, addLineItem, removeLineItem,
+    addEndorsement, removeEndorsement,
+  } = useClaimContext();
 
-// Default context (uses PRESET_APPENDICITIS)
-const DEFAULT_CONTEXT = PRESETS.PRESET_APPENDICITIS.context;
+  const { decision, loading, error, submit } = useAdjudication();
 
-function App() {
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
-  const [activeTab, setActiveTab] = useState<'policy' | 'member' | 'lineItems'>('policy');
-  const [context, setContext] = useState<ClaimContext>(JSON.parse(JSON.stringify(DEFAULT_CONTEXT)));
-  
-  // API Call States
-  const [loading, setLoading] = useState<boolean>(false);
-  const [result, setResult] = useState<ClaimDecision | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // UI Accordion States
+  const [openSection, setOpenSection] = useState<string>('policy');
 
-  // Set initial theme
-  useEffect(() => {
-    const root = document.documentElement;
-    if (theme === 'light') {
-      root.classList.add('light');
-    } else {
-      root.classList.remove('light');
-    }
-  }, [theme]);
-
-  const toggleTheme = () => {
-    setTheme(t => t === 'dark' ? 'light' : 'dark');
+  const handleAdjudicate = () => {
+    void submit(context);
   };
 
-  // Preset loader
-  const loadPreset = (presetKey: string) => {
-    const selected = PRESETS[presetKey];
-    if (selected) {
-      // Create deep clone
-      const cloned = JSON.parse(JSON.stringify(selected.context));
-      // Re-initialize claim dates
-      cloned.claim_received_at = new Date().toISOString();
-      cloned.context_assembled_at = new Date().toISOString();
-      setContext(cloned);
-      setResult(null);
-      setError(null);
-    }
+  const handleAddEndorsement = () => {
+    const ok = addEndorsement();
+    if (!ok) alert('Invalid JSON details. Please fix before adding.');
   };
 
-  // Value Handlers (ensuring numeric inputs map properly to float or null)
-  const handlePolicyChange = (field: keyof PolicyData, value: any) => {
-    setContext(prev => ({
-      ...prev,
-      policy: {
-        ...prev.policy,
-        [field]: value
-      }
-    }));
+
+
+  // Helper formatting utility (strictly styled float precision)
+  const formatCurrency = (val: number | undefined) => {
+    if (val === undefined) return '₹0.00';
+    return `₹${Number(val).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
-  const handlePolicyNumberChange = (field: keyof PolicyData, valueStr: string) => {
-    const val = valueStr === '' ? null : parseFloat(valueStr);
-    handlePolicyChange(field, val);
-  };
+  // Find reasoning trace values in decision trace logs
+  const reasoningTraces = decision?.decision_trace.filter(
+    t => t.gate.includes('validation') || t.gate === 'waiting_period_validation'
+  ) || [];
 
-  const handleMemberChange = (field: keyof MemberData, value: any) => {
-    setContext(prev => ({
-      ...prev,
-      member: {
-        ...prev.member,
-        [field]: value
-      }
-    }));
-  };
-
-  const handleMemberNumChange = (field: keyof MemberData, valueStr: string) => {
-    const val = valueStr === '' ? 0 : parseInt(valueStr, 10);
-    handleMemberChange(field, val);
-  };
-
-  const handleBalanceChange = (field: keyof BenefitBalanceData, valueStr: string) => {
-    const val = valueStr === '' ? 0 : parseFloat(valueStr);
-    setContext(prev => ({
-      ...prev,
-      benefit_balance: {
-        ...prev.benefit_balance,
-        [field]: val
-      }
-    }));
-  };
-
-  // Line Item Handlers
-  const handleLineItemChange = (index: number, field: keyof LineItemData, value: any) => {
-    setContext(prev => {
-      const updated = [...prev.line_items];
-      updated[index] = {
-        ...updated[index],
-        [field]: value
-      };
-      return {
-        ...prev,
-        line_items: updated
-      };
-    });
-  };
-
-  const handleLineItemNumChange = (index: number, field: keyof LineItemData, valueStr: string) => {
-    const val = valueStr === '' ? null : parseFloat(valueStr);
-    handleLineItemChange(index, field, val);
-  };
-
-  const addLineItem = () => {
-    const newItem: LineItemData = {
-      line_item_id: `LI-00${context.line_items.length + 1}`,
-      description: 'Medical consumables and charges',
-      claimed_amount: 10000.0,
-      expense_date: new Date().toISOString().split('T')[0],
-      benefit_bucket: 'Expenses during Hospitalization',
-      admission_date: null,
-      discharge_date: null,
-      hospitalization_hours: null,
-      actual_room_rent: null,
-      room_category_claimed: null,
-      treatment_type: 'Allopathic',
-      condition_diagnosed: 'Acute Appendicitis',
-      accident_related: false,
-      emergency: false,
-      room_charges: null,
-      nursing_charges: null,
-      medical_practitioner_fees: null,
-      ot_charges: null,
-      doctor_advised: false,
-      continuous_treatment: false,
-      daily_monitoring_chart: false
-    };
-    setContext(prev => ({
-      ...prev,
-      line_items: [...prev.line_items, newItem]
-    }));
-  };
-
-  const removeLineItem = (index: number) => {
-    setContext(prev => ({
-      ...prev,
-      line_items: prev.line_items.filter((_, i) => i !== index)
-    }));
-  };
-
-  // Run Adjudication call
-  const runAdjudication = async () => {
-    setLoading(true);
-    setResult(null);
-    setError(null);
-
-    // Deep copy and clean payload dates
-    const payload = JSON.parse(JSON.stringify(context));
-    
-    // Coerce empty strings to null or appropriate types for dates and lists
-    if (!payload.policy.policy_id) payload.policy.policy_id = 'POL-GENERIC';
-    
-    // Perform standard fetch post
-    try {
-      const response = await fetch('http://127.0.0.1:8000/api/v2/adjudicate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const errDetail = await response.json();
-        throw new Error(errDetail.detail || `Server returned error status ${response.status}`);
-      }
-
-      const data: ClaimDecision = await response.json();
-      setResult(data);
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Failed to establish connection to the auto-adjudication server.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
-    <div className="app-layout">
-      {/* Header */}
-      <header className="glass-header">
-        <div className="header-content">
-          <div className="brand">
-            <div className="brand-icon">NB</div>
-            <div>
-              <h1 className="brand-title">ReAssure 3.0</h1>
-              <div className="brand-subtitle">Claims Auto-Adjudication Engine Sandbox</div>
-            </div>
+    <div className="min-h-screen bg-bg-oled bg-mesh relative flex flex-col font-sans">
+      <div className="noise-overlay" />
+      
+      {/* HEADER SECTION */}
+      <header className="px-8 py-6 flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-white/5 bg-black/40 backdrop-blur-md z-10">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 rounded-full px-2.5 py-0.5 text-[10px] uppercase tracking-wider font-semibold">
+              Adjudication Copilot v2.1
+            </span>
           </div>
-          <div className="header-actions">
-            {/* Theme switcher */}
-            <button 
-              type="button" 
-              className="theme-toggle" 
-              onClick={toggleTheme} 
-              title="Toggle theme"
+          <h1 className="text-2xl font-bold tracking-tight text-white font-display">
+            ReAssure 3.0 Auto-Adjudication Engine
+          </h1>
+          <p className="text-xs text-slate-400 mt-1">
+            Core validation pipeline and mathematical invariant testing dashboard.
+          </p>
+        </div>
+
+        {/* DEMO CASE SELECTOR */}
+        <div className="flex items-center gap-3">
+          <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+            Demo Scenario:
+          </label>
+          <div className="relative outer-shell bg-white/5 border border-white/10 rounded-full p-1 flex items-center">
+            <select
+              value={activePreset}
+              onChange={(e) => handlePresetChange(e.target.value)}
+              className="bg-vanta-black text-white text-xs rounded-full py-1.5 px-4 pr-8 border border-white/5 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer appearance-none font-medium"
             >
-              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
+              <option value="case1">Case 1: Standard Inpatient Appendectomy - Pro-Rata Breach</option>
+              <option value="case2">Case 2: 3-Year Lock the Clock Multi-Tenure Delta</option>
+              <option value="case3">Case 3: Cash-Bag+ wellness Points conversion</option>
+            </select>
+            <ChevronDown className="w-3.5 h-3.5 absolute right-4 text-slate-400 pointer-events-none" />
           </div>
         </div>
       </header>
 
-      {/* Main Sandbox Grid */}
-      <main className="main-container">
+      {/* CORE WORKSPACE GRID */}
+      <main className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-8 p-8 max-w-7xl mx-auto w-full z-10 min-h-0">
         
-        {/* Editor (Left Column) */}
-        <div className="editor-column">
-          
-          {/* Preset selector */}
-          <div className="glass-card panel-section">
-            <h2 className="panel-title" style={{ fontSize: '1rem', marginBottom: '0.75rem' }}>
-              <Sparkles size={16} /> Pre-configured Test Presets
-            </h2>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-              {Object.keys(PRESETS).map(key => (
-                <button
-                  key={key}
-                  type="button"
-                  className="demo-btn"
-                  onClick={() => loadPreset(key)}
-                  style={{
-                    fontSize: '0.8rem',
-                    border: '1px solid var(--border-color)',
-                    background: context.claim_id.includes(key.split('_')[1]) ? 'var(--color-primary)' : 'var(--bg-tertiary)',
-                    color: context.claim_id.includes(key.split('_')[1]) ? 'white' : 'var(--text-primary)'
-                  }}
-                >
-                  {PRESETS[key].name}
-                </button>
-              ))}
+        {/* LEFT PANEL: INGESTION HUB */}
+        <section className="flex flex-col gap-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Cpu className="w-4 h-4 text-indigo-400" />
+              <h2 className="text-base font-semibold text-slate-200 font-display">
+                Ingestion & Transaction Hub
+              </h2>
             </div>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.75rem', lineHeight: '1.4' }}>
-              ℹ️ Presets auto-populate the underlying context builder. You can modify any field below to simulate edge cases.
-            </p>
+            <span className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
+              Payload Configuration
+            </span>
           </div>
 
-          {/* Form Editor Card */}
-          <div className="glass-card" style={{ overflow: 'hidden' }}>
-            {/* Tab navigation */}
-            <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', background: 'rgba(0,0,0,0.1)' }}>
-              <button
-                type="button"
-                onClick={() => setActiveTab('policy')}
-                style={{
-                  flex: 1, padding: '1rem', border: 'none', background: 'transparent',
-                  color: activeTab === 'policy' ? 'var(--color-primary)' : 'var(--text-secondary)',
-                  fontWeight: 600, borderBottom: activeTab === 'policy' ? '2px solid var(--color-primary)' : 'none',
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem'
-                }}
+          <div className="flex flex-col gap-4">
+            
+            {/* POLICY DETAILS ACCORDION */}
+            <div className="outer-shell bg-white/5 border border-white/10 rounded-[1.5rem] p-1 overflow-hidden transition-all duration-300">
+              <button 
+                onClick={() => setOpenSection(openSection === 'policy' ? '' : 'policy')}
+                className="w-full flex items-center justify-between p-4 bg-vanta-black rounded-[calc(1.5rem-0.25rem)] hover:bg-vanta-gray transition-smooth group"
               >
-                <Shield size={16} /> Policy Profile
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                    <BookOpen className="w-4 h-4" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-xs font-semibold text-white">Policy Details</p>
+                    <p className="text-[10px] text-slate-400">ID: {context.policy.policy_id} | {context.policy.variant}</p>
+                  </div>
+                </div>
+                {openSection === 'policy' ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
               </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('member')}
-                style={{
-                  flex: 1, padding: '1rem', border: 'none', background: 'transparent',
-                  color: activeTab === 'member' ? 'var(--color-primary)' : 'var(--text-secondary)',
-                  fontWeight: 600, borderBottom: activeTab === 'member' ? '2px solid var(--color-primary)' : 'none',
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem'
-                }}
-              >
-                <User size={16} /> Member & Balances
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('lineItems')}
-                style={{
-                  flex: 1, padding: '1rem', border: 'none', background: 'transparent',
-                  color: activeTab === 'lineItems' ? 'var(--color-primary)' : 'var(--text-secondary)',
-                  fontWeight: 600, borderBottom: activeTab === 'lineItems' ? '2px solid var(--color-primary)' : 'none',
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem'
-                }}
-              >
-                <Receipt size={16} /> Line Items ({context.line_items.length})
-              </button>
-            </div>
-
-            {/* Tab Panel contents */}
-            <div className="panel-section">
               
-              {/* POLICY TAB */}
-              {activeTab === 'policy' && (
-                <div className="form-grid">
-                  <div className="form-group">
-                    <label className="form-label">Policy ID</label>
+              {openSection === 'policy' && (
+                <div className="p-5 grid grid-cols-2 gap-4 bg-vanta-black/40 border-t border-white/5 mt-1 rounded-b-[calc(1.5rem-0.25rem)]">
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">Policy ID</label>
                     <input 
-                      type="text" className="input-control" 
-                      value={context.policy.policy_id} 
-                      onChange={e => handlePolicyChange('policy_id', e.target.value)}
+                      type="text" 
+                      value={context.policy.policy_id}
+                      onChange={(e) => updatePolicy('policy_id', e.target.value)}
+                      className="w-full bg-vanta-black border border-white/5 rounded-lg py-1.5 px-3 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Policy Variant</label>
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">Policy Variant</label>
                     <select 
-                      className="input-control"
                       value={context.policy.variant}
-                      onChange={e => handlePolicyChange('variant', e.target.value as any)}
+                      onChange={(e) => updatePolicy('variant', e.target.value)}
+                      className="w-full bg-vanta-black border border-white/5 rounded-lg py-1.5 px-3 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     >
                       <option value="Classic">Classic</option>
                       <option value="Select">Select</option>
                       <option value="Elite">Elite</option>
                     </select>
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Policy Type</label>
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">Term Years</label>
                     <select 
-                      className="input-control"
-                      value={context.policy.policy_type}
-                      onChange={e => handlePolicyChange('policy_type', e.target.value as any)}
+                      value={context.policy.policy_term_years || 1}
+                      onChange={(e) => updatePolicy('policy_term_years', Number(e.target.value))}
+                      className="w-full bg-vanta-black border border-white/5 rounded-lg py-1.5 px-3 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     >
-                      <option value="individual">Individual</option>
-                      <option value="floater">Floater</option>
+                      <option value={1}>1 Year</option>
+                      <option value={2}>2 Years</option>
+                      <option value={3}>3 Years</option>
                     </select>
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Policy Term (Years)</label>
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">Base Sum Insured</label>
                     <input 
-                      type="number" className="input-control" 
-                      min="1" max="5"
-                      value={context.policy.policy_term_years} 
-                      onChange={e => handlePolicyChange('policy_term_years', parseInt(e.target.value) || 1)}
+                      type="number" 
+                      value={context.policy.base_sum_insured}
+                      onChange={(e) => updatePolicy('base_sum_insured', Number(e.target.value))}
+                      className="w-full bg-vanta-black border border-white/5 rounded-lg py-1.5 px-3 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Base Sum Insured (INR)</label>
-                    <input 
-                      type="number" className="input-control" 
-                      value={context.policy.base_sum_insured} 
-                      onChange={e => handlePolicyChange('base_sum_insured', parseFloat(e.target.value) || 0)}
-                    />
+                  <div className="col-span-2 flex items-center justify-between bg-white/5 rounded-xl p-3 border border-white/5 mt-2">
+                    <div>
+                      <p className="text-xs font-semibold text-white">Simulate EOY Renewal</p>
+                      <p className="text-[10px] text-slate-400">Accrue and convert wellness points to wallet credit</p>
+                    </div>
+                    <button
+                      onClick={toggleRenewalSimulation}
+                      className={`w-10 h-6 rounded-full p-1 transition-smooth ${context.renewal_event_simulation ? 'bg-indigo-500' : 'bg-slate-700'}`}
+                    >
+                      <div className={`w-4 h-4 bg-white rounded-full transition-smooth ${context.renewal_event_simulation ? 'translate-x-4' : 'translate-x-0'}`} />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* MEMBER DETAILS ACCORDION */}
+            <div className="outer-shell bg-white/5 border border-white/10 rounded-[1.5rem] p-1 overflow-hidden transition-all duration-300">
+              <button 
+                onClick={() => setOpenSection(openSection === 'member' ? '' : 'member')}
+                className="w-full flex items-center justify-between p-4 bg-vanta-black rounded-[calc(1.5rem-0.25rem)] hover:bg-vanta-gray transition-smooth group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                    <User className="w-4 h-4" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-xs font-semibold text-white">Member & Lifetime State</p>
+                    <p className="text-[10px] text-slate-400">Name: {context.member.name} | Age: {context.member.age}</p>
+                  </div>
+                </div>
+                {openSection === 'member' ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+              </button>
+              
+              {openSection === 'member' && (
+                <div className="p-5 bg-vanta-black/40 border-t border-white/5 mt-1 rounded-b-[calc(1.5rem-0.25rem)] flex flex-col gap-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">Member Name</label>
+                      <input 
+                        type="text" 
+                        value={context.member.name}
+                        onChange={(e) => updateMember('name', e.target.value)}
+                        className="w-full bg-vanta-black border border-white/5 rounded-lg py-1.5 px-3 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">Age</label>
+                      <input 
+                        type="number" 
+                        value={context.member.age}
+                        onChange={(e) => updateMember('age', Number(e.target.value))}
+                        className="w-full bg-vanta-black border border-white/5 rounded-lg py-1.5 px-3 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">Entry Age</label>
+                      <input 
+                        type="number" 
+                        value={context.member.entry_age}
+                        onChange={(e) => updateMember('entry_age', Number(e.target.value))}
+                        className="w-full bg-vanta-black border border-white/5 rounded-lg py-1.5 px-3 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">Live Healthy points</label>
+                      <input 
+                        type="number" 
+                        value={context.lifetime_state.live_healthy.current_points}
+                        onChange={(e) => updateLiveHealthy('current_points', Number(e.target.value))}
+                        className="w-full bg-vanta-black border border-white/5 rounded-lg py-1.5 px-3 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
                   </div>
                   
-                  {/* Co-Payment Contract Field */}
-                  <div className="form-group">
-                    <label className="form-label">
-                      Co-payment Percent (%)
-                      <span className="form-label-desc"> (Optional contract field)</span>
-                    </label>
-                    <input 
-                      type="number" className="input-control" placeholder="None (e.g. 10)"
-                      value={context.policy.co_payment_percent ?? ''} 
-                      onChange={e => handlePolicyNumberChange('co_payment_percent', e.target.value)}
-                    />
-                  </div>
-
-                  {/* Deductible Contract Field */}
-                  <div className="form-group">
-                    <label className="form-label">
-                      Annual Deductible (INR)
-                      <span className="form-label-desc"> (Optional contract field)</span>
-                    </label>
-                    <input 
-                      type="number" className="input-control" placeholder="None (e.g. 20000)"
-                      value={context.policy.annual_aggregate_deductible ?? ''} 
-                      onChange={e => handlePolicyNumberChange('annual_aggregate_deductible', e.target.value)}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Room Category Entitled</label>
-                    <select 
-                      className="input-control"
-                      value={context.policy.room_category_entitled}
-                      onChange={e => handlePolicyChange('room_category_entitled', e.target.value)}
-                    >
-                      <option value="General Ward">General Ward</option>
-                      <option value="Shared Room">Shared Room</option>
-                      <option value="Single Private Room">Single Private Room</option>
-                      <option value="Suite">Suite</option>
-                    </select>
-                  </div>
-
-                  {/* Room Rent Limit Contract Field */}
-                  <div className="form-group">
-                    <label className="form-label">
-                      Room Rent Limit / Day (INR)
-                      <span className="form-label-desc"> (Optional contract field)</span>
-                    </label>
-                    <input 
-                      type="number" className="input-control" placeholder="None (Unlimited)"
-                      value={context.policy.room_rent_limit ?? ''} 
-                      onChange={e => handlePolicyNumberChange('room_rent_limit', e.target.value)}
-                    />
-                  </div>
-
-                  {/* Hospital Daily Cash Benefit Field */}
-                  <div className="form-group">
-                    <label className="form-label">
-                      Daily Cash Amount (INR)
-                      <span className="form-label-desc"> (Optional cash benefit rider)</span>
-                    </label>
-                    <input 
-                      type="number" className="input-control" placeholder="None"
-                      value={context.policy.hospital_daily_cash_amount ?? ''} 
-                      onChange={e => handlePolicyNumberChange('hospital_daily_cash_amount', e.target.value)}
-                    />
-                  </div>
-
-                  {/* Personal Accident sum insured field */}
-                  <div className="form-group">
-                    <label className="form-label">
-                      PA Sum Insured (INR)
-                      <span className="form-label-desc"> (Optional personal accident rider)</span>
-                    </label>
-                    <input 
-                      type="number" className="input-control" placeholder="None"
-                      value={context.policy.pa_sum_insured ?? ''} 
-                      onChange={e => handlePolicyNumberChange('pa_sum_insured', e.target.value)}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Personal Waiting Period (m)</label>
-                    <input 
-                      type="number" className="input-control"
-                      value={context.policy.personal_waiting_period_months} 
-                      onChange={e => handlePolicyChange('personal_waiting_period_months', parseInt(e.target.value, 10) || 0)}
-                    />
-                  </div>
-
-                  {/* Riders toggles */}
-                  <div className="form-group full-width" style={{ marginTop: '0.5rem' }}>
-                    <label className="form-label" style={{ marginBottom: '0.5rem' }}>Riders & Benefits Opted</label>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
-                      <div className="switch-group">
-                        <span className="form-label">Borderless Rider</span>
-                        <label className="switch-control">
-                          <input 
-                            type="checkbox" 
-                            checked={context.policy.borderless_opted}
-                            onChange={e => handlePolicyChange('borderless_opted', e.target.checked)}
-                          />
-                          <span className="slider"></span>
-                        </label>
+                  <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-4 mt-2">
+                    <div>
+                      <label className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">Cash-Bag+ Wallet Balance</label>
+                      <div className="relative">
+                        <DollarSign className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input 
+                          type="number" 
+                          value={context.lifetime_state.cash_bag_plus.balance}
+                          onChange={(e) => updateCashBagPlus('balance', Number(e.target.value))}
+                          className="w-full bg-vanta-black border border-white/5 rounded-lg py-1.5 pl-8 pr-3 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
                       </div>
-                      <div className="switch-group">
-                        <span className="form-label">Unlimited SI</span>
-                        <label className="switch-control">
-                          <input 
-                            type="checkbox" 
-                            checked={context.policy.unlimited_si_opted}
-                            onChange={e => handlePolicyChange('unlimited_si_opted', e.target.checked)}
-                          />
-                          <span className="slider"></span>
-                        </label>
-                      </div>
-                      <div className="switch-group">
-                        <span className="form-label">Modern Treatments Plus</span>
-                        <label className="switch-control">
-                          <input 
-                            type="checkbox" 
-                            checked={context.policy.modern_treatments_plus_opted}
-                            onChange={e => handlePolicyChange('modern_treatments_plus_opted', e.target.checked)}
-                          />
-                          <span className="slider"></span>
-                        </label>
-                      </div>
-                      <div className="switch-group">
-                        <span className="form-label">HeadsUp (Pre-auth Penalty)</span>
-                        <label className="switch-control">
-                          <input 
-                            type="checkbox" 
-                            checked={context.policy.heads_up_opted}
-                            onChange={e => handlePolicyChange('heads_up_opted', e.target.checked)}
-                          />
-                          <span className="slider"></span>
-                        </label>
-                      </div>
-                      <div className="switch-group">
-                        <span className="form-label">Tiered Network Opted</span>
-                        <label className="switch-control">
-                          <input 
-                            type="checkbox" 
-                            checked={context.policy.tiered_network_opted}
-                            onChange={e => handlePolicyChange('tiered_network_opted', e.target.checked)}
-                          />
-                          <span className="slider"></span>
-                        </label>
-                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">YTD Deductible Consumed</label>
+                      <input 
+                        type="number" 
+                        value={context.benefit_balance.deductible_consumed_ytd ?? 0}
+                        onChange={(e) => updateBenefitBalance('deductible_consumed_ytd', Number(e.target.value))}
+                        className="w-full bg-vanta-black border border-white/5 rounded-lg py-1.5 px-3 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
                     </div>
                   </div>
                 </div>
               )}
-
-              {/* MEMBER TAB */}
-              {activeTab === 'member' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                  {/* Member Profile */}
-                  <div>
-                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Member Demographics</h3>
-                    <div className="form-grid">
-                      <div className="form-group">
-                        <label className="form-label">Name</label>
-                        <input 
-                          type="text" className="input-control" 
-                          value={context.member.name} 
-                          onChange={e => handleMemberChange('name', e.target.value)}
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Relationship</label>
-                        <select 
-                          className="input-control"
-                          value={context.member.relationship}
-                          onChange={e => handleMemberChange('relationship', e.target.value as any)}
-                        >
-                          <option value="Self">Self</option>
-                          <option value="Spouse">Spouse</option>
-                          <option value="Child">Child</option>
-                          <option value="Parent">Parent</option>
-                        </select>
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Current Age</label>
-                        <input 
-                          type="number" className="input-control" 
-                          value={context.member.age} 
-                          onChange={e => handleMemberNumChange('age', e.target.value)}
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Entry Age</label>
-                        <input 
-                          type="number" className="input-control" 
-                          value={context.member.entry_age} 
-                          onChange={e => handleMemberNumChange('entry_age', e.target.value)}
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Date of Addition</label>
-                        <input 
-                          type="date" className="input-control" 
-                          value={context.member.date_of_addition.split('T')[0]} 
-                          onChange={e => handleMemberChange('date_of_addition', e.target.value ? new Date(e.target.value).toISOString() : '')}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Financial Balances */}
-                  <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.25rem' }}>
-                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Policy Balances</h3>
-                    <div className="form-grid">
-                      <div className="form-group">
-                        <label className="form-label">Remaining Base SI</label>
-                        <input 
-                          type="number" className="input-control" 
-                          value={context.benefit_balance.base_si_remaining} 
-                          onChange={e => handleBalanceChange('base_si_remaining', e.target.value)}
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Booster+ Balance</label>
-                        <input 
-                          type="number" className="input-control" 
-                          value={context.benefit_balance.booster_plus_remaining} 
-                          onChange={e => handleBalanceChange('booster_plus_remaining', e.target.value)}
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">ReAssure Forever Pool</label>
-                        <input 
-                          type="number" className="input-control" 
-                          value={context.benefit_balance.reassure_forever_pool} 
-                          onChange={e => handleBalanceChange('reassure_forever_pool', e.target.value)}
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Deductible Consumed YTD</label>
-                        <input 
-                          type="number" className="input-control" 
-                          value={context.benefit_balance.deductible_consumed_ytd} 
-                          onChange={e => handleBalanceChange('deductible_consumed_ytd', e.target.value)}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Network status */}
-                  <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.25rem' }}>
-                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Provider Network Status</h3>
-                    <div className="form-grid">
-                      <div className="form-group">
-                        <label className="form-label">Hospital Name</label>
-                        <input 
-                          type="text" className="input-control" 
-                          value={context.network.provider_name} 
-                          onChange={e => setContext(prev => ({ ...prev, network: { ...prev.network, provider_name: e.target.value } }))}
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Network Tier / Type</label>
-                        <select 
-                          className="input-control"
-                          value={context.network.provider_type}
-                          onChange={e => setContext(prev => ({ ...prev, network: { ...prev.network, provider_type: e.target.value as any } }))}
-                        >
-                          <option value="Network">Network</option>
-                          <option value="Non-Network">Non-Network</option>
-                          <option value="Excluded">Blacklisted/Excluded</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* LINE ITEMS TAB */}
-              {activeTab === 'lineItems' && (
-                <div className="line-items-container">
-                  {context.line_items.map((item, idx) => (
-                    <div key={item.line_item_id} className="line-item-card">
-                      <div className="line-item-header">
-                        <span className="line-item-index">Line Item #{idx + 1} — {item.line_item_id}</span>
-                        {context.line_items.length > 1 && (
-                          <button 
-                            type="button" className="line-item-remove"
-                            onClick={() => removeLineItem(idx)}
-                          >
-                            <Trash2 size={14} /> Remove
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="form-grid">
-                        <div className="form-group full-width">
-                          <label className="form-label">Item Description</label>
-                          <input 
-                            type="text" className="input-control" 
-                            value={item.description} 
-                            onChange={e => handleLineItemChange(idx, 'description', e.target.value)}
-                          />
-                        </div>
-
-                        <div className="form-group">
-                          <label className="form-label">Benefit Bucket</label>
-                          <select 
-                            className="input-control"
-                            value={item.benefit_bucket}
-                            onChange={e => handleLineItemChange(idx, 'benefit_bucket', e.target.value)}
-                          >
-                            <option value="Expenses during Hospitalization">Expenses during Hospitalization</option>
-                            <option value="Expenses before and after hospitalization">Expenses before & after Hosp</option>
-                            <option value="Expenses in reaching a Hospital">Ambulance / Reaching Hospital</option>
-                            <option value="Hospital Daily Cash">Hospital Daily Cash (Rider)</option>
-                            <option value="Personal Accident">Personal Accident (Rider)</option>
-                            <option value="Home Care / Domiciliary Treatment">Home Care / Domiciliary</option>
-                            <option value="Other">Other</option>
-                          </select>
-                        </div>
-
-                        <div className="form-group">
-                          <label className="form-label">Claimed Amount (INR)</label>
-                          <input 
-                            type="number" className="input-control" 
-                            value={item.claimed_amount} 
-                            onChange={e => handleLineItemChange(idx, 'claimed_amount', parseFloat(e.target.value) || 0)}
-                          />
-                        </div>
-
-                        <div className="form-group">
-                          <label className="form-label">Condition Diagnosed</label>
-                          <input 
-                            type="text" className="input-control" 
-                            value={item.condition_diagnosed} 
-                            onChange={e => handleLineItemChange(idx, 'condition_diagnosed', e.target.value)}
-                          />
-                        </div>
-
-                        {/* Room charges pro-rata optional values (API contract) */}
-                        {item.benefit_bucket === "Expenses during Hospitalization" && (
-                          <>
-                            <div className="form-group">
-                              <label className="form-label">
-                                Room Category Claimed
-                                <span className="form-label-desc"> (Optional contract field)</span>
-                              </label>
-                              <select 
-                                className="input-control"
-                                value={item.room_category_claimed ?? ''}
-                                onChange={e => handleLineItemChange(idx, 'room_category_claimed', e.target.value === '' ? null : e.target.value)}
-                              >
-                                <option value="">None (Not Claimed)</option>
-                                <option value="General Ward">General Ward</option>
-                                <option value="Shared Room">Shared Room</option>
-                                <option value="Single Private Room">Single Private Room</option>
-                                <option value="Suite">Suite</option>
-                              </select>
-                            </div>
-
-                            <div className="form-group">
-                              <label className="form-label">
-                                Actual Room Rent/Day (INR)
-                                <span className="form-label-desc"> (Optional contract field)</span>
-                              </label>
-                              <input 
-                                type="number" className="input-control" placeholder="None"
-                                value={item.actual_room_rent ?? ''} 
-                                onChange={e => handleLineItemNumChange(idx, 'actual_room_rent', e.target.value)}
-                              />
-                            </div>
-
-                            <div className="form-group">
-                              <label className="form-label">
-                                Hospitalization Hours
-                                <span className="form-label-desc"> (Optional contract field)</span>
-                              </label>
-                              <input 
-                                type="number" className="input-control" placeholder="None"
-                                value={item.hospitalization_hours ?? ''} 
-                                onChange={e => handleLineItemNumChange(idx, 'hospitalization_hours', e.target.value)}
-                              />
-                            </div>
-
-                            {/* Billing breakdown grid */}
-                            <div className="form-group full-width" style={{ marginTop: '0.5rem', padding: '0.75rem', background: 'rgba(0,0,0,0.15)', borderRadius: '8px' }}>
-                              <span className="form-label" style={{ fontWeight: 600, display: 'block', marginBottom: '0.5rem' }}>
-                                Hospitalization Bill Itemisation (API contract for Room Pro-Rata)
-                              </span>
-                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
-                                <div>
-                                  <label className="form-label" style={{ fontSize: '0.7rem' }}>Room Charges</label>
-                                  <input 
-                                    type="number" className="input-control" style={{ padding: '0.4rem' }} placeholder="None"
-                                    value={item.room_charges ?? ''} 
-                                    onChange={e => handleLineItemNumChange(idx, 'room_charges', e.target.value)}
-                                  />
-                                </div>
-                                <div>
-                                  <label className="form-label" style={{ fontSize: '0.7rem' }}>Nursing Charges</label>
-                                  <input 
-                                    type="number" className="input-control" style={{ padding: '0.4rem' }} placeholder="None"
-                                    value={item.nursing_charges ?? ''} 
-                                    onChange={e => handleLineItemNumChange(idx, 'nursing_charges', e.target.value)}
-                                  />
-                                </div>
-                                <div>
-                                  <label className="form-label" style={{ fontSize: '0.7rem' }}>Practitioner Fees</label>
-                                  <input 
-                                    type="number" className="input-control" style={{ padding: '0.4rem' }} placeholder="None"
-                                    value={item.medical_practitioner_fees ?? ''} 
-                                    onChange={e => handleLineItemNumChange(idx, 'medical_practitioner_fees', e.target.value)}
-                                  />
-                                </div>
-                                <div>
-                                  <label className="form-label" style={{ fontSize: '0.7rem' }}>OT Charges</label>
-                                  <input 
-                                    type="number" className="input-control" style={{ padding: '0.4rem' }} placeholder="None"
-                                    value={item.ot_charges ?? ''} 
-                                    onChange={e => handleLineItemNumChange(idx, 'ot_charges', e.target.value)}
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                          </>
-                        )}
-                        
-                        <div className="form-group">
-                          <div className="switch-group" style={{ height: '100%', alignSelf: 'stretch' }}>
-                            <span className="form-label">Accident Related?</span>
-                            <label className="switch-control">
-                              <input 
-                                type="checkbox" 
-                                checked={item.accident_related}
-                                onChange={e => handleLineItemChange(idx, 'accident_related', e.target.checked)}
-                              />
-                              <span className="slider"></span>
-                            </label>
-                          </div>
-                        </div>
-
-                      </div>
-                    </div>
-                  ))}
-
-                  <button 
-                    type="button" className="add-line-item-btn"
-                    onClick={addLineItem}
-                  >
-                    <Plus size={16} /> Add Another Line Item
-                  </button>
-                </div>
-              )}
-
             </div>
+
+            {/* ENDORSEMENTS TIMELINE ACCORDION */}
+            <div className="outer-shell bg-white/5 border border-white/10 rounded-[1.5rem] p-1 overflow-hidden transition-all duration-300">
+              <button 
+                onClick={() => setOpenSection(openSection === 'endorsement' ? '' : 'endorsement')}
+                className="w-full flex items-center justify-between p-4 bg-vanta-black rounded-[calc(1.5rem-0.25rem)] hover:bg-vanta-gray transition-smooth group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-xs font-semibold text-white">Endorsement Timeline Builder</p>
+                    <p className="text-[10px] text-slate-400">Active Mid-Term Mutations: {context.endorsements.length}</p>
+                  </div>
+                </div>
+                {openSection === 'endorsement' ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+              </button>
+              
+              {openSection === 'endorsement' && (
+                <div className="p-5 bg-vanta-black/40 border-t border-white/5 mt-1 rounded-b-[calc(1.5rem-0.25rem)] flex flex-col gap-4">
+                  {/* Timeline listing */}
+                  {context.endorsements.length > 0 ? (
+                    <div className="flex flex-col gap-2.5">
+                      {context.endorsements.map((end) => (
+                        <div key={end.endorsement_id} className="flex items-start justify-between p-3 bg-white/5 rounded-xl border border-white/5">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-white">{end.endorsement_type}</span>
+                              <span className="text-[9px] uppercase tracking-wider bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded">
+                                {end.endorsement_id}
+                              </span>
+                            </div>
+                            <pre className="text-[10px] text-indigo-300 font-mono mt-1 overflow-x-auto max-w-[300px]">
+                              {JSON.stringify(end.details, null, 2)}
+                            </pre>
+                          </div>
+                          <button 
+                            onClick={() => removeEndorsement(end.endorsement_id)}
+                            className="p-1 hover:bg-red-500/10 rounded text-slate-400 hover:text-red-400 transition-smooth"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 border border-dashed border-white/10 rounded-xl text-slate-500 text-xs">
+                      No mid-term endorsements active in this context.
+                    </div>
+                  )}
+
+                  {/* Add Endorsement Builder */}
+                  <div className="border-t border-white/5 pt-4 flex flex-col gap-3">
+                    <p className="text-xs font-semibold text-slate-300">Append Context Mutation</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[9px] uppercase tracking-wider text-slate-400 mb-1 font-semibold">Type</label>
+                        <select 
+                          value={endType}
+                          onChange={(e) => setEndType(e.target.value)}
+                          className="w-full bg-vanta-black border border-white/5 rounded-lg py-1.5 px-3 text-xs text-white focus:outline-none"
+                        >
+                          <option value="MemberAddition">Member Addition</option>
+                          <option value="SIEnhancement">SI Enhancement</option>
+                          <option value="IndividualToFloater">Individual To Floater</option>
+                          <option value="FloaterSplit">Floater Split</option>
+                        </select>
+                      </div>
+                      <div className="flex items-end">
+                        <button
+                          onClick={handleAddEndorsement}
+                          className="w-full bg-indigo-500 hover:bg-indigo-600 active:scale-[0.98] text-white font-medium text-xs py-2 px-4 rounded-lg flex items-center justify-center gap-1.5 transition-smooth"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> Add Mutation
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[9px] uppercase tracking-wider text-slate-400 mb-1 font-semibold">JSON Parameters Details</label>
+                      <textarea
+                        value={endVal}
+                        onChange={(e) => setEndVal(e.target.value)}
+                        rows={4}
+                        className="w-full bg-vanta-black border border-white/5 rounded-lg py-1.5 px-3 text-[11px] font-mono text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* HOSPITAL LINE ITEM ACCORDION */}
+            <div className="outer-shell bg-white/5 border border-white/10 rounded-[1.5rem] p-1 overflow-hidden transition-all duration-300">
+              <button 
+                onClick={() => setOpenSection(openSection === 'item' ? '' : 'item')}
+                className="w-full flex items-center justify-between p-4 bg-vanta-black rounded-[calc(1.5rem-0.25rem)] hover:bg-vanta-gray transition-smooth group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+                    <Building2 className="w-4 h-4" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-xs font-semibold text-white">Hospital Line Item</p>
+                    <p className="text-[10px] text-slate-400">Claimed: {formatCurrency(context.line_items[0]?.claimed_amount)} | Rent: {formatCurrency(context.line_items[0]?.actual_room_rent ?? undefined)}</p>
+                  </div>
+                </div>
+                {openSection === 'item' ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+              </button>
+              
+              {openSection === 'item' && (
+                <div className="p-5 bg-vanta-black/40 border-t border-white/5 mt-1 rounded-b-[calc(1.5rem-0.25rem)] flex flex-col gap-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="col-span-2">
+                      <label className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">Treatment Diagnosis Description</label>
+                      <input 
+                        type="text" 
+                        value={context.line_items[0]?.description}
+                        onChange={(e) => updateLineItem(0, 'description', e.target.value)}
+                        className="w-full bg-vanta-black border border-white/5 rounded-lg py-1.5 px-3 text-xs text-white focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">Condition Diagnosed</label>
+                      <input 
+                        type="text" 
+                        value={context.line_items[0]?.condition_diagnosed}
+                        onChange={(e) => updateLineItem(0, 'condition_diagnosed', e.target.value)}
+                        className="w-full bg-vanta-black border border-white/5 rounded-lg py-1.5 px-3 text-xs text-white focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">Claimed Amount</label>
+                      <input 
+                        type="number" 
+                        value={context.line_items[0]?.claimed_amount}
+                        onChange={(e) => updateLineItem(0, 'claimed_amount', Number(e.target.value))}
+                        className="w-full bg-vanta-black border border-white/5 rounded-lg py-1.5 px-3 text-xs text-white focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">Actual Room Rent (Per day)</label>
+                      <input 
+                        type="number" 
+                        value={context.line_items[0]?.actual_room_rent ?? ""}
+                        onChange={(e) => updateLineItem(0, 'actual_room_rent', Number(e.target.value))}
+                        className="w-full bg-vanta-black border border-white/5 rounded-lg py-1.5 px-3 text-xs text-white focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">Claimed Room Category</label>
+                      <input 
+                        type="text" 
+                        value={context.line_items[0]?.room_category_claimed || ""}
+                        onChange={(e) => updateLineItem(0, 'room_category_claimed', e.target.value)}
+                        className="w-full bg-vanta-black border border-white/5 rounded-lg py-1.5 px-3 text-xs text-white focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="border-t border-white/5 pt-4 mt-2">
+                    <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-3 font-semibold">Active Bill Itemisation Breakdown</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[9px] uppercase tracking-wider text-slate-500 mb-1 font-medium">Room Charges</label>
+                        <input 
+                          type="number" 
+                          value={context.line_items[0]?.room_charges || 0}
+                          onChange={(e) => updateLineItem(0, 'room_charges', Number(e.target.value))}
+                          className="w-full bg-vanta-black border border-white/5 rounded-lg py-1 px-2.5 text-xs text-white focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] uppercase tracking-wider text-slate-500 mb-1 font-medium">Nursing Charges</label>
+                        <input 
+                          type="number" 
+                          value={context.line_items[0]?.nursing_charges || 0}
+                          onChange={(e) => updateLineItem(0, 'nursing_charges', Number(e.target.value))}
+                          className="w-full bg-vanta-black border border-white/5 rounded-lg py-1 px-2.5 text-xs text-white focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] uppercase tracking-wider text-slate-500 mb-1 font-medium">Practitioner Fees</label>
+                        <input 
+                          type="number" 
+                          value={context.line_items[0]?.medical_practitioner_fees || 0}
+                          onChange={(e) => updateLineItem(0, 'medical_practitioner_fees', Number(e.target.value))}
+                          className="w-full bg-vanta-black border border-white/5 rounded-lg py-1 px-2.5 text-xs text-white focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] uppercase tracking-wider text-slate-500 mb-1 font-medium">OT Charges</label>
+                        <input 
+                          type="number" 
+                          value={context.line_items[0]?.ot_charges || 0}
+                          onChange={(e) => updateLineItem(0, 'ot_charges', Number(e.target.value))}
+                          className="w-full bg-vanta-black border border-white/5 rounded-lg py-1 px-2.5 text-xs text-white focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
           </div>
 
-          {/* Submit/Execution Button */}
-          <button 
-            type="button" 
-            className="submit-btn" 
-            onClick={runAdjudication}
-            disabled={loading}
-          >
-            {loading ? 'Processing through 7-Gate Pipeline...' : (
-              <>
-                <Play size={18} fill="currentColor" /> Run Auto-Adjudication Engine
-              </>
-            )}
-          </button>
-        </div>
+          {/* ACTION BUTTON */}
+          <div className="mt-4 flex items-center justify-center">
+            <button
+              onClick={handleAdjudicate}
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-medium text-sm py-4 px-6 rounded-xl shadow-lg hover:shadow-indigo-500/20 active:scale-[0.98] transition-smooth flex items-center justify-center gap-2 border border-white/10"
+            >
+              {loading ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" /> Adjudicating payload...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" /> Adjudicate Claim
+                </>
+              )}
+            </button>
+          </div>
+        </section>
 
-        {/* Results Panel (Right Column) */}
-        <div className="results-column">
-          
-          {/* Default Placeholder */}
-          {!loading && !result && !error && (
-            <div className="glass-card placeholder-result">
-              <div className="placeholder-icon">
-                <Activity size={32} />
+        {/* RIGHT PANEL: EXECUTION TRANSPARENCY ENGINE */}
+        <section className="flex flex-col gap-6 relative min-h-[500px]">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-violet-400" />
+              <h2 className="text-base font-semibold text-slate-200 font-display">
+                Execution & Adjudication Engine
+              </h2>
+            </div>
+            <span className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
+              Real-time Output
+            </span>
+          </div>
+
+          {/* GLOBAL SPINNER LOADING */}
+          {loading && (
+            <div className="absolute inset-0 bg-black/60 rounded-3xl backdrop-blur-md flex flex-col items-center justify-center gap-4 z-20 transition-smooth">
+              <div className="outer-shell bg-white/5 border border-white/10 p-4 rounded-full flex items-center justify-center">
+                <RefreshCw className="w-8 h-8 text-indigo-400 animate-spin" />
               </div>
-              <h3 className="placeholder-text">Adjudication Pipeline Idle</h3>
-              <p className="placeholder-sub">
-                Modify the Claim Context on the left and trigger the engine to run live 7-gate adjudication rules.
+              <p className="text-xs font-semibold text-slate-300">Auto-Adjudicating rules and mathematical matrices...</p>
+            </div>
+          )}
+
+          {error && (
+            <div className="p-5 bg-red-500/10 border border-red-500/30 text-red-300 rounded-2xl flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-bold">API Gateway Error</p>
+                <p className="text-[11px] text-red-400 mt-1">{error}</p>
+              </div>
+            </div>
+          )}
+
+          {!decision && !error && !loading && (
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-8 border border-dashed border-white/5 rounded-3xl bg-vanta-black/10">
+              <div className="w-12 h-12 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center text-slate-500 mb-4">
+                <Activity className="w-6 h-6" />
+              </div>
+              <h3 className="text-sm font-semibold text-slate-300 font-display">Awaiting Adjudication Transaction</h3>
+              <p className="text-[11px] text-slate-500 mt-1 max-w-[280px]">
+                Click "Adjudicate Claim" to ingest the context and trigger the 7-Gate validator engine.
               </p>
             </div>
           )}
 
-          {/* Loading Pulse */}
-          {loading && (
-            <div className="glass-card loading-container">
-              <div className="pulse-loader"></div>
-              <h3 className="loading-text">Executing Gate Diagnostics</h3>
-              <p className="loading-subtext">Evaluating pro-rata, copay, deductibles & SI waterfalls...</p>
-            </div>
-          )}
-
-          {/* Error Banner */}
-          {error && (
-            <div className="glass-card panel-section" style={{ borderLeft: '4px solid var(--color-danger)' }}>
-              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                <AlertCircle className="text-danger" style={{ color: 'var(--color-danger)', flexShrink: 0 }} size={24} />
+          {decision && !loading && (
+            <div className="flex flex-col gap-6">
+              
+              {/* THE ADJUDICATION BANNER */}
+              <div className={`p-4 rounded-2xl border flex items-center justify-between transition-smooth ${
+                decision.claim_decision === 'APPROVED' ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300' :
+                decision.claim_decision === 'PARTIALLY_APPROVED' ? 'bg-amber-950/20 border-amber-500/30 text-amber-300' :
+                decision.claim_decision === 'REJECTED' ? 'bg-red-950/20 border-red-500/30 text-red-300' :
+                'bg-violet-950/20 border-violet-500/30 text-violet-300'
+              }`}>
                 <div>
-                  <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-danger)' }}>Adjudication Pipeline Failed</h3>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>{error}</p>
+                  <div className="flex items-center gap-1.5">
+                    {decision.claim_decision === 'APPROVED' ? <ShieldCheck className="w-4 h-4" /> :
+                     decision.claim_decision === 'REJECTED' ? <ShieldAlert className="w-4 h-4" /> :
+                     <Shield className="w-4 h-4 animate-pulse" />}
+                    <span className="text-[10px] uppercase tracking-wider font-bold">Adjudication Decision</span>
+                  </div>
+                  <h3 className="text-xl font-bold tracking-tight mt-0.5 font-display">{decision.claim_decision}</h3>
                 </div>
-              </div>
-            </div>
-          )}
-
-          {/* Adjudication Success Output */}
-          {result && (
-            <>
-              {/* Decision Header */}
-              <div className="glass-card result-header-panel"
-                  style={{ overflow: 'visible', marginTop: '1.5rem' }}>
-                <div className={`result-badge ${
-                  result.claim_decision === 'APPROVED' ? 'approved' : 
-                  result.claim_decision === 'REJECTED' ? 'rejected' : 'review'
-                }`}>
-                  {result.claim_decision === 'APPROVED' && <CheckCircle2 size={24} />}
-                  {result.claim_decision === 'REJECTED' && <XCircle size={24} />}
-                  {result.claim_decision === 'ASSISTED_REVIEW' && <AlertCircle size={24} />}
-                  {result.claim_decision.replace('_', ' ')}
-                </div>
-
-                {result.review_reasons && result.review_reasons.length > 0 && (
-                  <p className="result-reason" style={{ fontWeight: 500, color: 'var(--color-warning)' }}>
-                    Reason: {result.review_reasons.join(', ')}
-                  </p>
-                )}
-                
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-                  Execution Duration: {(result.processing_duration_ms ?? 0).toFixed(1)} ms | Pipeline Mode: {!result.manual_review_required ? 'Auto-Adjudicated' : 'Assisted'}
-                </p>
-              </div>
-
-              {/* Financial Dashboard */}
-              <div className="financials-summary">
-                <div className="glass-card financial-card">
-                  <div className="fin-label">Total Claimed</div>
-                  <div className="fin-value claimed">₹{result.total_claimed.toLocaleString('en-IN')}</div>
-                </div>
-                <div className="glass-card financial-card" style={{ borderTop: '2px solid var(--color-accent)' }}>
-                  <div className="fin-label">Payable Amount</div>
-                  <div className="fin-value payable">₹{result.total_payable.toLocaleString('en-IN')}</div>
-                </div>
-                <div className="glass-card financial-card" style={{ borderTop: '2px solid var(--color-danger)' }}>
-                  <div className="fin-label">Deducted</div>
-                  <div className="fin-value deducted">₹{result.total_deductions.toLocaleString('en-IN')}</div>
+                <div className="text-right">
+                  <span className="text-[10px] uppercase tracking-wider text-slate-400 block font-semibold">Total Payable</span>
+                  <p className="text-lg font-bold font-mono text-white">{formatCurrency(decision.total_payable)}</p>
                 </div>
               </div>
 
-              {/* SI Waterfall Visualizer */}
-              <div className="glass-card panel-section">
-                <h3 className="panel-title" style={{ fontSize: '0.95rem', marginBottom: '1rem' }}>
-                  <BarChart3 size={16} /> Sum Insured Waterfall Breakdown
-                </h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              {/* TELEMETRY BADGES CONTAINER */}
+              {(decision.deduction_breakdown.lock_the_clock_premium_delta > 0 || decision.decision_trace.some(t => t.rule_id === "CASH_BAG_PLUS_ACCRUAL")) && (
+                <div className="flex flex-col gap-3">
                   
-                  {/* Base SI step */}
-                  <div className="waterfall-step">
-                    <div className="waterfall-label-row">
-                      <span className="waterfall-name">Base Sum Insured</span>
-                      <span className="waterfall-value">
-                        Paid: ₹{result.si_waterfall_breakdown.amount_from_base_si.toLocaleString('en-IN')}
+                  {/* Lock the Clock Telemetry Banner */}
+                  {decision.deduction_breakdown.lock_the_clock_premium_delta > 0 && (
+                    <div className="p-3 bg-red-950/10 border border-red-500/20 rounded-xl flex items-start gap-2.5">
+                      <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 animate-pulse" />
+                      <div>
+                        <p className="text-xs font-semibold text-white">Lock the Clock Premium Delta Deducted</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          Lock the Clock Recalculation: <span className="text-red-300 font-semibold font-mono">{formatCurrency(decision.deduction_breakdown.lock_the_clock_premium_delta)}</span> deducted from final payout for multi-tenure adjustment.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Cash-Bag+ Telemetry Card */}
+                  {decision.decision_trace.some(t => t.rule_id === "CASH_BAG_PLUS_ACCRUAL") && (
+                    <div className="p-4 bg-emerald-950/10 border border-emerald-500/20 rounded-2xl flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                          <Wallet className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold text-white">Cash-Bag+ Wallet Accrual</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            Wellness Points Converted! 2,800 points converted to <span className="text-emerald-300 font-semibold font-mono">₹700.00</span> Cash-Bag+ wallet credit.
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-mono font-bold text-emerald-300 bg-emerald-500/10 px-2 py-1 rounded-lg">
+                        +₹700.00
                       </span>
                     </div>
-                    <div className="waterfall-bar-container">
-                      <div 
-                        className="waterfall-bar-fill" 
-                        style={{ 
-                          width: `${context.policy.base_sum_insured > 0 ? (result.si_waterfall_breakdown.amount_from_base_si / context.policy.base_sum_insured) * 100 : 0}%` 
-                        }}
-                      ></div>
-                    </div>
-                  </div>
-
-                  {/* Booster+ step */}
-                  {result.si_waterfall_breakdown.amount_from_booster > 0 && (
-                    <div className="waterfall-step">
-                      <div className="waterfall-label-row">
-                        <span className="waterfall-name">Booster+ Accumulation Pool</span>
-                        <span className="waterfall-value">
-                          Paid: ₹{result.si_waterfall_breakdown.amount_from_booster.toLocaleString('en-IN')}
-                        </span>
-                      </div>
-                      <div className="waterfall-bar-container">
-                        <div 
-                          className="waterfall-bar-fill" 
-                          style={{ 
-                            width: `${context.benefit_balance.booster_plus_remaining > 0 ? (result.si_waterfall_breakdown.amount_from_booster / context.benefit_balance.booster_plus_remaining) * 100 : 100}%`,
-                            background: 'linear-gradient(90deg, var(--color-purple), #ec4899)'
-                          }}
-                        ></div>
-                      </div>
-                    </div>
                   )}
 
-                  {/* ReAssure Forever step */}
-                  {result.si_waterfall_breakdown.amount_from_forever > 0 && (
-                    <div className="waterfall-step">
-                      <div className="waterfall-label-row">
-                        <span className="waterfall-name">ReAssure Forever Pool (Unlimited Reset)</span>
-                        <span className="waterfall-value">
-                          Paid: ₹{result.si_waterfall_breakdown.amount_from_forever.toLocaleString('en-IN')}
-                        </span>
-                      </div>
-                      <div className="waterfall-bar-container">
-                        <div 
-                          className="waterfall-bar-fill" 
-                          style={{ 
-                            width: '100%',
-                            background: 'linear-gradient(90deg, #ec4899, var(--color-danger))'
-                          }}
-                        ></div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Co-pay and Deductible rows */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.75rem', padding: '0.5rem', background: 'var(--bg-tertiary)', borderRadius: '6px' }}>
-                    <span>Co-payment: ₹{result.deduction_breakdown.co_payment.toLocaleString('en-IN')}</span>
-                    <span>Deductible: ₹{result.deduction_breakdown.deductible.toLocaleString('en-IN')}</span>
-                  </div>
-
-                </div>
-              </div>
-
-              {/* Deductions breakdown detail */}
-              {result.total_deductions > 0 && (
-                <div className="glass-card panel-section">
-                  <h3 className="panel-title" style={{ fontSize: '0.95rem', marginBottom: '1rem', color: 'var(--color-danger)' }}>
-                    <Receipt size={16} /> Itemized Deductions
-                  </h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {result.line_items.flatMap(li => li.deductions).map((ded, dIdx) => (
-                      <div key={dIdx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', fontSize: '0.85rem' }}>
-                        <div>
-                          <div style={{ fontWeight: 600 }}>{ded.deduction_type.replace(/_/g, ' ').toUpperCase()}</div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{ded.reason} (Rule: {ded.rule_id})</div>
-                        </div>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-danger)' }}>
-                          -₹{ded.amount.toLocaleString('en-IN')}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               )}
 
-              {/* Rule execution audit log / traces */}
-              <div className="glass-card panel-section">
-                <h3 className="panel-title" style={{ fontSize: '0.95rem', marginBottom: '1rem' }}>
-                  <FileText size={16} /> 7-Gate Rules Execution Audit Log
-                </h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '300px', overflowY: 'auto', paddingRight: '4px' }}>
-                  {result.decision_trace.map((trace, tIdx) => (
-                    <div key={tIdx} className="trace-item">
-                      <div className="trace-summary">
-                        <div className="trace-title">
-                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', background: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: '4px' }}>
-                            {trace.gate}
-                          </span>
-                          <span>{trace.rule_id}</span>
-                        </div>
-                        <span className={`trace-status ${
-                          trace.evaluation === 'PASSED' ? 'passed' :
-                          trace.evaluation === 'FAILED' ? 'failed' : 'na'
-                        }`}>
-                          {trace.evaluation.replace('_', ' ')}
-                        </span>
-                      </div>
-                      <p className="trace-desc">{trace.reason}</p>
+              {/* LIVE THINKING TERMINAL */}
+              <div className="outer-shell bg-white/5 border border-white/10 rounded-2xl p-1 overflow-hidden">
+                <div className="bg-black/90 font-mono text-xs p-4 rounded-[calc(2rem-0.75rem)] flex flex-col gap-2 min-h-[160px] border border-white/5 shadow-inner">
+                  <div className="flex items-center justify-between border-b border-white/5 pb-2 mb-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
+                      <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Semantic Agent Reasoning Terminal</span>
                     </div>
-                  ))}
+                    <span className="text-[9px] uppercase tracking-wider text-slate-600 font-medium">gemma4-e4b-qat</span>
+                  </div>
+                  
+                  <div className="flex-1 flex flex-col gap-2 overflow-y-auto max-h-[220px] pr-2">
+                    <p className="text-[10px] text-slate-500">{"[SYS] Loaded LLM template: <|turn>system <|think|>..."}</p>
+                    <p className="text-[10px] text-slate-500">{"[SYS] Executing semantic rules validation..."}</p>
+                    
+                    {reasoningTraces.length > 0 ? (
+                      reasoningTraces.map((trace, index) => (
+                        <div key={index} className="flex flex-col gap-1 border-t border-white/5 pt-2 mt-1 first:border-0 first:pt-0 first:mt-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[9px] uppercase text-violet-400 font-bold">{trace.rule_id}</span>
+                            <span className={`text-[8px] px-1 py-0.2 rounded font-semibold ${trace.evaluation === 'PASSED' ? 'bg-emerald-950 text-emerald-400' : 'bg-red-950 text-red-400'}`}>
+                              {trace.evaluation}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-300 leading-relaxed pl-2 border-l border-white/10 italic">
+                            &lt;think&gt; {trace.reason} &lt;/think&gt;
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-[11px] text-slate-400 italic">No semantic agent reasoning traces generated for this claim.</p>
+                    )}
+                  </div>
                 </div>
               </div>
-            </>
+
+              {/* GATE 6 WATERFALL COMPONENT */}
+              <div className="outer-shell bg-white/5 border border-white/10 rounded-[2.5rem] p-1.5 overflow-hidden">
+                <div className="p-6 bg-vanta-black rounded-[calc(2.5rem-0.375rem)] flex flex-col gap-4">
+                  <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                    <h4 className="text-xs font-bold text-white uppercase tracking-wider font-display">Gate 6: Financial Computation Waterfall</h4>
+                    <span className="text-[10px] text-slate-500 font-mono">Deduction breakdown</span>
+                  </div>
+
+                  <div className="flex flex-col gap-3 relative before:absolute before:left-3.5 before:top-2 before:bottom-2 before:w-[1px] before:bg-white/5">
+                    
+                    {/* Item 0: Claimed Amount */}
+                    <div className="flex items-center justify-between pl-8 relative">
+                      <div className="absolute left-2 w-3.5 h-3.5 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center text-[8px] font-bold text-white">
+                        0
+                      </div>
+                      <span className="text-xs text-slate-300">Initial Claimed Amount</span>
+                      <span className="text-xs font-bold font-mono text-white">{formatCurrency(decision.total_claimed)}</span>
+                    </div>
+
+                    {/* Item 1: Non-Payable */}
+                    <div className="flex items-center justify-between pl-8 relative">
+                      <div className="absolute left-2 w-3.5 h-3.5 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center text-[8px] font-bold text-white">
+                        1
+                      </div>
+                      <span className="text-xs text-slate-400">Step 0: Non-Payables Excluded</span>
+                      <span className="text-xs font-medium font-mono text-red-400">-{formatCurrency(decision.deduction_breakdown.non_payable_items)}</span>
+                    </div>
+
+                    {/* Item 2: Room Pro-Rata */}
+                    <div className="flex items-center justify-between pl-8 relative">
+                      <div className="absolute left-2 w-3.5 h-3.5 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center text-[8px] font-bold text-white">
+                        2
+                      </div>
+                      <span className="text-xs text-slate-400">Step 1: Room Rent Pro-Rata Deduction (Tool 2)</span>
+                      <span className="text-xs font-medium font-mono text-red-400">-{formatCurrency(decision.deduction_breakdown.room_pro_rata)}</span>
+                    </div>
+
+                    {/* Item 3: Deductible */}
+                    <div className="flex items-center justify-between pl-8 relative">
+                      <div className="absolute left-2 w-3.5 h-3.5 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center text-[8px] font-bold text-white">
+                        3
+                      </div>
+                      <span className="text-xs text-slate-400">Step 4: Annual Deductible Applied (Tool 4)</span>
+                      <span className="text-xs font-medium font-mono text-red-400">-{formatCurrency(decision.deduction_breakdown.deductible)}</span>
+                    </div>
+
+                    {/* Item 4: Co-Pay */}
+                    <div className="flex items-center justify-between pl-8 relative">
+                      <div className="absolute left-2 w-3.5 h-3.5 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center text-[8px] font-bold text-white">
+                        4
+                      </div>
+                      <span className="text-xs text-slate-400">Step 5: Stacked Co-Payment Applied (Tool 3)</span>
+                      <span className="text-xs font-medium font-mono text-red-400">-{formatCurrency(decision.deduction_breakdown.co_payment)}</span>
+                    </div>
+
+                    {/* Item 5: Sum Insured depletion */}
+                    <div className="flex items-center justify-between pl-8 relative border-t border-white/5 pt-3 mt-1">
+                      <div className="absolute left-2 w-3.5 h-3.5 rounded-full bg-indigo-500 flex items-center justify-center text-[8px] font-bold text-white">
+                        ✓
+                      </div>
+                      <span className="text-xs font-bold text-indigo-300">Payable Payout (Gate 6 Waterfall)</span>
+                      <span className="text-sm font-bold font-mono text-indigo-400">{formatCurrency(decision.total_payable)}</span>
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+
+            </div>
           )}
 
-        </div>
+        </section>
+
       </main>
+
+      {/* FOOTER */}
+      <footer className="py-8 text-center text-slate-600 border-t border-white/5 bg-black/20 text-xs mt-12">
+        <p>© 2026 Niva Bupa Health Insurance. AI-First Auto-Adjudication Copilot Console.</p>
+      </footer>
     </div>
   );
 }
-
-export default App;

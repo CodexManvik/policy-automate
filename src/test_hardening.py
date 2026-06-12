@@ -306,3 +306,39 @@ def test_reasoning_model_thinking_extraction():
     extracted_unclosed = agent._extract_json_from_response(raw_response_unclosed)
     assert "PASSED" in extracted_unclosed
 
+
+def test_gemma4_prompt_formatting():
+    """Verify that the gemma4-e4b-qat prompt template is formatted correctly and sent to /completion"""
+    from semantic_agent import SemanticExecutionAgent, SemanticAdjudicationPayload
+    from unittest.mock import MagicMock
+    
+    agent = SemanticExecutionAgent(llm_provider="local", reasoning_on=True)
+    
+    # Mock self._http_post to return a valid JSON response so the call succeeds
+    agent._http_post = MagicMock(return_value='{"content": "{\\"evaluation_status\\": \\"PASSED\\", \\"reasoning_trace\\": \\"test\\", \\"confidence_score\\": 0.95}"}')
+    
+    # Trigger local LLM call
+    agent._call_local_llm("System Instruction", "User Prompt", SemanticAdjudicationPayload)
+    
+    # Verify the mocked http post call
+    assert agent._http_post.called
+    args = agent._http_post.call_args[0]
+    
+    # Verify it posted to '/completion'
+    assert args[3] == "/completion"
+    
+    # Verify the prompt contents match the gemma4-e4b-qat template format
+    payload = args[4]
+    prompt = payload["prompt"]
+    expected_template = (
+        "<|turn>system\n"
+        "<|think|>\n"
+        "System Instruction<turn|>\n"
+        "<|turn>user\n"
+        "User Prompt<turn|>\n"
+        "<|turn>model\n"
+    )
+    assert prompt == expected_template
+    assert payload["stop"] == ["</s>", "<end_of_turn>", "<|eot_id|>", "<turn|>"]
+
+

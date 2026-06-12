@@ -1,0 +1,1236 @@
+{
+  "product_meta": {
+    "product_id": "R3",
+    "product_name": "ReAssure 3.0",
+    "uin": "NBHHLIP26047V012526",
+    "source_document": {
+      "file_name": "ReAssure30_Policy_Wordings(1).pdf",
+      "document_type": "policy_wording"
+    }
+  },
+  "execution_model": {
+    "mode": "ai_first_constrained_execution",
+    "note": "The page text is preserved losslessly; the rule_blueprints provide executable interpretation."
+  },
+  "benefit_taxonomy": {
+    "mandatory": "Benefits included by default in all variants",
+    "optional": "Benefits that require explicit opt-in and may carry additional premium",
+    "service": "Non-indemnity service facilitation benefits",
+    "wellness": "Preventive health and lifestyle benefits available through partner network"
+  },
+  "mutual_exclusivity_constraints": [
+    {
+      "constraint_id": "MX_001",
+      "benefits": ["Co-Payment (4.19)", "Annual Aggregate Deductible (4.18)"],
+      "source_section": "4.18, 4.19"
+    },
+    {
+      "constraint_id": "MX_002",
+      "benefits": ["Borderless (4.28)", "Borderless for Specific Illness (4.29)"],
+      "source_section": "4.28, 4.29"
+    },
+    {
+      "constraint_id": "MX_003",
+      "benefits": ["Tiered Network (4.27)", "HeadsUp (4.26)"],
+      "source_section": "4.26, 4.27"
+    },
+    {
+      "constraint_id": "MX_004",
+      "benefits": ["Annual Health Checkup Cashless Only (4.22)", "Annual Health Checkup Cashless+Reimbursement (4.23)", "NivaBupaOne (4.25)"],
+      "source_section": "4.22, 4.23, 4.25"
+    },
+    {
+      "constraint_id": "MX_005",
+      "benefits": ["Flight-Mode (4.48)", "International Cover (4.53)", "Borderless (4.28)", "Borderless for Specific Illness (4.29)"],
+      "source_section": "4.48"
+    }
+  ],
+  "trigger_bucket_definitions": {
+    "reassure_forever_trigger_buckets": [
+      "Expenses in reaching a Hospital",
+      "Expenses during Hospitalization",
+      "Expenses before and after hospitalization",
+      "Home Care / Domiciliary Treatment",
+      "Organ Donor"
+    ],
+    "lock_the_clock_trigger_buckets": [
+      "Expenses in reaching a Hospital",
+      "Expenses during Hospitalization",
+      "Expenses before and after hospitalization",
+      "Home Care / Domiciliary Treatment",
+      "Organ Donor",
+      "Borderless",
+      "Borderless for Specified Illness"
+    ],
+    "source_sections": "4.6 Note, 4.7 Note"
+  },
+  "tables": [
+    {
+      "table_id": "R3_TBL_001",
+      "table_name": "Live Healthy Discount Tables",
+      "page_refs": [10, 11, 12, 13, 14],
+      "purpose": "renewal_discount_matrix",
+      "rows": [
+        {"policy_period_years": 1, "points_range": "0-1500", "individual_discount_percent": 0, "floater_discount_percent": 0},
+        {"policy_period_years": 1, "points_range": "1501-2250", "individual_discount_percent": 5, "floater_discount_percent": 2.5},
+        {"policy_period_years": 1, "points_range": "2251-3000", "individual_discount_percent": 15, "floater_discount_percent": 7.5},
+        {"policy_period_years": 1, "points_range": "3001-3750", "individual_discount_percent": 20, "floater_discount_percent": 10},
+        {"policy_period_years": 1, "points_range": "3751+", "individual_discount_percent": 30, "floater_discount_percent": 15},
+        {"policy_period_years": 2, "points_range": "0-3000", "individual_discount_percent": 0, "floater_discount_percent": 0},
+        {"policy_period_years": 2, "points_range": "3001-4500", "individual_discount_percent": 5, "floater_discount_percent": 2.5},
+        {"policy_period_years": 2, "points_range": "4501-6000", "individual_discount_percent": 15, "floater_discount_percent": 7.5},
+        {"policy_period_years": 2, "points_range": "6001-7500", "individual_discount_percent": 20, "floater_discount_percent": 10},
+        {"policy_period_years": 2, "points_range": "7501+", "individual_discount_percent": 30, "floater_discount_percent": 15},
+        {"policy_period_years": 3, "points_range": "0-4500", "individual_discount_percent": 0, "floater_discount_percent": 0},
+        {"policy_period_years": 3, "points_range": "4501-6750", "individual_discount_percent": 5, "floater_discount_percent": 2.5},
+        {"policy_period_years": 3, "points_range": "6751-9000", "individual_discount_percent": 15, "floater_discount_percent": 7.5},
+        {"policy_period_years": 3, "points_range": "9001-11250", "individual_discount_percent": 20, "floater_discount_percent": 10},
+        {"policy_period_years": 3, "points_range": "11251+", "individual_discount_percent": 30, "floater_discount_percent": 15},
+        {"policy_period_years": 4, "points_range": "0-6000", "individual_discount_percent": 0, "floater_discount_percent": 0},
+        {"policy_period_years": 4, "points_range": "6001-9000", "individual_discount_percent": 5, "floater_discount_percent": 2.5},
+        {"policy_period_years": 4, "points_range": "9001-12000", "individual_discount_percent": 15, "floater_discount_percent": 7.5},
+        {"policy_period_years": 4, "points_range": "12001-15000", "individual_discount_percent": 20, "floater_discount_percent": 10},
+        {"policy_period_years": 4, "points_range": "15001+", "individual_discount_percent": 30, "floater_discount_percent": 15},
+        {"policy_period_years": 5, "points_range": "0-7000", "individual_discount_percent": 0, "floater_discount_percent": 0},
+        {"policy_period_years": 5, "points_range": "7501-11250", "individual_discount_percent": 5, "floater_discount_percent": 2.5},
+        {"policy_period_years": 5, "points_range": "11251-15000", "individual_discount_percent": 15, "floater_discount_percent": 7.5},
+        {"policy_period_years": 5, "points_range": "15001-18750", "individual_discount_percent": 20, "floater_discount_percent": 10},
+        {"policy_period_years": 5, "points_range": "18751+", "individual_discount_percent": 30, "floater_discount_percent": 15}
+      ],
+      "lookup_role": "renewal_discount"
+    },
+    {
+      "table_id": "R3_TBL_005",
+      "table_name": "Annexure V - Room Co-payments",
+      "page_refs": [62],
+      "purpose": "room_co_pay_matrix",
+      "rows": [
+        {"variant": "Classic", "room_category": "General Ward", "copay_percent": 0},
+        {"variant": "Classic", "room_category": "Twin Sharing Room", "copay_percent": 20},
+        {"variant": "Classic", "room_category": "All Room Categories except deluxe and Suite", "copay_percent": 40},
+        {"variant": "Classic", "room_category": "All Room Categories", "copay_percent": 50},
+        {"variant": "Select", "room_category": "General Ward", "copay_percent": 0},
+        {"variant": "Select", "room_category": "Twin Sharing Room", "copay_percent": 0},
+        {"variant": "Select", "room_category": "All Room Categories except deluxe and Suite", "copay_percent": 20},
+        {"variant": "Select", "room_category": "All Room Categories", "copay_percent": 40},
+        {"variant": "Elite", "room_category": "General Ward", "copay_percent": 0},
+        {"variant": "Elite", "room_category": "Twin Sharing Room", "copay_percent": 0},
+        {"variant": "Elite", "room_category": "All Room Categories except deluxe and Suite", "copay_percent": 0},
+        {"variant": "Elite", "room_category": "All Room Categories", "copay_percent": 20}
+      ],
+      "lookup_role": "room_copay"
+    },
+    {
+      "table_id": "R3_TBL_007",
+      "table_name": "Specified Disease / Procedure Waiting List",
+      "page_refs": [30, 31],
+      "purpose": "waiting_period_exclusions",
+      "waiting_period_months": 24,
+      "exceptions": ["Accident claims covered from day 1", "Cancer covered after 30-day waiting period"],
+      "items": [
+        "Pancreatitis and stones in biliary and urinary system",
+        "Cataract, glaucoma and retinal detachment",
+        "Hyperplasia of prostate, hydrocele and spermatocele",
+        "Prolapse uterus or cervix, endometriosis, Fibroids, PCOD, hysterectomy (unless necessitated by Malignancy)",
+        "Hemorrhoids, fissure, fistula or abscess of anal and rectal region",
+        "Hernia of any site or type",
+        "Osteoarthritis, joint replacement, osteoporosis, systemic connective tissue disorders, inflammatory polyarthropathies, Rheumatoid Arthritis, gout, intervertebral disc disorders, arthroscopic surgeries for ligament repair",
+        "Varicose veins of lower extremities",
+        "All internal or external benign neoplasms/tumours, cyst, sinus, polyps, nodules, mass or lump",
+        "Ulcer, erosion or varices of gastro intestinal tract",
+        "Surgical treatment for diseases of middle ear and mastoid, Tonsils and adenoids, nasal septum and nasal sinuses"
+      ],
+      "lookup_role": "waiting_period_exclusion"
+    }
+  ],
+  "rule_blueprints": [
+    {
+      "rule_id": "R3_SUM_001",
+      "name": "Sum insured waterfall",
+      "section_ref": "3. Sum Insured(s)",
+      "benefit_category": "mandatory",
+      "execution_type": "stateful_waterfall",
+      "formula": "claim draws from: Base SI -> Booster+ SI -> ReAssure+ -> policy benefits, in sequence",
+      "inputs": ["claim_amount", "available_base_si", "available_booster_plus", "available_reassure_pool", "available_policy_benefits"],
+      "outputs": ["remaining_base_si", "remaining_booster_plus", "remaining_reassure_pool", "remaining_policy_benefits", "payable_amount_breakup"],
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_SUM_002",
+      "name": "ReAssure Forever trigger",
+      "section_ref": "4.6 ReAssure Forever",
+      "benefit_category": "mandatory",
+      "execution_type": "trigger_and_cap",
+      "preconditions": [
+        "first_paid_claim_in_policy_life == true",
+        "policy_renewed_without_break == true",
+        "unlimited_sum_insured_opted == false"
+      ],
+      "formula": "Triggered on first paid claim in policy life; each subsequent claim capped at Base SI from ReAssure Forever pool; persists for life if renewed without break",
+      "trigger_buckets": ["Expenses in reaching a Hospital", "Expenses during Hospitalization", "Expenses before and after hospitalization", "Home Care / Domiciliary Treatment", "Organ Donor"],
+      "inputs": ["first_paid_claim_in_policy_life", "policy_renewed_without_break", "unlimited_sum_insured_opted", "claim_bucket", "base_sum_insured"],
+      "outputs": ["reassure_forever_triggered", "reassure_pool_consumed", "max_single_claim_from_forever"],
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_SUM_003",
+      "name": "Lock the Clock",
+      "section_ref": "4.7 Lock the Clock",
+      "benefit_category": "mandatory",
+      "execution_type": "state_transition",
+      "preconditions": ["claim_paid == false means age remains locked"],
+      "formula": "age_locked at entry until claim_paid=true; multi-tenure: additional premium for remaining tenure deducted from claim payout; floater: age unlocks for entire policy if any member claims; multi-individual: age unlocks only for claiming individual",
+      "trigger_buckets": ["Expenses in reaching a Hospital", "Expenses during Hospitalization", "Expenses before and after hospitalization", "Home Care / Domiciliary Treatment", "Organ Donor", "Borderless", "Borderless for Specified Illness"],
+      "inputs": ["claim_paid", "policy_term_years", "claim_in_policy_year", "entry_age", "current_age", "policy_type", "member_claiming"],
+      "outputs": ["age_locked", "premium_delta_to_adjust", "claim_net_payout"],
+      "variant_applicability": ["Classic", "Select", "Elite"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_SUM_004",
+      "name": "Booster+ accumulation and proportional reduction",
+      "section_ref": "4.8 Booster+",
+      "benefit_category": "mandatory",
+      "execution_type": "accumulate_and_reduce",
+      "formula": "booster_plus = min(max_multiplier * base_si, previous_booster_plus + unutilized_base_si); if base SI reduced, booster+ reduced proportionally; max_multiplier up to 10x based on variant",
+      "inputs": ["unutilized_base_si", "base_sum_insured_old", "base_sum_insured_new", "booster_plus_old", "variant_max_multiplier"],
+      "outputs": ["booster_plus_new"],
+      "notes": [
+        "If individual policy converts to floater, least of individual Booster+ amounts carries forward",
+        "If floater splits, Booster+ carries forward to split policies provided Base SI not reduced",
+        "When SI enhanced, accumulated Booster+ continues and grows to new max (10x new Base SI)"
+      ],
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_LH_001",
+      "name": "Live Healthy renewal discount",
+      "section_ref": "4.9 Live Healthy",
+      "benefit_category": "mandatory",
+      "execution_type": "table_lookup",
+      "table_ref": "R3_TBL_001",
+      "formula": "points = floor(steps / 1000); evaluate health score 90 days before renewal due date; look up discount from table by policy_period and policy_structure; discount on individual premium or floater premium; points carry forward; only for insured 18+ years",
+      "inputs": ["steps", "health_points", "policy_period_years", "renewal_due_date", "policy_structure", "adult_count", "member_age"],
+      "outputs": ["discount_percent", "discount_amount", "points_carried_forward"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_001",
+      "name": "Road ambulance",
+      "section_ref": "4.1.1",
+      "benefit_category": "mandatory",
+      "execution_type": "cap",
+      "preconditions": ["hospitalization_claim_paid == true", "registered_ambulance_provider == true"],
+      "formula": "payable = min(claim_amount, policy_schedule_limit)",
+      "inputs": ["claim_amount", "policy_schedule_limit", "registered_ambulance_provider"],
+      "outputs": ["payable_amount"],
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_BEN_002",
+      "name": "Air ambulance",
+      "section_ref": "4.1.2 and 4.55",
+      "benefit_category": "mandatory",
+      "execution_type": "conditional_cap",
+      "preconditions": ["emergency == true", "hospitalization_claim_paid == true", "provider_registered == true"],
+      "formula": "pay only if emergency + hospitalization_paid + registered provider; Air Ambulance+ (optional) removes sub-limit for Classic & Select",
+      "variant_applicability_for_plus": ["Classic", "Select"],
+      "inputs": ["ambulance_type", "emergency", "hospitalization_claim_paid", "provider_registered", "air_ambulance_plus_opted", "variant"],
+      "outputs": ["payable_amount", "eligibility_flag"],
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_BEN_003",
+      "name": "Hospitalization minimum duration and eligibility",
+      "section_ref": "4.2",
+      "benefit_category": "mandatory",
+      "execution_type": "threshold",
+      "preconditions": ["treatment_performed == true", "not_investigation_only == true"],
+      "formula": "Allopathic: admitted >= 2 hours; AYUSH: admitted >= 24 hours in AYUSH Hospital; investigation-only admissions excluded; Cataract Classic & Select covers only Mono-focal Lens",
+      "inputs": ["hospitalization_hours", "treatment_type", "ayush_flag", "investigation_only", "cataract_lens_type", "variant"],
+      "outputs": ["eligibility_flag"],
+      "notes": ["Will NOT pay for Automation machine for peritoneal dialysis", "If room outside plan category, Copayment per Annexure V applies on entire claim"],
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_BEN_004",
+      "name": "Room category breach pro-rata",
+      "section_ref": "6.2.4(d) + Annexure V",
+      "benefit_category": "mandatory",
+      "execution_type": "pro_rata",
+      "formula": "payable = (eligible_room_rent / actual_room_rent) * associated_medical_expenses; Associated Medical Expenses = Room Rent + nursing charges + Medical Practitioners fees + operation theatre charges",
+      "inputs": ["eligible_room_rent", "actual_room_rent", "associated_medical_expenses", "room_category_claimed", "variant"],
+      "outputs": ["payable_amount", "copay_amount", "pro_rata_ratio"],
+      "table_ref": "R3_TBL_005",
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_BEN_005",
+      "name": "Modern treatments",
+      "section_ref": "4.2.2",
+      "benefit_category": "mandatory",
+      "execution_type": "whitelist_with_sublimit",
+      "formula": "Allow only listed 12 procedures up to plan cover sub-limit; Modern Treatments+ optional removes sub-limit for Classic & Select",
+      "allowed_procedures": [
+        "Uterine Artery Embolization and HIFU",
+        "Vaporisation of the prostrate (Green laser / holmium laser)",
+        "Stem cell therapy: Hematopoietic stem cells for bone marrow transplant for haematological conditions",
+        "Balloon Sinuplasty",
+        "Oral Chemotherapy",
+        "Robotic surgeries",
+        "Stereotactic radio Surgeries",
+        "Deep Brain stimulation",
+        "Intra vitreal injections",
+        "Bronchical Thermoplasty",
+        "IONM (Intra Operative Neuro Monitoring)"
+      ],
+      "inputs": ["procedure_code", "plan_cover_limit", "modern_treatments_plus_opted", "variant"],
+      "outputs": ["payable_amount", "sublimit_applied"],
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_BEN_005A",
+      "name": "Modern Treatments+ (optional)",
+      "section_ref": "4.54",
+      "benefit_category": "optional",
+      "execution_type": "sublimit_removal",
+      "variant_applicability": ["Classic", "Select"],
+      "formula": "If opted, removes applicable sub-limit from Modern Treatments under Expenses during Hospitalization, enhancing limit up to Sum Insured",
+      "inputs": ["modern_treatments_plus_opted", "variant"],
+      "outputs": ["sublimit_removed_flag"],
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_BEN_006",
+      "name": "Pre and post hospitalization windows",
+      "section_ref": "4.3",
+      "benefit_category": "mandatory",
+      "execution_type": "date_window",
+      "formula": "pre <= 60 days before admission, post <= 180 days after discharge; must be related to condition for which hospitalization claim is paid; covers consultations, medicines, physiotherapy, diagnostic tests",
+      "inputs": ["days_before_admission", "days_after_discharge", "linked_to_claim_paid_hospitalization", "expense_type"],
+      "outputs": ["eligibility_flag", "payable_amount"],
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_BEN_007",
+      "name": "Home Care / Domiciliary Treatment",
+      "section_ref": "4.4",
+      "benefit_category": "mandatory",
+      "execution_type": "multi_condition_allow",
+      "preconditions": [
+        "doctor_advised_home_treatment == true",
+        "continuous_active_line_of_treatment == true",
+        "daily_monitoring_chart_signed_by_doctor == true"
+      ],
+      "formula": "All 3 conditions must be met; Pre & Post hospitalization benefit applies per section 4.3; peritoneal dialysis and chemotherapy at home covered; Medical & ambulatory devices at home NOT covered (Pulse Oxymeter, BP monitors, Sugar monitors, automation device for peritoneal dialysis, CPAP, BiPAP, Crutches, wheelchair etc.)",
+      "inputs": ["doctor_advised", "continuous_active_line_of_treatment", "daily_monitoring_chart_available", "treatment_type"],
+      "outputs": ["eligibility_flag", "payable_amount"],
+      "exclusions_within_benefit": ["Medical & ambulatory devices used at home"],
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_BEN_008",
+      "name": "Organ donor",
+      "section_ref": "4.5",
+      "benefit_category": "mandatory",
+      "execution_type": "conditional_allow",
+      "preconditions": ["recipient_hospitalization_claim_paid == true OR insured_is_donor == true"],
+      "formula": "If insured undergoes transplant: pay donor hospitalization expenses only when insured's hospitalization claim is paid. If insured donates organ: pay harvesting expenses.",
+      "inputs": ["recipient_hospitalization_claim_paid", "insured_is_donor", "donor_harvesting_expenses"],
+      "outputs": ["payable_amount"],
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_BEN_009",
+      "name": "Second Medical Opinion",
+      "section_ref": "4.11",
+      "benefit_category": "mandatory",
+      "execution_type": "service_benefit",
+      "formula": "Unlimited conditions/treatments per policy year; facilitated through empaneled partner; insurer pays",
+      "inputs": ["condition_diagnosed", "treatment_prescribed"],
+      "outputs": ["eligibility_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_010",
+      "name": "e-Consultation",
+      "section_ref": "4.12",
+      "benefit_category": "mandatory",
+      "execution_type": "service_benefit",
+      "formula": "Unlimited e-consultations from Partners",
+      "inputs": ["partner_network_used"],
+      "outputs": ["eligibility_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_010A",
+      "name": "Surprise Benefit",
+      "section_ref": "4.10",
+      "benefit_category": "mandatory",
+      "execution_type": "app_based_service",
+      "formula": "Buy plan, download app, unlock health surprise; variety of health services available on app (specialist consultations, ambulance booking, condition management, health risk assessments, diagnostics, pharmacies)",
+      "inputs": ["app_downloaded", "plan_active"],
+      "outputs": ["eligibility_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_011",
+      "name": "Hospital Daily Cash",
+      "section_ref": "4.13",
+      "benefit_category": "optional",
+      "execution_type": "per_day_cap",
+      "preconditions": ["hospitalization_paid_under_policy == true"],
+      "formula": "daily_cash_amount * floor(hospitalization_hours / 24), max 30 days; payable only if inpatient expense claim paid",
+      "inputs": ["hospitalization_hours", "hospitalization_paid_under_policy", "daily_cash_amount"],
+      "outputs": ["payable_amount", "days_paid"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_PA_001",
+      "name": "Personal Accident - AD/PTD/PPD",
+      "section_ref": "4.14",
+      "benefit_category": "optional",
+      "execution_type": "table_based_benefit",
+      "formula": "AD: pay SI if death within 365 days of accident within policy period; PTD: 125% for loss of 2 limbs/both eyes/speech+hearing/1 limb+1 eye, 50% for 1 limb or 1 eye; PPD: per body part table; total PPD capped at AD SI; benefit terminates after AD or PTD paid",
+      "inputs": ["accident_date", "death_date", "ptd_condition", "ppd_condition", "body_part"],
+      "outputs": ["payable_amount", "termination_flag", "percentage_of_ad_si"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_PA_002",
+      "name": "Personal Accident (Lite)",
+      "section_ref": "4.15",
+      "benefit_category": "optional",
+      "execution_type": "lump_sum",
+      "formula": "AD only: pay SI if death within 365 days of accident within policy period; benefit terminates after paid",
+      "inputs": ["accident_date", "death_date"],
+      "outputs": ["payable_amount", "termination_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_PA_003",
+      "name": "Personal Accident (Pro)",
+      "section_ref": "4.16",
+      "benefit_category": "optional",
+      "execution_type": "table_based_benefit",
+      "formula": "Same as PA (4.14) for AD/PTD/PPD plus Accidental OPD; OPD covers: procedures <24h (excludes day care), diagnostic tests for accident, vaccinations/animal bites, plaster cast/crutches",
+      "inputs": ["accident_date", "death_date", "ptd_condition", "ppd_condition", "body_part", "opd_item_type"],
+      "outputs": ["payable_amount", "termination_flag", "opd_eligibility_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_013",
+      "name": "Claim Safeguard+",
+      "section_ref": "4.17 + Annexure I",
+      "benefit_category": "optional",
+      "execution_type": "table_lookup_override",
+      "formula": "Cover non-payable items from Annexure I List I, II, III, IV; Reasonable and Customary Charges (clause 2.1.37) still apply",
+      "inputs": ["annexure_i_item", "reasonable_customary_charges"],
+      "outputs": ["payable_amount"],
+      "table_ref": "R3_TBL_002",
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_FIN_001",
+      "name": "Annual Aggregate Deductible",
+      "section_ref": "4.18",
+      "benefit_category": "optional",
+      "execution_type": "aggregate_deductible",
+      "formula": "Aggregate amount in a year across specified buckets that insurer will NOT pay; once total expense exceeds deductible, balance is payable; deductible amount must also be payable per policy T&C",
+      "applicable_buckets": ["Expenses in reaching a Hospital", "Expenses during Hospitalization", "Expenses before and after hospitalization", "Home Care / Domiciliary Treatment", "Organ Donor"],
+      "not_applicable_to": ["Annual Health Check-up", "Live Healthy", "Second Medical Opinion", "Shared Accommodation Cash", "e-consultation", "Personal Accident", "Hospital Daily Cash"],
+      "inputs": ["claim_benefit_bucket", "deductible_remaining", "claim_amount"],
+      "outputs": ["deductible_applied", "payable_amount"],
+      "mutual_exclusivity": "MX_001",
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_FIN_002",
+      "name": "Co-payment",
+      "section_ref": "4.19",
+      "benefit_category": "optional",
+      "execution_type": "percentage_cost_share",
+      "formula": "payable = admissible_amount * (1 - copay_percent)",
+      "not_applicable_to": ["Annual Health Check-up", "Live Healthy", "Second Medical Opinion", "Shared Accommodation Cash", "e-consultation", "Personal Accident", "Hospital Daily Cash"],
+      "inputs": ["admissible_amount", "copay_percent", "benefit_bucket"],
+      "outputs": ["copay_amount", "payable_amount"],
+      "mutual_exclusivity": "MX_001",
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_WT_001",
+      "name": "PED waiting time modification",
+      "section_ref": "4.20",
+      "benefit_category": "optional",
+      "execution_type": "purchase_time_only_parameter",
+      "formula": "Can reduce or increase PED waiting time; modifiable ONLY at time of buying; cannot be opted/modified/removed at renewal",
+      "inputs": ["renewal_mode", "ped_waiting_days_chosen"],
+      "outputs": ["effective_ped_waiting_days"]
+    },
+    {
+      "rule_id": "R3_WT_002",
+      "name": "Specific disease waiting time modification",
+      "section_ref": "4.21",
+      "benefit_category": "optional",
+      "execution_type": "purchase_time_only_parameter",
+      "formula": "Can reduce or increase Specific Disease waiting time; modifiable ONLY at time of buying; cannot be opted/modified/removed at renewal",
+      "inputs": ["renewal_mode", "specific_disease_waiting_days_chosen"],
+      "outputs": ["effective_specific_disease_waiting_days"]
+    },
+    {
+      "rule_id": "R3_WT_003",
+      "name": "Initial Wait Period Modification",
+      "section_ref": "4.49",
+      "benefit_category": "optional",
+      "execution_type": "purchase_time_only_parameter",
+      "formula": "Can choose to reduce the Initial Wait Period; modifiable ONLY at time of buying; cannot be opted/modified/removed at renewal",
+      "inputs": ["renewal_mode", "initial_wait_period_days_chosen"],
+      "outputs": ["effective_initial_wait_period_days"]
+    },
+    {
+      "rule_id": "R3_BEN_014",
+      "name": "Annual Health Checkup (Cashless Only)",
+      "section_ref": "4.22",
+      "benefit_category": "optional",
+      "execution_type": "service_benefit_with_table",
+      "table_ref": "R3_TBL_003",
+      "preconditions": ["booking_channel == digital_assets", "claim_type == cashless", "once_per_policy_year == true"],
+      "formula": "Available once every Policy Year from day 1; MUST be booked through digital assets (Mobile App); cashless ONLY, no reimbursement; all tests within 7 days",
+      "inputs": ["booking_channel", "claim_type", "tests_within_7_days", "policy_year_count", "variant"],
+      "outputs": ["eligible_tests", "eligibility_flag"],
+      "mutual_exclusivity": "MX_004",
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_014A",
+      "name": "Annual Health Checkup (Cashless + Reimbursement)",
+      "section_ref": "4.23",
+      "benefit_category": "optional",
+      "execution_type": "service_benefit_with_table",
+      "table_ref": "R3_TBL_003",
+      "preconditions": ["booking_channel == digital_assets", "once_per_policy_year == true"],
+      "formula": "Available once every Policy Year from day 1; MUST be booked through digital assets; available on cashless and reimbursement basis; all tests within 7 days",
+      "inputs": ["booking_channel", "claim_type", "tests_within_7_days", "policy_year_count", "variant"],
+      "outputs": ["eligible_tests", "payable_amount"],
+      "mutual_exclusivity": "MX_004",
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_015",
+      "name": "Cash-Bag+",
+      "section_ref": "4.24",
+      "benefit_category": "optional",
+      "execution_type": "wallet",
+      "formula": "10% of premium on 1st Renewal + 5% on each renewal from 2nd onwards (claim-free years); +10% on accumulated amount every 3 years; +10% of friend's premium on referral conversion (one-time); usable for OPD, deductibles, co-payment, non-payable items, premiums (ReAssure 3.0 only)",
+      "inputs": ["claim_free_years", "renewal_number", "friend_referral_converted", "accumulated_cash_bag"],
+      "outputs": ["cash_bag_balance"],
+      "notes": ["Deductibles/Co-Payments can only be paid for claims under ReAssure 3.0", "Only ReAssure 3.0 premium can be paid using Cash-Bag+"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_015A",
+      "name": "NivaBupaOne",
+      "section_ref": "4.25",
+      "benefit_category": "optional",
+      "execution_type": "service_benefit",
+      "formula": "Premium Club membership; executive health check-up (Annexure III); fast-track priority for claims and policy services",
+      "inputs": ["niva_bupa_one_opted"],
+      "outputs": ["eligibility_flag", "executive_checkup_eligible"],
+      "mutual_exclusivity": "MX_004",
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_016",
+      "name": "HeadsUp",
+      "section_ref": "4.26",
+      "benefit_category": "optional",
+      "execution_type": "co_pay_and_network",
+      "formula": "Inform 48 hours before hospitalization (emergency: within 24 hrs of admission); 20% co-pay if: treatment for different illness/surgery than informed, OR treatment outside recommended network, OR not informed within 24hr of admission",
+      "applicable_buckets": ["Expenses in reaching a hospital", "Expenses During Hospitalization", "Expenses Before & After Hospitalization", "Home Care/Domiciliary", "Organ Donor"],
+      "inputs": ["intimation_hours_before", "intimation_hours_after_emergency", "recommended_network_used", "same_informed_illness", "benefit_bucket"],
+      "outputs": ["copay_percent", "payable_amount"],
+      "mutual_exclusivity": "MX_003",
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_BEN_017",
+      "name": "Tiered Network",
+      "section_ref": "4.27",
+      "benefit_category": "optional",
+      "execution_type": "co_pay_and_network",
+      "formula": "Specific hospital list within network; flat 20% co-pay on admissible claim if treatment outside this tiered network",
+      "applicable_buckets": ["Expenses in reaching a hospital", "Expenses During Hospitalization", "Expenses Before & After Hospitalization", "Home Care/Domiciliary", "Organ Donor"],
+      "inputs": ["network_status", "benefit_bucket", "tiered_network_opted"],
+      "outputs": ["copay_percent", "payable_amount"],
+      "mutual_exclusivity": "MX_003",
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_BEN_018",
+      "name": "Borderless",
+      "section_ref": "4.28",
+      "benefit_category": "optional",
+      "execution_type": "global_treatment",
+      "preconditions": ["indian_citizen_or_permanent_resident == true"],
+      "formula": "Emergency or planned treatments anywhere in world; co-pay options: 0%, 20%, 30%, 40%, 50%; standard private room only; available under cashless and reimbursement",
+      "applicable_buckets": ["Expenses in reaching a Hospital", "Expenses during Hospitalization", "Expenses before and after hospitalization", "Organ Donor"],
+      "inputs": ["citizenship_status", "permanent_residency_status", "claim_location", "copay_option_chosen"],
+      "outputs": ["eligibility_flag", "copay_amount", "payable_amount"],
+      "mutual_exclusivity": "MX_002",
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_BEN_019",
+      "name": "Borderless for Specific Illness",
+      "section_ref": "4.29",
+      "benefit_category": "optional",
+      "execution_type": "global_treatment_with_wait",
+      "preconditions": [
+        "indian_citizen_or_permanent_resident == true",
+        "symptoms_first_occur_during_policy_period == true",
+        "days_since_first_policy >= 90",
+        "diagnosed_in_india == true"
+      ],
+      "formula": "Planned treatments for 9 specified illnesses anywhere in world; co-pay options: 0%, 20%, 30%, 40%, 50%; standard private room only",
+      "specified_illnesses": ["Cancer", "Myocardial Infarction (First Heart Attack of specific severity)", "Open Chest CABG", "Major Organ/Bone Marrow Transplant", "Stroke Resulting in Permanent Symptoms", "Surgery of Aorta", "Angioplasty", "Primary (Idiopathic) Pulmonary Hypertension", "Brain Surgery"],
+      "applicable_buckets": ["Expenses in reaching a Hospital", "Expenses during Hospitalization", "Expenses before and after hospitalization", "Organ Donor"],
+      "inputs": ["specified_illness", "symptom_manifested_during_policy_period", "diagnosed_in_india", "days_since_first_policy", "copay_option_chosen"],
+      "outputs": ["eligibility_flag", "copay_amount"],
+      "mutual_exclusivity": "MX_002",
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_BEN_020",
+      "name": "Wellconsult+",
+      "section_ref": "4.30",
+      "benefit_category": "optional",
+      "execution_type": "service_bundle",
+      "formula": "Complete wellness and OPD benefits; India only; reimbursement allowed with flat 20% co-pay; all waiting periods and exclusions apply",
+      "services": ["Tele/Video Consultation with GPs", "Physical Consultations with Specialists & GPs", "Prescribed Diagnostics", "Prescribed Pharmacy", "Dental Procedures", "Ophthalmological Consultations", "Prescribed Physiotherapy", "Online Emotional Wellness sessions", "Diet and Nutrition Coaching", "AI Smart Fitness Coaching", "Global online wellness content", "Gym memberships"],
+      "exclusions_within_benefit": ["Specialist consultation for Maternity and OPD Procedures", "Cosmetic Dental procedures", "Ophthalmological procedures (cataract, eye surgery, biometry, laser, eyesight correction)"],
+      "inputs": ["benefit_item", "claim_type", "partner_network_used", "india_only"],
+      "outputs": ["eligibility_flag", "copay_amount"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_021",
+      "name": "ElderOne",
+      "section_ref": "4.31",
+      "benefit_category": "optional",
+      "execution_type": "service_bundle",
+      "preconditions": ["member_age >= 56 OR proposer_parents_in_laws_not_insured"],
+      "formula": "Benefits for seniors 56+ insured in policy or parents/parents-in-laws of proposer not insured; network only; India only; care manager visits up to 1 hour; all waiting periods and exclusions apply",
+      "services": ["Regular virtual check-ins", "Community engagement (Virtual)", "Dedicated elder care relationship manager", "Regular virtual updates to family", "Fall risk assessments", "Regular check-ins (in-person)", "Virtual mental health sessions", "Cognitive Health Screening", "Travel plan support", "Care Concierge Desk"],
+      "inputs": ["member_age", "relationship", "india_only", "network_only"],
+      "outputs": ["eligibility_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_022",
+      "name": "Third Medical Opinion",
+      "section_ref": "4.32",
+      "benefit_category": "optional",
+      "execution_type": "service_benefit",
+      "formula": "Facilitate and pay for third opinion from specialist/super specialist panel; unlimited conditions per policy year",
+      "inputs": ["third_opinion_requested"],
+      "outputs": ["eligibility_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_022A",
+      "name": "Second Medical Opinion-Express",
+      "section_ref": "4.33",
+      "benefit_category": "optional",
+      "execution_type": "service_benefit",
+      "preconditions": ["within_48_hours_of_hospitalization == true", "once_per_policy_year == true"],
+      "formula": "Once per policy year; second opinion from any Medical Practitioner; must be asked within 48 hours of hospitalization",
+      "inputs": ["within_48_hours_of_hospitalization", "policy_year_usage_count"],
+      "outputs": ["eligibility_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_023",
+      "name": "Medical Equipment",
+      "section_ref": "4.34",
+      "benefit_category": "optional",
+      "execution_type": "conditional_support_benefit",
+      "preconditions": [
+        "accident_in_policy_period == true",
+        "medical_equipment_prescribed_by_medical_practitioner == true",
+        "prior_claim_paid_in_specified_buckets == true"
+      ],
+      "formula": "Pay for medically necessary equipment to resume normal living post accident injury; equipment includes artificial limbs/eyes, orthopedic braces, intra-ocular lenses, spectacles, hearing aids, dentures, wheelchair, crutches, hospital beds, traction equipment, walkers, tri-cycles",
+      "prior_claim_buckets": ["Expenses in reaching the hospital", "Expenses During Hospital", "Expenses Before and After Hospitalization", "Home Care/Domiciliary", "Personal Accident", "Personal Accident (Lite)", "Personal Accident (Pro)"],
+      "inputs": ["accident_in_policy_period", "medical_equipment_prescribed", "prior_claim_paid_in_buckets", "equipment_type"],
+      "outputs": ["eligibility_flag", "payable_amount"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_024",
+      "name": "Emotional Wellness for Adults",
+      "section_ref": "4.35",
+      "benefit_category": "optional",
+      "execution_type": "partner_network_service",
+      "formula": "Online sessions on Emotional Wellness; partner network only",
+      "inputs": ["partner_network_used"],
+      "outputs": ["eligibility_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_024A",
+      "name": "Mind Wellness Counselling",
+      "section_ref": "4.36",
+      "benefit_category": "optional",
+      "execution_type": "partner_network_service",
+      "formula": "Online sessions on Emotional, Mental and Mind Wellness; partner network only",
+      "inputs": ["partner_network_used"],
+      "outputs": ["eligibility_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_024B",
+      "name": "Sexual Health Wellness",
+      "section_ref": "4.37",
+      "benefit_category": "optional",
+      "execution_type": "partner_network_service",
+      "preconditions": ["adult_in_policy == true"],
+      "formula": "Online sessions on Sexual Health Wellness; partner network only; adults only",
+      "inputs": ["partner_network_used", "adult_in_policy"],
+      "outputs": ["eligibility_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_024C",
+      "name": "Health Risk Assessment",
+      "section_ref": "4.38",
+      "benefit_category": "wellness",
+      "execution_type": "app_based_service",
+      "formula": "Overall online health assessment on App; updates about lifestyle and health",
+      "inputs": ["app_used"],
+      "outputs": ["eligibility_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_024D",
+      "name": "Wellness for Women",
+      "section_ref": "4.39",
+      "benefit_category": "optional",
+      "execution_type": "service_bundle",
+      "formula": "Comprehensive women's wellness; India only; network only; all waiting periods and exclusions apply",
+      "services": ["Personalized Content on Mobile App", "Community interaction", "Trackers, toolkits and health monitoring", "Stress Management sessions", "Special Sections (Ayurvedic Setu, Garbh Sanskar, parenting, PCOS/menopause)", "Medical repository", "Recorded sessions and webinars", "Live Webinars", "Dedicated Personal Coach", "Special Courses", "Online specialist consults", "Online Yoga, Dance, Strength Training"],
+      "inputs": ["india_only", "network_only"],
+      "outputs": ["eligibility_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_025",
+      "name": "EyeGuard",
+      "section_ref": "4.40",
+      "benefit_category": "optional",
+      "execution_type": "service_bundle",
+      "formula": "Eye care and vision protection; partner network only; India only; eyewear once per policy year; unused benefits not carried forward; non-prescription glasses only if prescription glasses not availed; contact lenses not covered",
+      "services": ["Prescription Glasses", "Non-Prescription Sunglasses", "Basic eye checkup", "Ophthalmologist consultations", "Discounts on eye surgeries"],
+      "inputs": ["used_once_in_policy_year", "prescription_glasses_availed", "non_prescription_glasses_requested", "partner_network_used"],
+      "outputs": ["eligibility_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_026",
+      "name": "Live-Fit",
+      "section_ref": "4.41",
+      "benefit_category": "optional",
+      "execution_type": "service_bundle",
+      "formula": "Fitness benefits; partner network only; India only; all waiting periods and exclusions apply",
+      "services": ["Diet and Nutrition Coaching", "AI Smart Fitness Coaching", "Workout classes across Globe", "Gym memberships", "In-App activity Tracking"],
+      "inputs": ["partner_network_used", "india_only"],
+      "outputs": ["eligibility_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_027",
+      "name": "Accident Care",
+      "section_ref": "4.42",
+      "benefit_category": "optional",
+      "execution_type": "support_service",
+      "preconditions": ["pa_claim_paid OR accident_claim_paid_under_specified_buckets"],
+      "formula": "Services from partner network after PA or accident claim paid; includes ICU@Home, Nursing Care at Home, Blood Transfusion, Physiotherapy, Single nurse procedural visit, Financial Guidance (for AD)",
+      "prior_claim_buckets": ["Personal Accident", "Personal Accident (Pro)", "Personal Accident (Lite)", "Expenses for Reaching Hospital", "Expenses During Hospitalization", "Expenses Before and After Hospitalization", "Home Care/Domiciliary", "Organ Donor"],
+      "inputs": ["pa_claim_paid", "accident_claim_paid_under_specified_buckets", "ptd_or_ppd_condition"],
+      "outputs": ["eligibility_flag", "services_available"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_028",
+      "name": "Health Vouchers",
+      "section_ref": "4.43",
+      "benefit_category": "optional",
+      "execution_type": "app_based_service",
+      "formula": "Vouchers for health services via Niva Bupa or approved partner apps",
+      "inputs": ["app_used"],
+      "outputs": ["eligibility_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_029",
+      "name": "Critical Illness",
+      "section_ref": "4.44",
+      "benefit_category": "optional",
+      "execution_type": "lump_sum",
+      "preconditions": [
+        "critical_illness_in_annexure_iv == true",
+        "first_occurs_in_policy_period == true",
+        "diagnosed_in_india == true",
+        "days_since_first_policy >= 90",
+        "days_survived_post_diagnosis >= 30",
+        "lifetime_claimed_flag == false"
+      ],
+      "formula": "One-time lump sum payout if listed critical illness first occurs and is diagnosed in India during policy period after 90 days from inception; insured must survive 30 days post diagnosis; once in lifetime only",
+      "inputs": ["critical_illness_type", "first_occurs_in_policy_period", "diagnosed_in_india", "days_since_first_policy", "days_survived_post_diagnosis", "lifetime_claimed_flag"],
+      "outputs": ["payable_amount", "lifetime_claimed_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_030",
+      "name": "Compassionate Visit",
+      "section_ref": "4.45",
+      "benefit_category": "optional",
+      "execution_type": "travel_support",
+      "preconditions": ["hospitalized_more_than_10_consecutive_days == true", "residence_of_family_member_different_from_insured == true"],
+      "formula": "Pay economy class air/railway return ticket for one immediate family member (Spouse, Children, Parents, Parents-in-law); ticket to & fro from family member's residence",
+      "inputs": ["hospitalized_consecutive_days", "residence_different", "immediate_family_member"],
+      "outputs": ["payable_amount"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_031",
+      "name": "Pre-Hospitalization Modification",
+      "section_ref": "4.46",
+      "benefit_category": "optional",
+      "execution_type": "purchase_time_only_parameter",
+      "formula": "Can reduce or increase number of days under Pre-Hospitalization; modifiable ONLY at time of buying; cannot be opted/modified/removed at renewal",
+      "inputs": ["renewal_mode", "pre_hosp_days_chosen"],
+      "outputs": ["effective_pre_days"]
+    },
+    {
+      "rule_id": "R3_BEN_031A",
+      "name": "Post-Hospitalization Modification",
+      "section_ref": "4.47",
+      "benefit_category": "optional",
+      "execution_type": "purchase_time_only_parameter",
+      "formula": "Can reduce or increase number of days under Post-Hospitalization; modifiable ONLY at time of buying; cannot be opted/modified/removed at renewal",
+      "inputs": ["renewal_mode", "post_hosp_days_chosen"],
+      "outputs": ["effective_post_days"]
+    },
+    {
+      "rule_id": "R3_BEN_032",
+      "name": "Flight-Mode",
+      "section_ref": "4.48",
+      "benefit_category": "optional",
+      "execution_type": "policy_pause",
+      "preconditions": ["indian_citizen_or_permanent_resident == true", "international_cover_opted == false", "borderless_opted == false", "borderless_specific_illness_opted == false"],
+      "formula": "Pause policy max 30 days per policy year when traveling outside India; coverage extended by paused days; must inform 48 hours before travel; if return later than 30 days, auto-resume at day 30; if some members return early, coverage resumes from earliest return date; must inform if returning earlier",
+      "inputs": ["travel_outside_india", "notice_given_48_hours_before", "pause_days_requested", "member_return_dates", "policy_year_pause_used"],
+      "outputs": ["coverage_pause_days", "coverage_resume_date", "policy_end_extension_days"],
+      "mutual_exclusivity": "MX_005",
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_033",
+      "name": "Vaccination Cover",
+      "section_ref": "4.50",
+      "benefit_category": "optional",
+      "execution_type": "allowlist",
+      "formula": "Pay for listed vaccinations through Providers; once per policy year",
+      "allowed_vaccinations": ["Influenza", "Pneumonia", "Cervical Cancer", "Hepatitis B", "Typhoid", "BCG", "OPV + IPV 1", "DPT", "Haemophilus influenzae type B", "Tetanus", "Rota", "MMR", "Hepatitis A"],
+      "inputs": ["vaccination_name", "once_per_policy_year"],
+      "outputs": ["payable_amount", "eligibility_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_034",
+      "name": "Convalescence Benefit",
+      "section_ref": "4.51",
+      "benefit_category": "optional",
+      "execution_type": "lump_sum",
+      "preconditions": ["hospitalized_continuously_more_than_10_days == true", "linked_claim_paid == true", "lifetime_claimed_flag == false"],
+      "formula": "Pay fixed amount if hospitalized continuously >10 days; once in lifetime only",
+      "linked_claim_buckets": ["Expenses in reaching a Hospital", "Expenses during Hospitalization", "Expenses before and after hospitalization", "Home Care / Domiciliary Treatment", "Organ Donor"],
+      "inputs": ["hospitalized_continuous_days", "linked_claim_paid", "lifetime_claimed_flag"],
+      "outputs": ["payable_amount", "lifetime_claimed_flag"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_035",
+      "name": "Dependent Accommodation Benefit",
+      "section_ref": "4.52",
+      "benefit_category": "optional",
+      "execution_type": "daily_cash",
+      "preconditions": ["hospitalized_continuously_more_than_10_days == true", "linked_claim_paid == true"],
+      "formula": "Per day benefit for ONE immediate family member (Spouse, Children, Parents, Parents-in-law) max 10 days; linked claim must be paid",
+      "linked_claim_buckets": ["Expenses in reaching a Hospital", "Expenses during Hospitalization", "Expenses before and after hospitalization", "Home Care / Domiciliary Treatment", "Organ Donor"],
+      "inputs": ["hospitalized_continuous_days", "linked_claim_paid", "immediate_family_member_count"],
+      "outputs": ["payable_amount", "days_paid"],
+      "notes": ["Pay for one immediate family member only"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_036",
+      "name": "International Cover",
+      "section_ref": "4.53",
+      "benefit_category": "optional",
+      "execution_type": "global_treatment_bundle",
+      "formula": "Coverage outside India; commences when insured boards common carrier leaving India; expires on earliest of: return to India, policy period end, or 45 days per trip; sub-benefits A through L as per table R3_TBL_006",
+      "sub_benefits": ["Emergency Hospitalization (cashless only)", "Emergency Medical Evacuation (cashless only)", "OPD cover (reimbursement, 20% copay)", "Loss of Passport", "Loss of checked-in baggage (20% copay)", "Delay of checked-in baggage (>12 hours)", "Return of mortal remains", "Trip Cancellation", "Trip Interruption", "Trip Delay (>12 hours)", "Compassionate Visit (7 consecutive days)", "Medical Repatriation"],
+      "table_ref": "R3_TBL_006",
+      "inputs": ["left_india", "return_to_india", "trip_days", "sub_benefit_type"],
+      "outputs": ["eligibility_flag", "payable_amount", "copay_amount"],
+      "claim_impact": {"impacts_booster_plus": false, "impacts_lock_the_clock": false}
+    },
+    {
+      "rule_id": "R3_BEN_036A",
+      "name": "Air Ambulance+ (optional)",
+      "section_ref": "4.55",
+      "benefit_category": "optional",
+      "execution_type": "conditional_cap",
+      "variant_applicability": ["Classic", "Select"],
+      "preconditions": ["hospitalization_claim_paid == true", "registered_air_ambulance_provider == true"],
+      "formula": "If opted, avail Air Ambulance up to specified limit; Classic & Select variants only; paid only if Expenses during hospitalization claim paid; must use registered provider",
+      "inputs": ["air_ambulance_plus_opted", "variant", "hospitalization_claim_paid", "registered_provider"],
+      "outputs": ["payable_amount", "eligibility_flag"],
+      "claim_impact": {"impacts_booster_plus": true, "impacts_lock_the_clock": true}
+    },
+    {
+      "rule_id": "R3_GEN_001",
+      "name": "Moratorium Period",
+      "section_ref": "6.1.10",
+      "benefit_category": "mandatory",
+      "execution_type": "contestability_rule",
+      "formula": "After 60 continuous months of coverage (including portability and migration), no claim contestable on grounds of non-disclosure/misrepresentation except established fraud; moratorium applies to sums insured of first policy; for enhanced SI, 60 months from date of enhancement on enhanced limits only; policies still subject to all limits, sub-limits, co-payments, deductibles",
+      "inputs": ["continuous_coverage_months", "portability_months", "migration_months", "sum_insured_enhancement_date", "fraud_established"],
+      "outputs": ["contestable_flag", "contestability_scope"]
+    },
+    {
+      "rule_id": "R3_GEN_002",
+      "name": "Prolonged Hospitalization intimation penalty",
+      "section_ref": "7.B",
+      "benefit_category": "mandatory",
+      "execution_type": "notification_penalty",
+      "formula": "Must intimate if hospitalization exceeds 7 days; failure to intimate within 7 days from admission triggers additional cumulative 10% co-payment on final admissible amount; relaxed to 9 days for road traffic accidents only",
+      "inputs": ["hospitalization_duration_days", "intimation_days_after_admission", "road_traffic_accident"],
+      "outputs": ["additional_copay_percent", "payable_amount_adjusted"],
+      "notes": ["The word 'cumulative' in policy wording suggests the 10% applies once as an additional co-payment on the final admissible amount, not compounding per day"]
+    },
+    {
+      "rule_id": "R3_GEN_003",
+      "name": "Organ Transplant intimation and biopsy requirements",
+      "section_ref": "7.C",
+      "benefit_category": "mandatory",
+      "execution_type": "notification_and_evidence_rule",
+      "formula": "Live donor: intimate at least 7 days before surgery (even non-network); Cadaveric: intimate within 48 hours of admission; Liver & Pancreas: biopsy on recipient organ required, insurer may collect slide/tissue block for independent expert opinion; Non-network + failure to intimate/share biopsy: additional 20% co-payment",
+      "inputs": ["transplant_type", "organ_type", "non_network_hospital", "intimation_days_before_surgery", "intimation_hours_after_admission", "biopsy_performed", "biopsy_shared"],
+      "outputs": ["claim_allowed", "additional_copay_percent", "review_route"]
+    },
+    {
+      "rule_id": "R3_GEN_004",
+      "name": "Free Look Period",
+      "section_ref": "6.1.1",
+      "benefit_category": "mandatory",
+      "execution_type": "cancellation_window",
+      "formula": "30 days from receipt of policy document; applicable on individual policies, not renewals; refund = premium paid minus proportionate risk premium minus medical exam expenses minus stamp duty",
+      "inputs": ["days_since_policy_receipt", "is_renewal", "claims_made"],
+      "outputs": ["free_look_eligible", "refund_amount"]
+    },
+    {
+      "rule_id": "R3_GEN_005",
+      "name": "Cancellation",
+      "section_ref": "6.1.2",
+      "benefit_category": "mandatory",
+      "execution_type": "cancellation_rule",
+      "formula": "Policyholder may cancel anytime with 7 days written notice; refund proportionate premium for unexpired period if term <= 1 year and no claims; refund premium for unexpired policy years not commenced if term > 1 year",
+      "inputs": ["notice_days", "policy_term", "claims_made", "unexpired_period"],
+      "outputs": ["refund_amount"]
+    },
+    {
+      "rule_id": "R3_GEN_006",
+      "name": "Renewal of Policy",
+      "section_ref": "6.1.3",
+      "benefit_category": "mandatory",
+      "execution_type": "renewal_rule",
+      "formula": "Renewable except for established fraud/non-disclosure/misrepresentation; cannot deny renewal due to claims; grace period 30 days (annual) to maintain continuity; coverage available during grace period; no loading on renewals based on claims experience; no fresh underwriting at renewal if no SI change",
+      "inputs": ["fraud_established", "premium_received_before_expiry", "grace_period_days"],
+      "outputs": ["renewal_eligible", "continuity_maintained"]
+    },
+    {
+      "rule_id": "R3_GEN_007",
+      "name": "Premium Payment in Instalments",
+      "section_ref": "6.1.17",
+      "benefit_category": "mandatory",
+      "execution_type": "instalment_rules",
+      "formula": "Grace period: 30 days (all types), 15 days (monthly); coverage during grace period for instalment policies; continuity benefits maintained if paid within grace; no interest on late instalment; policy cancelled if not paid within grace; in event of claim, all subsequent instalments immediately due",
+      "inputs": ["instalment_mode", "payment_received_within_grace", "claim_event"],
+      "outputs": ["coverage_active", "all_instalments_due_flag"]
+    },
+    {
+      "rule_id": "R3_GEN_008",
+      "name": "Additional Premium (Risk Loading)",
+      "section_ref": "6.2.2",
+      "benefit_category": "mandatory",
+      "execution_type": "underwriting_rule",
+      "formula": "May ask additional premium after risk evaluation; max 100% for any particular health condition; max 150% for any individual; once applied, continues for all renewals; Live Healthy discounts up to 30% available",
+      "inputs": ["health_conditions", "risk_evaluation_result"],
+      "outputs": ["additional_premium_percent", "loading_continues_at_renewal"]
+    },
+    {
+      "rule_id": "R3_GEN_009",
+      "name": "Claim Settlement Timeline",
+      "section_ref": "6.1.9",
+      "benefit_category": "mandatory",
+      "execution_type": "sla_rule",
+      "formula": "Settle or reject claim within 15 days from claim submission date; delay attracts interest at 2% above bank rate (RBI rate at beginning of financial year) from date of claim intimation to date of payment",
+      "inputs": ["claim_submission_date", "settlement_date", "bank_rate"],
+      "outputs": ["interest_payable", "sla_breached"]
+    },
+    {
+      "rule_id": "R3_GEN_010",
+      "name": "Cashless Discharge Processing",
+      "section_ref": "6.2.4 Note (i)",
+      "benefit_category": "mandatory",
+      "execution_type": "sla_rule",
+      "formula": "Final authorization processed within 3 hours from final documents received; if delay from insurer end, additional hospital charges borne by insurer over and above policy limits",
+      "inputs": ["final_documents_received_time", "authorization_processed_time"],
+      "outputs": ["insurer_liable_for_additional_charges"]
+    },
+    {
+      "rule_id": "R3_EXCL_001",
+      "name": "Pre-existing Diseases exclusion",
+      "section_ref": "5.1.1 (Code-Excl01)",
+      "execution_type": "waiting_period_exclusion",
+      "formula": "PED and direct complications excluded until 36 months continuous coverage from first policy inception; SI enhancement: exclusion applies afresh to enhanced amount; portability: waiting period reduced by prior coverage; coverage after 36 months subject to declaration and acceptance",
+      "default_waiting_months": 36,
+      "inputs": ["condition_is_ped", "continuous_coverage_months", "si_enhanced", "portability_prior_coverage_months", "declared_at_application"],
+      "outputs": ["exclusion_active", "remaining_waiting_months"]
+    },
+    {
+      "rule_id": "R3_EXCL_002",
+      "name": "Specified disease/procedure waiting period",
+      "section_ref": "5.1.2 (Code-Excl02)",
+      "execution_type": "waiting_period_exclusion",
+      "table_ref": "R3_TBL_007",
+      "formula": "Listed conditions excluded until 24 months continuous coverage; NOT applicable for Accident (day 1) or Cancer (30-day wait); SI enhancement: applies afresh to enhanced amount; if condition also PED, longer waiting period applies; portability reduces waiting period",
+      "default_waiting_months": 24,
+      "inputs": ["condition_in_specified_list", "continuous_coverage_months", "accident_related", "cancer_related", "si_enhanced"],
+      "outputs": ["exclusion_active", "remaining_waiting_months"]
+    },
+    {
+      "rule_id": "R3_EXCL_003",
+      "name": "30-day waiting period",
+      "section_ref": "5.1.3 (Code-Excl03)",
+      "execution_type": "waiting_period_exclusion",
+      "formula": "Any illness within 30 days from first policy commencement excluded except Accident; does not apply if continuous coverage >12 months; applies afresh to enhanced SI",
+      "default_waiting_days": 30,
+      "inputs": ["days_since_first_policy_commencement", "accident_related", "continuous_coverage_months", "si_enhanced"],
+      "outputs": ["exclusion_active"]
+    },
+    {
+      "rule_id": "R3_EXCL_004",
+      "name": "Investigation & Evaluation",
+      "section_ref": "5.1.4 (Code-Excl04)",
+      "execution_type": "permanent_exclusion",
+      "formula": "Admission primarily for diagnostics/evaluation only excluded; diagnostic expenses not related to current diagnosis/treatment excluded"
+    },
+    {
+      "rule_id": "R3_EXCL_005",
+      "name": "Rest Cure, rehabilitation and respite care",
+      "section_ref": "5.1.5 (Code-Excl05)",
+      "execution_type": "permanent_exclusion",
+      "formula": "Admission primarily for enforced bed rest excluded; includes custodial care and terminal illness services"
+    },
+    {
+      "rule_id": "R3_EXCL_006",
+      "name": "Obesity/Weight Control",
+      "section_ref": "5.1.6 (Code-Excl06)",
+      "execution_type": "conditional_exclusion",
+      "formula": "Surgical treatment of obesity excluded UNLESS all conditions met: doctor advised, clinical protocols supported, age >= 18, BMI >= 40 OR BMI >= 35 with severe co-morbidities (obesity-related cardiomyopathy, coronary heart disease, severe sleep apnea, uncontrolled type 2 diabetes) after failure of less invasive methods"
+    },
+    {
+      "rule_id": "R3_EXCL_007",
+      "name": "Cosmetic or plastic Surgery",
+      "section_ref": "5.1.7 (Code-Excl08)",
+      "execution_type": "conditional_exclusion",
+      "formula": "Excluded unless for reconstruction following Accident, Burns or Cancer, or medically necessary to remove direct and immediate health risk (certified by attending Medical Practitioner)"
+    },
+    {
+      "rule_id": "R3_EXCL_008",
+      "name": "Hazardous or Adventure sports",
+      "section_ref": "5.1.8 (Code-Excl09)",
+      "execution_type": "permanent_exclusion",
+      "formula": "Treatment due to professional participation in hazardous/adventure sports excluded (para-jumping, rock climbing, mountaineering, rafting, motor racing, horse racing, scuba diving, hand gliding, sky diving, deep-sea diving)"
+    },
+    {
+      "rule_id": "R3_EXCL_009",
+      "name": "Breach of law",
+      "section_ref": "5.1.9 (Code-Excl10)",
+      "execution_type": "permanent_exclusion",
+      "formula": "Treatment arising from committing or attempting breach of law with criminal intent excluded"
+    },
+    {
+      "rule_id": "R3_EXCL_010",
+      "name": "Excluded Providers",
+      "section_ref": "5.1.10 (Code-Excl11)",
+      "execution_type": "conditional_exclusion",
+      "formula": "Treatment at excluded providers not admissible; exception: life-threatening situations or accident - expenses up to stabilization payable"
+    },
+    {
+      "rule_id": "R3_EXCL_011",
+      "name": "Alcoholism, drug or substance abuse",
+      "section_ref": "5.1.11 (Code-Excl12)",
+      "execution_type": "permanent_exclusion",
+      "formula": "Treatment for alcoholism, drug or substance abuse or any addictive condition and consequences excluded"
+    },
+    {
+      "rule_id": "R3_EXCL_012",
+      "name": "Health hydros, nature cure clinics, spas",
+      "section_ref": "5.1.12 (Code-Excl13)",
+      "execution_type": "permanent_exclusion",
+      "formula": "Treatments in health hydros, nature cure clinics, spas or similar establishments excluded; includes private beds in nursing homes attached to such establishments or admission for domestic reasons"
+    },
+    {
+      "rule_id": "R3_EXCL_013",
+      "name": "Refractive Error",
+      "section_ref": "5.1.13 (Code-Excl15)",
+      "execution_type": "conditional_exclusion",
+      "formula": "Correction of eyesight due to refractive error less than 7.5 dioptres excluded (>7.5 for Hypermetropia or <-7.5 for Myopia is covered)"
+    },
+    {
+      "rule_id": "R3_EXCL_014",
+      "name": "Unproven Treatments",
+      "section_ref": "5.1.14 (Code-Excl16)",
+      "execution_type": "permanent_exclusion",
+      "formula": "Unproven treatments, services and supplies lacking significant medical documentation excluded"
+    },
+    {
+      "rule_id": "R3_EXCL_015",
+      "name": "Sterility and Infertility",
+      "section_ref": "5.1.15 (Code-Excl17)",
+      "execution_type": "permanent_exclusion",
+      "formula": "All sterility/infertility expenses excluded: contraception, sterilization, assisted reproduction (IVF, ZIFT, GIFT, ICSI), gestational surrogacy, reversal of sterilization"
+    },
+    {
+      "rule_id": "R3_EXCL_016",
+      "name": "Maternity Expenses",
+      "section_ref": "5.1.16 (Code-Excl18)",
+      "execution_type": "permanent_exclusion",
+      "formula": "Childbirth expenses excluded (including complicated deliveries, caesarean) EXCEPT ectopic pregnancy; miscarriage excluded unless due to Accident; lawful medical termination excluded"
+    },
+    {
+      "rule_id": "R3_EXCL_017",
+      "name": "Personal Waiting Period",
+      "section_ref": "5.2.1",
+      "execution_type": "waiting_period_exclusion",
+      "formula": "Conditions specified for insured under Personal Waiting Period subject to up to 48 months waiting from inception of first policy",
+      "max_waiting_months": 48
+    },
+    {
+      "rule_id": "R3_EXCL_018",
+      "name": "Conflict & Disaster",
+      "section_ref": "5.2.2",
+      "execution_type": "permanent_exclusion",
+      "formula": "Treatment for injury/illness from nuclear/radiological emissions, war, rebellion, terrorism excluded"
+    },
+    {
+      "rule_id": "R3_EXCL_019",
+      "name": "External Congenital Anomaly",
+      "section_ref": "5.2.3",
+      "execution_type": "permanent_exclusion",
+      "formula": "Screening, counseling or treatment related to external Congenital Anomaly excluded"
+    },
+    {
+      "rule_id": "R3_EXCL_020",
+      "name": "Dental treatment",
+      "section_ref": "5.2.4",
+      "execution_type": "conditional_exclusion",
+      "formula": "All dental treatments excluded OTHER THAN due to accidents and cancers"
+    },
+    {
+      "rule_id": "R3_EXCL_021",
+      "name": "Unrecognized Physician or Hospital",
+      "section_ref": "5.2.5",
+      "execution_type": "permanent_exclusion",
+      "formula": "Treatment by practitioner not recognized by MCI/CCIM/CCH excluded; treatment by family member/relative excluded; treatment at unrecognized facility excluded"
+    },
+    {
+      "rule_id": "R3_EXCL_022",
+      "name": "Unreasonable costs and medically unnecessary treatment",
+      "section_ref": "5.2.6",
+      "execution_type": "permanent_exclusion",
+      "formula": "Costs not Reasonable and Customary (per definition 2.1.37) and treatments not Medically Necessary excluded"
+    },
+    {
+      "rule_id": "R3_EXCL_023",
+      "name": "Artificial life maintenance after brain death",
+      "section_ref": "5.2.7",
+      "execution_type": "conditional_exclusion",
+      "formula": "Artificial life maintenance for brain dead or vegetative state excluded; insurer may request assessment following legally established procedure; may recommend independent specialist"
+    }
+  ],
+  "coverage_standards": {
+    "section_ref": "7. Coverage Standards & Protocols",
+    "medical_protocols": {
+      "description": "Periodically published on website based on Textbooks, AIIMS, ICMR, Clinical Establishment Act, PMJAY, state schemes, Mayo clinic, Cleveland clinic, NICE.org",
+      "provides": ["Indication for hospitalization criteria", "Right treatment for condition & severity"],
+      "exclusions": ["Treatment/medicine not approved by CDSCO, FDA or appropriate Indian authorities", "Extra/Off label usage (drug/procedure for conditions other than explicitly approved)"]
+    },
+    "position_statements": {
+      "description": "Transparently published on website clarifying coverage position on various treatments",
+      "minimum_coverage": "If position is not to pay or pay only part, will at least pay up to cost of currently prevailing most common alternative treatment"
+    },
+    "prolonged_hospitalization_rule": "See R3_GEN_002",
+    "organ_transplant_rules": "See R3_GEN_003"
+  },
+  "zonal_pricing": {
+    "section_ref": "6.2.8",
+    "zones": {
+      "Zone 1": "Delhi, Surat, Faridabad, Gurgaon, Nashik, Ghaziabad",
+      "Zone 2": "Surendra Nagar, Ahmedabad, Vadodara, Gandhi Nagar, Anand, Mahesana, Kheda, Hisar, Sonipat, Panipat, Rohtak, Jhajjar, Palwal, Sirsa, Mahendragarh, Kaithal, Jind, Nuh, Rewari, Kurukshetra, Karnal, Charkhi Dadri, Aligarh, Alwar, Bagpat, Bulandshahr, Gautam Buddha Nagar, Hapur, Mathura, Meerut, Muzaffarnagar, Noida, Saharanpur, Shamli, Khandwa, Jhabua, Dewas, Khargone, Indore, Ujjain, Dhar",
+      "Zone 3": "Palghar, Mumbai, Thane, Raigarh(Mh), Agra, Bhopal, Telangana, Kolkata, Asansol",
+      "Zone 4": "Rest Of Gujarat, Rest Of Maharastra, Rest Of Madhya Pradesh, Daman And Diu, Dadra And Nagar Haveli, Visakhapatnam, Vizianagaram, Ludhiana, Mohali, Amritsar, Dehradun, Tirupati, Vijayawada",
+      "Zone 5": "Rest Of Haryana, Allahabad, Bengaluru, Bangalore Rural, Tumkur, Kolar, Chikkaballapur, Ramanagar, Chandigarh, Jaipur, Kerala, Lakshadweep, Chennai, North 24 Parganas, Howrah, Hooghly, South 24 Parganas, Nadia, North Presidency, South Presidency, Barasat",
+      "Zone 6": "Rest Of Andhra Pradesh, Patiala, Rest Of Uttarakhand, Vellore, Tiruvannamalai, Villupuram, Kanchipuram, Tiruvallur, Tirupattur, Bihar, Rest Of Uttar Pradesh",
+      "Zone 7": "Rest Of Punjab, Rest Of Karnataka, Rest Of Rajasthan, Goa, Jharkhand",
+      "Zone 8": "Rest Of Tamilnadu, Rest Of West Bengal, Himachal Pradesh, Andaman And Nicobar Islands, Arunachal Pradesh, Assam, Chhattisgarh, Jammu And Kashmir, Orissa, Sikkim, Ladakh, Manipur, Meghalaya, Mizoram, Nagaland, Puducherry, Tripura"
+    },
+    "note": "Premium depends on residential city; must inform insurer immediately on change of city"
+  },
+  "audit_schema": {
+    "decision_trace_fields": [
+      "claim_id", "line_item_id", "rule_id", "rule_name", "stage",
+      "inputs_used", "preconditions_evaluated", "tool_calls",
+      "intermediate_values", "decision", "reason_code",
+      "source_page", "source_section", "source_table",
+      "confidence", "timestamp"
+    ]
+  },
+  "coverage_review": {
+    "status": "v2_comprehensive_with_feedback_applied",
+    "changes_from_v1": [
+      "Added mutual_exclusivity_constraints top-level section",
+      "Added trigger_bucket_definitions for ReAssure Forever and Lock the Clock",
+      "Added benefit_taxonomy classification",
+      "Added preconditions field to all applicable rules",
+      "Added claim_impact metadata (impacts_booster_plus, impacts_lock_the_clock) to all rules",
+      "Added variant_applicability where applicable (Modern Treatments+, Air Ambulance+)",
+      "Added missing rules: Surprise Benefit (4.10), Health Risk Assessment (4.38), Wellness for Women (4.39), Mind Wellness (4.36), Sexual Health (4.37), Modern Treatments+ (4.54), Air Ambulance+ (4.55), Initial Wait Period Modification (4.49), NivaBupaOne (4.25), Second Medical Opinion Express (4.33)",
+      "Added Medical Repatriation (4.53 L) to International Cover sub-benefits table",
+      "Added Moratorium Period rule (R3_GEN_001)",
+      "Added all exclusion rules (R3_EXCL_001 through R3_EXCL_023)",
+      "Added general terms rules: Free Look, Cancellation, Renewal, Instalments, Risk Loading, Claim Settlement SLA, Cashless Discharge SLA",
+      "Explicit room rent pro-rata formula with Associated Medical Expenses definition",
+      "Explicit trigger_buckets in ReAssure Forever and Lock the Clock rules",
+      "Added coverage_standards section for medical protocols and position statements",
+      "Added zonal_pricing section with all 8 zones",
+      "Clarified prolonged hospitalization penalty as cumulative 10% (single application)",
+      "Added linked_claim_buckets to Convalescence and Dependent Accommodation",
+      "Added one_immediate_family_member_only note to Dependent Accommodation"
+    ]
+  }
+}

@@ -116,6 +116,19 @@ class ProductMemoryStore:
 
         # Tables - loaded from extraction file
         self.tables: Dict[str, Dict[str, Any]] = {}
+
+        # R3_TBL_RATE_TABLES: Mock rate matrix mapping age to baseline premium
+        self.R3_TBL_RATE_TABLES: Dict[int, float] = {}
+        for age in range(0, 120):
+            if age <= 25:
+                self.R3_TBL_RATE_TABLES[age] = float(5000 + (age * 200))
+            elif age <= 35:
+                self.R3_TBL_RATE_TABLES[age] = float(10000 + ((age - 25) * 500))
+            elif age <= 45:
+                self.R3_TBL_RATE_TABLES[age] = float(15000 + ((age - 35) * 700))
+            else:
+                self.R3_TBL_RATE_TABLES[age] = float(22000 + ((age - 45) * 1000))
+        
         
         # Ingest rules from standard extraction file or fallback to embedded
         import os

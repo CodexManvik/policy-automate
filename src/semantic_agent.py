@@ -112,7 +112,7 @@ class SemanticExecutionAgent:
         if reasoning_on is not None:
             self.reasoning_on = reasoning_on
         else:
-            self.reasoning_on = os.getenv("REASONING_ON", "false").lower() in ("true", "1", "yes")
+            self.reasoning_on = os.getenv("REASONING_ON", "true").lower() in ("true", "1", "yes")
 
         # Issue 20: split connect vs read timeouts for llama.cpp
         self.connect_timeout_s: int = 5    # fast fail if server is not up
@@ -457,17 +457,17 @@ class SemanticExecutionAgent:
         response_model: type[BaseModel],
     ) -> str:
         """
-        Call local llama.cpp server (optimised for Gemma4/quantized 7-13B models).
+        Call local llama.cpp server.
 
-        Strategy (Issue 18, 20):
-        1. Try /v1/chat/completions with response_format=json_object (preferred for
-           instruction-tuned models — Gemma4 supports this).
-        2. On failure fall back to /completion with GBNF grammar to hard-constrain
-           output to the exact JSON schema (eliminates hallucinated fields).
+        Strategy:
+        1. Try /completion (raw text endpoint) using the custom gemma4-e4b-qat
+           reasoning chat template format to preserve byte-level prompt constraints
+           and enable reasoning-by-default capabilities.
+        2. On failure, fall back to /v1/chat/completions (OpenAI-compatible chat
+           endpoint) as a robust secondary path.
 
-        Timeouts (Issue 20): 5s connect, 120s read via http.client.
-        n_predict=512 (Issue 18): enough for the short JSON response.
-        stop=["}"] on legacy endpoint so generation halts after closing brace.
+        Timeouts: 5s connect, 120s read via http.client.
+        n_predict=512: enough for the short JSON response.
         """
         parsed = urlparse(self.local_llm_url)
         host = parsed.hostname or "localhost"
@@ -475,7 +475,45 @@ class SemanticExecutionAgent:
         use_tls = parsed.scheme == "https"
 
         # ------------------------------------------------------------------ #
-        # Path 1: /v1/chat/completions  (OpenAI-compatible, preferred)        #
+        # Path 1: /completion (gemma4-e4b-qat reasoning chat template)        #
+        # ------------------------------------------------------------------ #
+        gemma_prompt = (
+            f"<|turn>system\n"
+            f"<|think|>\n"
+            f"{system_prompt}<turn|>\n"
+            f"<|turn>user\n"
+            f"{user_prompt}<turn|>\n"
+            f"<|turn>model\n"
+        )
+        legacy_payload = {
+            "prompt": gemma_prompt,
+            "temperature": 0.1,
+            "top_p": 0.9,
+            "n_predict": 2048,
+            "stop": ["</s>", "<end_of_turn>", "<|eot_id|>", "<turn|>"],
+            "stream": False,
+        }
+        if not self.reasoning_on:
+            legacy_payload["grammar"] = self._ADJUDICATION_GRAMMAR  # GBNF forces valid schema
+
+        try:
+            content = self._http_post(
+                host, port, use_tls, "/completion", legacy_payload
+            )
+            result = json.loads(content)
+            if "content" in result:
+                raw = result["content"].strip()
+                # Ensure the JSON object is closed if truncated by grammar/stop tokens
+                if raw and not raw.endswith("}"):
+                    raw += "}"
+                return self._extract_json_from_response(raw)
+            raise ValueError("Invalid /completion response: no 'content' key")
+
+        except Exception as legacy_err:
+            print(f"[WARN] /completion path failed: {legacy_err}. Trying /v1/chat/completions...")
+
+        # ------------------------------------------------------------------ #
+        # Path 2: /v1/chat/completions (OpenAI-compatible fallback)          #
         # ------------------------------------------------------------------ #
         chat_payload = {
             "model": "local",
@@ -484,57 +522,21 @@ class SemanticExecutionAgent:
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": 0.1,
-            "max_tokens": 512,   # Issue 18: was 1024; JSON response is short
+            "max_tokens": 2048,
             "stream": False,
         }
         if not self.reasoning_on:
-            chat_payload["response_format"] = {"type": "json_object"}  # Issue 18: force JSON mode
+            chat_payload["response_format"] = {"type": "json_object"}
 
-        try:
-            content = self._http_post(
-                host, port, use_tls, "/v1/chat/completions", chat_payload
-            )
-            result = json.loads(content)
-            if "choices" in result and result["choices"]:
-                return self._extract_json_from_response(
-                    result["choices"][0]["message"]["content"]
-                )
-            raise ValueError("Unexpected /v1/chat/completions response shape")
-
-        except Exception as chat_err:
-            print(f"[WARN] /v1/chat/completions failed: {chat_err}. Trying /completion...")
-
-        # ------------------------------------------------------------------ #
-        # Path 2: /completion  (legacy, GBNF grammar for hard JSON constraint) #
-        # ------------------------------------------------------------------ #
-        # Compact prompt: system instruction folded into a single user turn so
-        # quantized models that ignore the system role still obey it.
-        compact_prompt = (
-            f"{system_prompt}\n\nClaim details:\n{user_prompt}\n\nJSON response:"
-        )
-        legacy_payload = {
-            "prompt": compact_prompt,
-            "temperature": 0.1,
-            "top_p": 0.9,
-            "n_predict": 512,               # Issue 18: was 1024
-            "stop": ["</s>", "<end_of_turn>", "<|eot_id|>"],
-            "stream": False,
-        }
-        if not self.reasoning_on:
-            legacy_payload["grammar"] = self._ADJUDICATION_GRAMMAR  # Issue 18: GBNF forces valid schema
         content = self._http_post(
-            host, port, use_tls, "/completion", legacy_payload
+            host, port, use_tls, "/v1/chat/completions", chat_payload
         )
         result = json.loads(content)
-        if "content" in result:
-            raw = result["content"]
-            # GBNF may produce a truncated string without closing brace;
-            # ensure the JSON object is closed before parsing.
-            raw = raw.strip()
-            if raw and not raw.endswith("}"):
-                raw += "}"
-            return self._extract_json_from_response(raw)
-        raise ValueError("Invalid /completion response: no 'content' key")
+        if "choices" in result and result["choices"]:
+            return self._extract_json_from_response(
+                result["choices"][0]["message"]["content"]
+            )
+        raise ValueError("Unexpected /v1/chat/completions response shape")
 
     def _http_post(
         self,
@@ -598,6 +600,7 @@ class SemanticExecutionAgent:
         text = re.sub(r'<\|think\|>.*?</\|think\|>', '', text, flags=re.DOTALL)
         text = re.sub(r'<\|think\|>.*?<\|turn\|>', '<|turn|>', text, flags=re.DOTALL)
         text = re.sub(r'<\|think\|>.*?<turn\|>', '<turn|>', text, flags=re.DOTALL)
+        text = re.sub(r'<\|?channel\|?>thought.*?</?\|?channel\|?>', '', text, flags=re.DOTALL)
         
         # Clean up unclosed thinking blocks if they exist at the start
         if '<think>' in text and '</think>' not in text:
@@ -609,6 +612,18 @@ class SemanticExecutionAgent:
             first_brace = text.find("{")
             first_think = text.find("<|think|>")
             if first_brace > first_think:
+                text = text[first_brace:]
+        if '<|channel>thought' in text and '<channel|>' not in text:
+            first_brace = text.find("{")
+            first_think = text.find("<|channel>thought")
+            if first_brace > first_think:
+                text = text[first_brace:]
+        
+        # Strip any leading thinking tags or unclosed thinking blocks before the JSON object
+        first_brace = text.find("{")
+        if first_brace > 0:
+            pre_text = text[:first_brace]
+            if any(marker in pre_text for marker in ['think', 'thought', 'channel', '<', '>', '|']):
                 text = text[first_brace:]
 
         text = text.strip()
