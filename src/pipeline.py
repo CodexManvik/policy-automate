@@ -2,23 +2,17 @@
 Gate Execution Pipeline for Claims Auto-Adjudication - Phase 2
 Dynamic Graph-based Execution with AI Planner and Semantic Agent
 """
-
 import logging
-
 _logger = logging.getLogger("claims_adjudication_pipeline")
-
 from typing import List, Tuple, Optional, Any, Dict
 from datetime import datetime, timezone, date
 import time
 import asyncio
 import threading
-
 # Thread-local storage for the per-call step counter.
 # Replaces self.current_step, which was mutable singleton state and unsafe
 # under concurrent requests. Each thread/coroutine sees its own counter.
 _STEP_LOCAL: threading.local = threading.local()
-
-
 from schemas import (
     ClaimContext, ClaimDecision, LineItemDecision, DeductionDetail,
     DecisionTrace, PerClaimState, DeductionBreakdown, SIWaterfallBreakdown
@@ -35,8 +29,6 @@ from planner import AIPlanner, ExecutionPlan, ExecutionStep
 from semantic_agent import SemanticExecutionAgent
 from agent_reasoning import AgentReasoningLogger
 from metrics import telemetry_context, TelemetrySession, PipelineMetricsEngine
-
-
 class ClaimsAdjudicationPipeline:
     """
     Dynamic Graph-Based Execution Pipeline - Phase 2
@@ -68,7 +60,6 @@ class ClaimsAdjudicationPipeline:
             # Strip timestamp artifacts if present
             return datetime.strptime(target.split("T")[0], "%Y-%m-%d").date()
         raise ValueError(f"Unable to parse target type to date object payload: {type(target)}")
-
     def _execute_tool(
         self,
         context: ClaimContext,
@@ -85,7 +76,6 @@ class ClaimsAdjudicationPipeline:
         session = telemetry_context.get()
         if session:
             session.record_tool_latency(tool_name, duration_ms)
-
         AgentReasoningLogger.log_tool_call(
             claim_id=context.claim_id,
             line_item_id=line_item.line_item_id if line_item else None,
@@ -94,7 +84,6 @@ class ClaimsAdjudicationPipeline:
             output=result
         )
         return result
-
     def __init__(
         self,
         use_ai: bool = True,
@@ -112,7 +101,6 @@ class ClaimsAdjudicationPipeline:
         self.confidence_threshold = confidence_threshold        # >= 0.90 → auto-approve
         self.assisted_review_threshold = assisted_review_threshold  # 0.70–0.90 → ASSISTED_REVIEW
         self.medical_review_threshold = medical_review_threshold    # 0.50–0.70 → MEDICAL_REVIEW (Gap 8)
-
         # Resolve provider: if 'default' was passed (legacy), probe port 8080.
         resolved_provider = llm_provider
         if resolved_provider in ("default", ""):
@@ -128,12 +116,10 @@ class ClaimsAdjudicationPipeline:
                     resolved_provider = "local"
             except Exception:
                 resolved_provider = "mock"
-
         _logger.info(
             "Initializing pipeline: provider=%s url=%s ai=%s",
             resolved_provider, local_llm_url, use_ai
         )
-
         # Initialize AI components
         self.product_memory = get_product_memory()
         self.planner = AIPlanner(self.product_memory)
@@ -142,12 +128,10 @@ class ClaimsAdjudicationPipeline:
             confidence_threshold=confidence_threshold,
             local_llm_url=local_llm_url
         ) if use_ai else None
-
         # Observability counters (safe: only ever incremented, never read during a call)
         self.plans_created = 0
         self.semantic_calls = 0
         self.manual_review_count = 0
-
     def _validate_mutual_exclusivity(
         self, context: ClaimContext, gate: str = "policy_validation"
     ) -> Optional[Tuple[str, str]]:
@@ -156,7 +140,6 @@ class ClaimsAdjudicationPipeline:
         Returns: (constraint_id, reason_msg) if violated, None otherwise
         """
         mx_constraints = self.product_memory.mutual_exclusivity_constraints
-
         def is_benefit_active(benefit_name: str) -> bool:
             name_lower = benefit_name.lower()
             if "co-payment" in name_lower:
@@ -177,7 +160,6 @@ class ClaimsAdjudicationPipeline:
             if hasattr(context.policy, attr_name):
                 return bool(getattr(context.policy, attr_name))
             return False
-
         violation_detected = None
         for constraint in mx_constraints:
             constraint_id = constraint.get('constraint_id')
@@ -195,7 +177,6 @@ class ClaimsAdjudicationPipeline:
                     "reason": reason
                 }
                 break
-
         # Log mutual exclusivity check
         AgentReasoningLogger.log_mutual_exclusivity(
             claim_id=context.claim_id,
@@ -203,12 +184,9 @@ class ClaimsAdjudicationPipeline:
             constraints=mx_constraints,
             violation=violation_detected
         )
-
         if violation_detected:
             return (violation_detected["constraint_id"], violation_detected["reason"])
-
         return None
-
     def adjudicate_claim(self, context: ClaimContext) -> ClaimDecision:
         """
         Main entry point: Execute dynamic graph-based adjudication pipeline
@@ -237,7 +215,6 @@ class ClaimsAdjudicationPipeline:
             # Per-call local state — thread-safe by design (not stored on self)
             decision_traces: List[DecisionTrace] = []
             current_step = 0
-
             # Gap 11: Context staleness guard (Section 4.6 / API contract).
             _max_age_minutes = settings.context_max_age_minutes
             _assembled_at = getattr(context, 'context_assembled_at', None)
@@ -252,7 +229,6 @@ class ClaimsAdjudicationPipeline:
                         f"{_age_minutes:.1f}m ago (max allowed: {_max_age_minutes}m). "
                         "Re-assemble context before submitting for adjudication."
                     )
-
             # Issue 21 & Gap 10: Bind product memory to the version declared in this claim's context.
             claim_version = getattr(context, "product_json_version", "")
             if not claim_version:
@@ -271,22 +247,17 @@ class ClaimsAdjudicationPipeline:
                         claim_version = resolved_entry["version_id"]
                 except Exception as e:
                     _logger.warning("Failed to auto-resolve product version from policy details: %s", e)
-
             version_memory = get_product_memory(claim_version)
             if version_memory is not self.product_memory:
                 self.product_memory = version_memory
                 self.planner.product_memory = version_memory
-
             # Initialize per-claim state
             state = PerClaimState(claim_id=context.claim_id)
-
-
             # Validate mutual exclusivity constraints before processing
             mx_violation = self._validate_mutual_exclusivity(context, gate="policy_validation")
             if mx_violation:
                 constraint_id, reason = mx_violation
                 self.manual_review_count += 1
-
                 # Log trace for mutual exclusivity violation
                 mx_trace = DecisionTrace(
                     step=0,
@@ -307,7 +278,6 @@ class ClaimsAdjudicationPipeline:
                     source_section="Extraction JSON: mutual_exclusivity_constraints",
                 )
                 decision_traces.append(mx_trace)
-
                 # Log gate evaluation
                 AgentReasoningLogger.log_gate_evaluation(
                     claim_id=context.claim_id,
@@ -318,13 +288,11 @@ class ClaimsAdjudicationPipeline:
                     evaluation_status=mx_trace.evaluation,
                     reason=mx_trace.reason
                 )
-
                 # Return claim with PENDING_REVIEW status
                 claim_decision = self._create_claim_review_decision(
                     context, constraint_id, reason, decision_traces, start_time
                 )
                 return claim_decision
-
             # Issue 11: Apply all mid-term endorsements that are effective by the
             # earliest admission date across line items (or claim receipt date as fallback).
             # This mutates context in-place before any line item is processed.
@@ -335,11 +303,29 @@ class ClaimsAdjudicationPipeline:
                 )
             )
             self._apply_endorsements(context, claim_event_date)
-
             # Process each line item through dynamic execution plan
             line_item_decisions: List[LineItemDecision] = []
-
             for line_item in context.line_items:
+
+                # ---------------------------------------------------------------
+                # MANDATORY STRUCTURAL PRE-CHECKS (Gates 1 & 2)
+                # These checks are NOT in the product JSON rule blueprints and
+                # are therefore never generated by the AIPlanner.  They MUST be
+                # enforced explicitly before the dynamic plan runs so that invalid
+                # policies and ineligible members are rejected unconditionally.
+                # ---------------------------------------------------------------
+                g1_passed, g1_trace = self._gate_1_policy_validation(context, line_item)
+                if not g1_passed:
+                    decision_traces.append(g1_trace)
+                    decision = self._create_rejected_decision(line_item, g1_trace.reason, [g1_trace])
+                    line_item_decisions.append(decision)
+                    continue
+                g2_passed, g2_trace = self._gate_2_member_validation(context, line_item)
+                if not g2_passed:
+                    decision_traces.append(g2_trace)
+                    decision = self._create_rejected_decision(line_item, g2_trace.reason, [g2_trace])
+                    line_item_decisions.append(decision)
+                    continue
                 # Phase 2: Create execution plan using AI Planner
                 execution_plan = self.planner.create_execution_plan(context, line_item)
                 self.plans_created += 1
@@ -379,7 +365,6 @@ class ClaimsAdjudicationPipeline:
             
             # Gate 7: State Update and Persistence (BUG FIX #10)
             self._gate_7_state_update(context, state, line_item_decisions)
-
             # Merge Gate 7 cross-cutting traces (_STEP_LOCAL.decision_traces) into
             # the claim-level decision_traces so they appear in ClaimDecision.decision_trace.
             # Gate 7 appends traces for: RF state transitions, Booster+ accumulation,
@@ -387,12 +372,10 @@ class ClaimsAdjudicationPipeline:
             gate_7_traces = getattr(_STEP_LOCAL, 'decision_traces', [])
             if gate_7_traces:
                 decision_traces.extend(gate_7_traces)
-
             # Compose final claim-level decision
             claim_decision = self._compose_claim_decision(
                 context, line_item_decisions, state, start_time, decision_traces
             )
-
             return claim_decision
         finally:
             if claim_decision:
@@ -502,7 +485,6 @@ class ClaimsAdjudicationPipeline:
                 )
                 exclusion_hard_stop = trace.evaluation == "EXCLUSION_ACTIVE"
                 is_exclusion_gate = step.gate.value == "exclusion_validation" if hasattr(step.gate, "value") else "exclusion" in str(step.gate)
-
                 if trace.confidence < self.medical_review_threshold:
                     self.manual_review_count += 1
                     AgentReasoningLogger.log_routing(
@@ -517,7 +499,6 @@ class ClaimsAdjudicationPipeline:
                     return self._create_review_decision(
                         line_item, f"Low confidence: {trace.reason}", item_traces
                     )
-
                 elif exclusion_hard_stop and trace.confidence < 0.80:
                     self.manual_review_count += 1
                     AgentReasoningLogger.log_routing(
@@ -532,7 +513,6 @@ class ClaimsAdjudicationPipeline:
                     return self._create_medical_review_decision(
                         line_item, trace.reason, item_traces, confidence=trace.confidence
                     )
-
                 elif is_semantic_or_hybrid and not exclusion_hard_stop:
                     if is_exclusion_gate and trace.confidence < self.assisted_review_threshold:
                         self.manual_review_count += 1
@@ -640,7 +620,6 @@ class ClaimsAdjudicationPipeline:
                     manual_review_required=True,
                     review_reason=f"Mutual Exclusivity Constraint {constraint_id}: {reason}"
                 )
-
             final_admissible, final_payable, fin_deductions, fin_traces = \
                 self._execute_financial_gates(context, line_item, payable_amount, state)
             
@@ -676,7 +655,6 @@ class ClaimsAdjudicationPipeline:
         else:
             overall_confidence = 1.0
         state.overall_confidence = overall_confidence
-
         # Issue 16 / Gap 8: Four-tier confidence routing (Section 9.2):
         #   >= 0.90   → auto-approve/reject deterministically
         #   0.70-0.90 → ASSISTED_REVIEW: pre-populate, flag for operations review
@@ -706,7 +684,6 @@ class ClaimsAdjudicationPipeline:
                 manual_review_required=True,
                 review_reason=f"Very low confidence ({overall_confidence:.2f}) — full manual review required"
             )
-
         if overall_confidence < self.assisted_review_threshold:
             self.manual_review_count += 1
             AgentReasoningLogger.log_routing(
@@ -734,7 +711,6 @@ class ClaimsAdjudicationPipeline:
                 manual_review_required=True,
                 review_reason=f"Intermediate confidence ({overall_confidence:.2f}) — clinical review required"
             )
-
         if overall_confidence < self.confidence_threshold:
             # Assisted mode: decision is pre-populated but flagged for ops review
             self.manual_review_count += 1
@@ -767,7 +743,6 @@ class ClaimsAdjudicationPipeline:
                 manual_review_required=True,
                 review_reason=f"Medium confidence ({overall_confidence:.2f}) — pre-populated for operations review (suggested: {assisted_status})"
             )
-
         # High confidence (>= 0.90): determine outcome from financials
         if payable_amount == 0:
             decision_status = "REJECTED"
@@ -775,7 +750,6 @@ class ClaimsAdjudicationPipeline:
             decision_status = "PARTIALLY_APPROVED"
         else:
             decision_status = "APPROVED"
-
         AgentReasoningLogger.log_routing(
             claim_id=context.claim_id,
             line_item_id=line_item.line_item_id if line_item else None,
@@ -798,7 +772,6 @@ class ClaimsAdjudicationPipeline:
             manual_review_required=False,
             review_reason=None
         )
-
     
     def _process_line_item(
         self, 
@@ -933,6 +906,13 @@ class ClaimsAdjudicationPipeline:
             passed, trace = self._gate_2_member_validation(context, line_item)
             return passed, trace, None
         
+        elif step.gate == RuleGate.COVERAGE_VALIDATION:
+            # Gate 3: Benefit bucket coverage, duration, and one-time benefit checks.
+            # This MUST run before financial gates so invalid benefits are rejected
+            # immediately rather than being silently approved with a zero deduction.
+            passed, trace = self._gate_3_coverage_validation(context, line_item)
+            return passed, trace, None
+        
         elif step.gate == RuleGate.WAITING_PERIOD_VALIDATION:
             return self._execute_waiting_period_check(step, line_item, context, state)
         
@@ -960,14 +940,12 @@ class ClaimsAdjudicationPipeline:
         state: PerClaimState
     ) -> Tuple[bool, DecisionTrace, Optional[DeductionDetail]]:
         """Execute a semantic rule using AI agent"""
-
         # Guard: asyncio.to_thread dispatches to a fresh OS thread that has no
         # _STEP_LOCAL attributes. Initialize defaults for this thread if missing.
         if not hasattr(_STEP_LOCAL, "current_step"):
             _STEP_LOCAL.current_step = 0
         if not hasattr(_STEP_LOCAL, "decision_traces"):
             _STEP_LOCAL.decision_traces = []
-
         # For exclusion rules, run deterministic keyword checks first (Fix 6)
         if step.gate == RuleGate.EXCLUSION_VALIDATION or (hasattr(step.gate, "value") and step.gate.value == "exclusion_validation"):
             is_excluded, excl_reason = self._check_deterministic_exclusion(step.rule_id, line_item, context)
@@ -982,20 +960,36 @@ class ClaimsAdjudicationPipeline:
                     reason=excl_reason,
                     confidence=1.0
                 ), None
-
         if not self.use_ai or not self.semantic_agent:
-            # Fallback: route to manual review
+            # Exclusion-gate semantic rules: the deterministic keyword pre-check above
+            # already ran and did NOT find an exclusion.  Under use_ai=False the
+            # safe answer is PASSED — we cannot apply an exclusion without evidence.
+            # For non-exclusion semantic rules (coverage, etc.) where we have no
+            # deterministic fallback, route to manual review.
+            if step.gate == RuleGate.EXCLUSION_VALIDATION or (
+                hasattr(step.gate, "value") and step.gate.value == "exclusion_validation"
+            ):
+                return True, DecisionTrace(
+                    step=_STEP_LOCAL.current_step,
+                    rule_id=step.rule_id,
+                    rule_name=step.rule_name,
+                    gate=step.gate.value if hasattr(step.gate, "value") else str(step.gate),
+                    inputs={"semantic_prompt": step.semantic_prompt},
+                    evaluation="PASSED",
+                    reason="AI disabled — deterministic keyword check found no exclusion; rule passes",
+                    confidence=1.0
+                ), None
+            # Non-exclusion semantic rule with no deterministic fallback → manual review
             return False, DecisionTrace(
                 step=_STEP_LOCAL.current_step,
                 rule_id=step.rule_id,
                 rule_name=step.rule_name,
-                gate=step.gate.value,
+                gate=step.gate.value if hasattr(step.gate, "value") else str(step.gate),
                 inputs={"semantic_prompt": step.semantic_prompt},
                 evaluation="PENDING_REVIEW",
                 reason="AI disabled - semantic rule requires manual review",
                 confidence=0.0
             ), None
-
         
         # Determine rule type for semantic agent
         rule_type = "exclusion"
@@ -1151,7 +1145,6 @@ class ClaimsAdjudicationPipeline:
             manual_review_required=True,
             review_reason=reason
         )
-
     def _create_medical_review_decision(
         self,
         line_item,
@@ -1243,7 +1236,6 @@ class ClaimsAdjudicationPipeline:
                 reason=f"Claim date {claim_date} falls outside the policy coverage period ({policy_start} to {policy_end})",
                 source_section="6.1.18"
             )
-
         return True, DecisionTrace(
             step=_STEP_LOCAL.current_step,
             rule_id="GATE_1_PASSED",
@@ -1285,7 +1277,6 @@ class ClaimsAdjudicationPipeline:
         age = context.member.age
         entry_age = context.member.entry_age
         relationship = context.member.relationship
-
         age_eligible = True
         age_reason = ""
         
@@ -1304,7 +1295,6 @@ class ClaimsAdjudicationPipeline:
             if entry_age < 35 or entry_age > 75:
                 age_eligible = False
                 age_reason = f"Entry age {entry_age} for {relationship} is outside eligible range (35 to 75 years)"
-
         if not age_eligible:
             return False, DecisionTrace(
                 step=_STEP_LOCAL.current_step,
@@ -1353,12 +1343,10 @@ class ClaimsAdjudicationPipeline:
         
         BUG FIX #5: Dynamic coverage validation instead of hardcoded benefit list.
         Respects variant applicability, optional benefit opt-in, and benefit preconditions.
-
         Gap 7: One-time benefit enforcement — convalescence and critical illness are
         lifetime-once benefits. Reject a second claim if the flag is already set.
         """
         _STEP_LOCAL.current_step += 1
-
         # -----------------------------------------------------------------------
         # Gap 7: One-time benefit enforcement (lifetime-once flags)
         # These checks must precede all other coverage checks so they are always
@@ -1371,7 +1359,6 @@ class ClaimsAdjudicationPipeline:
         )
         description_lower = (line_item.description or "").lower()
         condition_lower = line_item.condition_diagnosed.lower()
-
         # Convalescence benefit (once per lifetime, Section 7.3)
         if "convalescence" in description_lower:
             if context.lifetime_state.convalescence_claimed:
@@ -1388,10 +1375,21 @@ class ClaimsAdjudicationPipeline:
                     reason="Convalescence benefit is a once-per-lifetime benefit; already claimed on this policy.",
                     source_section="7.3"
                 )
-
         # Critical Illness benefit (once per lifetime, Section 7.5)
-        is_ci_claim = any(kw in condition_lower for kw in _CI_KEYWORDS)
-        if is_ci_claim and context.lifetime_state.critical_illness_claimed:
+        # IMPORTANT: This gate guards the CI lump-sum BENEFIT PAYOUT only.
+        # A patient who already collected the CI benefit can still file subsequent
+        # hospitalization claims for treatment of the same or a different condition.
+        # The block fires only when the line item is explicitly a CI benefit claim:
+        #   (a) the benefit_bucket is a CI-specific payout bucket, OR
+        #   (b) the description explicitly names the CI benefit payout.
+        _CI_BENEFIT_BUCKETS = {"critical illness", "critical illness benefit", "ci benefit"}
+        is_ci_bucket = line_item.benefit_bucket.lower().strip() in _CI_BENEFIT_BUCKETS
+        _CI_BENEFIT_DESC_KEYWORDS = ("critical illness benefit", "ci benefit", "ci lump sum", "ci payout")
+        is_ci_benefit_claim = (
+            is_ci_bucket
+            or any(kw in description_lower for kw in _CI_BENEFIT_DESC_KEYWORDS)
+        )
+        if is_ci_benefit_claim and context.lifetime_state.critical_illness_claimed:
             return False, DecisionTrace(
                 step=_STEP_LOCAL.current_step,
                 rule_id="R3_CI_ONCE",
@@ -1399,6 +1397,7 @@ class ClaimsAdjudicationPipeline:
                 gate="coverage_validation",
                 inputs={
                     "condition": line_item.condition_diagnosed,
+                    "benefit_bucket": line_item.benefit_bucket,
                     "critical_illness_claimed": context.lifetime_state.critical_illness_claimed,
                     "prior_ci_type": context.lifetime_state.critical_illness_type
                 },
@@ -1546,7 +1545,6 @@ class ClaimsAdjudicationPipeline:
                     reason=f"Hospitalization duration of {hours} hours is below the minimum required {min_required} hours for {treat_type} treatment.",
                     source_section="4.2"
                 )
-
         # All coverage checks passed
         return True, DecisionTrace(
             step=_STEP_LOCAL.current_step,
@@ -1557,13 +1555,11 @@ class ClaimsAdjudicationPipeline:
             evaluation="PASSED",
             reason="Benefit is covered and all preconditions met"
         )
-
     
     def _gate_4_waiting_period_validation(self, context: ClaimContext, line_item) -> Tuple[bool, DecisionTrace]:
         """
         Gate 4: Waiting Period Validation
         Uses Tool 1: Waiting Period Calculator
-
         Gap 4: SI enhancement date is now extracted from endorsements and passed so
                 the waiting period applies afresh only to the enhanced delta-SI portion.
         Gap 6: Critical Illness 90-day waiting period check (R3_CI_WP_001).
@@ -1594,7 +1590,6 @@ class ClaimsAdjudicationPipeline:
                 if eff_date <= admission_date:
                     si_enhancement_date = endorsement.effective_date
                     break  # Use the most recent prior enhancement
-
         # -----------------------------------------------------------------------
         # Gap 6: Detect Critical Illness condition keywords for 90-day wait.
         # -----------------------------------------------------------------------
@@ -1623,7 +1618,6 @@ class ClaimsAdjudicationPipeline:
             ped_declarations=context.member.ped_declarations,
             specified_diseases=specified_diseases
         )
-
         if result.exclusion_active:
             return False, DecisionTrace(
                 step=_STEP_LOCAL.current_step,
@@ -1645,19 +1639,16 @@ class ClaimsAdjudicationPipeline:
             evaluation="PASSED",
             reason="All waiting periods cleared"
         )
-
     
     def _check_deterministic_exclusion(self, rule_id: str, line_item, context: ClaimContext) -> Tuple[bool, str]:
         """Evaluate deterministic exclusion rule check (Fix 6)"""
         desc = (line_item.description or "").lower()
         cond = line_item.condition_diagnosed.lower()
         combined = f"{desc} {cond}"
-
         # R3_EXCL_010: Excluded Provider
         if rule_id == "R3_EXCL_010":
             if context.network.provider_type == "Excluded":
                 return True, f"Treatment at excluded provider: {context.network.provider_name}"
-
         # R3_EXCL_021: Unrecognized Physician/Hospital
         elif rule_id == "R3_EXCL_021":
             is_unrecognized = "unrecognized" in context.network.provider_name.lower()
@@ -1666,115 +1657,96 @@ class ClaimsAdjudicationPipeline:
                 return True, f"Treatment at unrecognized facility/practitioner: {context.network.provider_name}"
             if is_family_member:
                 return True, "Treatment by family member is excluded"
-
         # R3_EXCL_020: Dental Treatment
         elif rule_id == "R3_EXCL_020":
             is_dental = any(term in desc for term in ["dental", "teeth", "tooth", "extraction"])
             if is_dental and not line_item.accident_related:
                 return True, "Dental treatment excluded (allowed only for accident-related)"
-
         # R3_EXCL_004: Investigation & Evaluation
         elif rule_id == "R3_EXCL_004":
             kws = ["diagnostic admission", "diagnostics", "evaluation only", "investigation only", "screening admission"]
             if any(kw in combined for kw in kws):
                 return True, "Admission primarily for diagnostics/evaluation only is excluded"
-
         # R3_EXCL_005: Rest Cure
         elif rule_id == "R3_EXCL_005":
             kws = ["rest cure", "rehabilitation", "respite care", "custodial care", "enforced bed rest"]
             if any(kw in combined for kw in kws):
                 return True, "Admission primarily for rest cure/rehabilitation/respite care is excluded"
-
         # R3_EXCL_006: Obesity/Weight Control
         elif rule_id == "R3_EXCL_006":
             if any(kw in combined for kw in ["obesity", "weight control", "bariatric", "weight loss surgery"]):
                 is_exception = "medically necessary obesity" in combined or "bmi 40" in combined
                 if not is_exception:
                     return True, "Obesity and weight control treatment is excluded"
-
         # R3_EXCL_007: Cosmetic/Plastic Surgery
         elif rule_id == "R3_EXCL_007":
             if any(kw in combined for kw in ["cosmetic", "plastic surgery", "aesthetic", "liposuction", "facelift", "rhinoplasty"]):
                 is_exception = line_item.accident_related or "burn reconstruction" in combined or "cancer reconstruction" in combined
                 if not is_exception:
                     return True, "Cosmetic or plastic surgery is excluded"
-
         # R3_EXCL_008: Adventure Sports
         elif rule_id == "R3_EXCL_008":
             kws = ["hazardous sport", "adventure sport", "scuba diving", "parajumping", "mountaineering", "motor racing", "rock climbing"]
             if any(kw in combined for kw in kws):
                 return True, "Treatment due to participation in hazardous/adventure sports is excluded"
-
         # R3_EXCL_009: Breach of law
         elif rule_id == "R3_EXCL_009":
             kws = ["breach of law", "criminal intent", "illegal activity", "law breach"]
             if any(kw in combined for kw in kws):
                 return True, "Treatment arising from committing or attempting breach of law is excluded"
-
         # R3_EXCL_011: Alcoholism/Substance Abuse
         elif rule_id == "R3_EXCL_011":
             kws = ["alcoholism", "drug abuse", "substance abuse", "addiction", "alcohol dependence", "drug addiction"]
             if any(kw in combined for kw in kws):
                 return True, "Treatment for alcoholism, drug/substance abuse is excluded"
-
         # R3_EXCL_012: Spas/Hydros
         elif rule_id == "R3_EXCL_012":
             kws = ["health hydro", "nature cure", "spa", "nature clinic", "detoxification center"]
             if any(kw in combined for kw in kws):
                 return True, "Treatment at health hydros, nature cure clinics, spas is excluded"
-
         # R3_EXCL_013: Refractive Error
         elif rule_id == "R3_EXCL_013":
             if any(kw in combined for kw in ["refractive error", "eyesight correction", "lasik", "spectacles"]):
                 is_exception = "> 7.5 dioptres" in combined or "high dioptres" in combined
                 if not is_exception:
                     return True, "Correction of eyesight/refractive error less than 7.5 dioptres is excluded"
-
         # R3_EXCL_014: Unproven Treatments
         elif rule_id == "R3_EXCL_014":
             kws = ["unproven treatment", "experimental therapy", "unorthodox treatment", "clinical trial"]
             if any(kw in combined for kw in kws):
                 return True, "Unproven or experimental treatments are excluded"
-
         # R3_EXCL_015: Sterility/Infertility
         elif rule_id == "R3_EXCL_015":
             kws = ["infertility", "sterility", "ivf", "assisted reproduction", "surrogacy", "contraception", "sterilization reversal"]
             if any(kw in combined for kw in kws):
                 return True, "Sterility and infertility treatments are excluded"
-
         # R3_EXCL_016: Maternity
         elif rule_id == "R3_EXCL_016":
             if any(kw in combined for kw in ["maternity", "pregnancy", "childbirth", "caesarean", "c-section", "normal delivery", "miscarriage", "abortion"]):
                 is_exception = "ectopic pregnancy" in combined or (line_item.accident_related and "miscarriage" in combined)
                 if not is_exception:
                     return True, "Maternity and pregnancy-related expenses are excluded"
-
         # R3_EXCL_018: Conflict & Disaster
         elif rule_id == "R3_EXCL_018":
             kws = ["war injury", "nuclear radiation", "terrorism injury", "rebellion", "conflict"]
             if any(kw in combined for kw in kws):
                 return True, "Treatment for injuries from war, nuclear emissions, or terrorism is excluded"
-
         # R3_EXCL_019: External Congenital Anomaly
         elif rule_id == "R3_EXCL_019":
             kws = ["external congenital anomaly", "cleft lip", "polydactyly", "congenital defect"]
             if any(kw in combined for kw in kws):
                 return True, "Treatment related to external Congenital Anomaly is excluded"
-
         # R3_EXCL_022: Unreasonable Costs
         elif rule_id == "R3_EXCL_022":
             kws = ["unreasonable cost", "medically unnecessary", "non-medical reason"]
             if any(kw in combined for kw in kws):
                 return True, "Costs not Reasonable & Customary or not Medically Necessary are excluded"
-
         # R3_EXCL_023: Brain Death life maintenance
         elif rule_id == "R3_EXCL_023":
             kws = ["brain death", "vegetative state", "artificial life maintenance"]
             if any(kw in combined for kw in kws):
                 return True, "Artificial life maintenance for brain dead or vegetative state is excluded"
-
         return False, ""
-
     def _gate_5_exclusion_validation(self, context: ClaimContext, line_item, target_rule_id: Optional[str] = None) -> Tuple[bool, DecisionTrace]:
         """
         Gate 5: Exclusion Validation
@@ -1806,11 +1778,9 @@ class ClaimsAdjudicationPipeline:
                     reason=excl_reason,
                     source_section=rule.section_ref
                 )
-
             # Skip custom check blocks for 010, 020, 021 as they are handled above by _check_deterministic_exclusion
             if rule.rule_id in ["R3_EXCL_010", "R3_EXCL_020", "R3_EXCL_021"]:
                 continue
-
             # Semantic/Hybrid exclusions — delegate to semantic agent if available.
             # Fix 1: correct call signature; was passing wrong kwargs (rule=, context=, line_item=)
             elif rule.execution_type in (ExecutionType.SEMANTIC, ExecutionType.HYBRID):
@@ -1844,7 +1814,6 @@ class ClaimsAdjudicationPipeline:
                             prompt=prompt,
                             rule_type="exclusion"
                         )
-
                         if sem_result.confidence >= self.confidence_threshold and not sem_result.passed:
                             return False, DecisionTrace(
                                 step=_STEP_LOCAL.current_step,
@@ -1857,7 +1826,6 @@ class ClaimsAdjudicationPipeline:
                                 confidence=sem_result.confidence,
                                 source_section=rule.section_ref
                             )
-
                         elif sem_result.confidence < self.confidence_threshold:
                             # Low confidence — flag for review but do not hard-reject
                             _STEP_LOCAL.decision_traces.append(DecisionTrace(
@@ -1874,7 +1842,6 @@ class ClaimsAdjudicationPipeline:
                                 confidence=sem_result.confidence,
                                 source_section=rule.section_ref
                             ))
-
                     except Exception as e:
                         # Never let a semantic error crash adjudication — log and continue
                         _STEP_LOCAL.decision_traces.append(DecisionTrace(
@@ -1905,7 +1872,6 @@ class ClaimsAdjudicationPipeline:
                 source_section=sec_ref,
                 confidence=1.0
             )
-
         # All exclusion rules passed
         return True, DecisionTrace(
             step=_STEP_LOCAL.current_step,
@@ -1924,7 +1890,6 @@ class ClaimsAdjudicationPipeline:
     ) -> Optional[float]:
         """
         Return the INR room rent ceiling for this policy from PolicyData.
-
         Source of truth: context.policy.room_rent_limit (populated by Policy API
         or UI configuration).
         
@@ -1952,13 +1917,10 @@ class ClaimsAdjudicationPipeline:
         
         if components["room_charges"] == 0.0 and line_item.actual_room_rent:
             components["room_charges"] = line_item.actual_room_rent
-
         return components
-
     # ================================================================
     # ISSUE 11: ENDORSEMENT PROCESSOR
     # ================================================================
-
     def _apply_endorsements(
         self,
         context: "ClaimContext",
@@ -1967,23 +1929,19 @@ class ClaimsAdjudicationPipeline:
         """
         Issue 11: Apply all mid-term endorsements whose effective_date <=
         claim_event_date to the ClaimContext in-place.
-
         Processing order: ascending effective_date (Section 8.2).
         Only endorsements effective on or before the claim admission date
         are applied; future endorsements are ignored.
-
         Mutates context.policy and context.member directly so all downstream
         gates operate on the post-endorsement policy state.
         """
         if not context.endorsements:
             return
-
         # Sort endorsements chronologically
         sorted_endorsements = sorted(
             context.endorsements,
             key=lambda e: self._coerce_to_date(e.effective_date)
         )
-
         for endorsement in sorted_endorsements:
             eff_date = self._coerce_to_date(endorsement.effective_date)
             if eff_date > claim_event_date:
@@ -1991,10 +1949,8 @@ class ClaimsAdjudicationPipeline:
                 # in strict chronological order; skipping one future-dated entry
                 # must not prevent earlier entries from being processed.
                 continue
-
             etype = endorsement.endorsement_type
             details = endorsement.details or {}
-
             # Log endorsement mutation
             AgentReasoningLogger.log_endorsement(
                 claim_id=context.claim_id,
@@ -2002,7 +1958,6 @@ class ClaimsAdjudicationPipeline:
                 effective_date=endorsement.effective_date,
                 mutations=details
             )
-
             if etype == "SIEnhancement":
                 # Fresh waiting period applies to the *enhanced portion* only.
                 # Store the enhancement date in policy so the waiting period
@@ -2014,12 +1969,10 @@ class ClaimsAdjudicationPipeline:
                 # Persist the endorsement effective date so Tool 1 can reset
                 # waiting periods correctly on the delta amount.
                 context.policy.__dict__["si_enhancement_date"] = endorsement.effective_date
-
             elif etype == "SIReduction":
                 new_si = details.get("new_sum_insured")
                 if new_si is not None:
                     context.policy.base_sum_insured = float(new_si)
-
             elif etype == "MemberAddition":
                 # Newly added members get fresh waiting periods.
                 # We detect this by comparing the member's date_of_addition
@@ -2032,7 +1985,6 @@ class ClaimsAdjudicationPipeline:
                     context.member.date_of_addition = endorsement.effective_date
                     context.history.claim_free_years = 0
                     context.history.total_utilized_si = 0.0
-
             elif etype == "PlanUpgrade":
                 # Variant change affects room entitlement and modern treatment
                 # sub-limit eligibility (R3_BEN_005A).
@@ -2045,7 +1997,6 @@ class ClaimsAdjudicationPipeline:
                 modern_plus = details.get("modern_treatments_plus_opted")
                 if modern_plus is not None:
                     context.policy.modern_treatments_plus_opted = bool(modern_plus)
-
             elif etype == "RiderAddition":
                 # Map rider names to policy flag fields where possible
                 rider_name = (details.get("rider_name") or "").lower()
@@ -2059,7 +2010,6 @@ class ClaimsAdjudicationPipeline:
                     context.policy.modern_treatments_plus_opted = True
                 elif "air ambulance" in rider_name and "plus" in rider_name:
                     context.policy.air_ambulance_plus_opted = True
-
             elif etype == "IndividualToFloater":
                 # Individual-to-Floater Conversion:
                 # Loop through all individual member profiles in details, find the lowest booster_plus balance,
@@ -2070,7 +2020,6 @@ class ClaimsAdjudicationPipeline:
                     min_booster = min(booster_balances)
                     context.benefit_balance.booster_plus_remaining = round(min_booster, 4)
                     context.lifetime_state.booster_plus_accumulated = round(min_booster, 4)
-
             elif etype == "FloaterSplit":
                 # Floater Split:
                 # Divide the accumulated booster_plus balance proportionally across the newly decoupled
@@ -2100,18 +2049,15 @@ class ClaimsAdjudicationPipeline:
                     new_booster = accumulated_booster * ratio
                     context.benefit_balance.booster_plus_remaining = round(new_booster, 4)
                     context.lifetime_state.booster_plus_accumulated = round(new_booster, 4)
-
             elif etype == "MemberDeletion":
                 # MemberDeletion does not change booster but flags member as inactive (Fix 3)
                 deleted_member_id = details.get("member_id")
                 if (deleted_member_id and
                         context.member.member_id == deleted_member_id):
                     context.member.eligibility_active = False
-
     # ================================================================
     # ISSUE 12: NON-PAYABLE ITEMS DEDUCTION (ANNEXURE)
     # ================================================================
-
     # Keyword list for Annexure non-payable consumables and charges.
     # Detection is conservative — only obvious matches are auto-deducted;
     # borderline cases remain for the adjudicator under ASSISTED_REVIEW.
@@ -2131,7 +2077,6 @@ class ClaimsAdjudicationPipeline:
         "newspaper", "magazine",
         "alcohol", "tobacco",
     ]
-
     def _deduct_non_payable_items(
         self,
         line_item,
@@ -2140,22 +2085,17 @@ class ClaimsAdjudicationPipeline:
         """
         Fix 12: Gate 6 Step 0 — remove Annexure non-payable items BEFORE
         room pro-rata and all other deductions.
-
         Uses word-boundary regex matching to avoid false positives on compound
         medical descriptions like 'Anaesthesia administration charges for
         appendectomy' (which contains 'administration' but is NOT a non-payable
         admin fee — it's a clinical procedure charge).
-
         Returns: (remaining_amount, DeductionDetail or None)
         """
         import re as _re
-
         if not line_item.description:
             return amount, None
-
         desc_lower = line_item.description.lower()
         matched_keyword = None
-
         for kw in self._NON_PAYABLE_KEYWORDS:
             # Word-boundary anchors: 'charge' won't match 'surcharge';
             # 'fee' won't match 'coffee' or 'fever'.
@@ -2167,10 +2107,8 @@ class ClaimsAdjudicationPipeline:
             if _re.search(pattern, desc_lower):
                 matched_keyword = kw
                 break
-
         if matched_keyword is None:
             return amount, None
-
         deduction = DeductionDetail(
             deduction_type="non_payable_items",
             amount=amount,
@@ -2182,11 +2120,9 @@ class ClaimsAdjudicationPipeline:
             }
         )
         return 0.0, deduction
-
     # ================================================================
     # ISSUE 13: MODERN TREATMENT SUB-LIMIT
     # ================================================================
-
     # 12 whitelisted modern procedures per R3_BEN_005.
     # Sub-limit = 50% of base SI (standard interpretation, pending SME confirmation).
     # Sub-limit is REMOVED for Classic/Select variants when modern_treatments_plus_opted.
@@ -2204,9 +2140,7 @@ class ClaimsAdjudicationPipeline:
         "intra vitreal injection", "intravitreal injection",
         "uterine artery embolisation", "uterine artery embolization",
     ]
-
     _MODERN_TREATMENT_SUBLIMIT_FRACTION: float = 0.50  # 50% of base SI
-
     def _apply_modern_treatment_sublimit(
         self,
         context: "ClaimContext",
@@ -2215,42 +2149,33 @@ class ClaimsAdjudicationPipeline:
     ) -> Tuple[float, Optional[DeductionDetail]]:
         """
         Issue 13: Apply Modern Treatment sub-limit (R3_BEN_005 / R3_BEN_005A).
-
         The sub-limit applies ONLY when:
         - benefit_bucket is "Expenses during Hospitalization"
         - treatment description matches one of the 12 whitelisted procedures
         - modern_treatments_plus_opted is False (R3_BEN_005A removes the cap)
-
         Sub-limit = 50% of base_sum_insured per policy year.
-
         Returns: (capped_amount, DeductionDetail or None)
         """
         # Only applies to hospitalization expenses
         if line_item.benefit_bucket != "Expenses during Hospitalization":
             return amount, None
-
         # Check description for modern treatment keywords
         desc_lower = (line_item.description or "").lower()
         treatment_lower = (line_item.treatment_type or "").lower()
         combined = f"{desc_lower} {treatment_lower}"
-
         matched_procedure = next(
             (kw for kw in self._MODERN_TREATMENT_KEYWORDS if kw in combined),
             None
         )
-
         if matched_procedure is None:
             return amount, None
-
         # R3_BEN_005A: sub-limit is removed if modern_treatments_plus_opted
         if context.policy.modern_treatments_plus_opted:
             return amount, None
-
         sub_limit = context.policy.base_sum_insured * self._MODERN_TREATMENT_SUBLIMIT_FRACTION
         if amount <= sub_limit:
             # Already within sub-limit — no deduction needed
             return amount, None
-
         deduction_amount = amount - sub_limit
         deduction = DeductionDetail(
             deduction_type="sublimit",
@@ -2271,8 +2196,6 @@ class ClaimsAdjudicationPipeline:
             }
         )
         return sub_limit, deduction
-
-
     def _gate_6_financial_computation(
         self,
         context: ClaimContext,
@@ -2282,7 +2205,6 @@ class ClaimsAdjudicationPipeline:
     ) -> Tuple[float, float, List[DeductionDetail], List[DecisionTrace]]:
         """
         Gate 6: Financial Computation
-
         Execution sequence (Section 6.2 + Issues 12-15 + Gap 5):
         -1.  Pre/Post Hospitalization Window Validation (Tool 8) — Gap 5
                [Returns REJECTED immediately if expense is outside window]
@@ -2299,10 +2221,8 @@ class ClaimsAdjudicationPipeline:
         """
         traces: List[DecisionTrace] = []
         deductions: List[DeductionDetail] = []
-
         admissible_amount = claimed_amount
         payable_amount = claimed_amount
-
         # ================================================================
         # STEP -1: Pre/Post Hospitalization Window Validation (Gap 5 — Tool 8)
         # Only applies to "Expenses before and after hospitalization" bucket.
@@ -2337,7 +2257,6 @@ class ClaimsAdjudicationPipeline:
                     source_section="R3_BEN_006"
                 ))
                 return 0.0, 0.0, deductions, traces
-
             window_result = self._execute_tool(
                 context, line_item, "validate_pre_post_hosp_window",
                 validate_pre_post_hosp_window,
@@ -2350,7 +2269,6 @@ class ClaimsAdjudicationPipeline:
                 hospitalization_condition=line_item.condition_diagnosed
             )
             _STEP_LOCAL.current_step += 1
-
             if not window_result.eligible:
                 traces.append(DecisionTrace(
                     step=_STEP_LOCAL.current_step,
@@ -2393,8 +2311,6 @@ class ClaimsAdjudicationPipeline:
                 ),
                 source_section="R3_BEN_006"
             ))
-
-
         # ================================================================
         # STEP 0: Non-payable items removal (Issue 12 — Annexure exclusions)
         # Must execute BEFORE everything else — amount reduced to zero for
@@ -2419,7 +2335,6 @@ class ClaimsAdjudicationPipeline:
             ))
             # Non-payable items: nothing more to compute — return immediately
             return admissible_amount, payable_amount, deductions, traces
-
         # ================================================================
         # STEP 0.5: Modern Treatment sub-limit (Issue 13 — R3_BEN_005)
         # ================================================================
@@ -2444,7 +2359,6 @@ class ClaimsAdjudicationPipeline:
                 reason=mt_deduction.reason,
                 source_section="R3_BEN_005"
             ))
-
         # ================================================================
         # ISSUE 14: Hospital Daily Cash — dedicated branch (R3_BEN_011)
         # Co-pay and deductible exempt; only the daily cash formula applies.
@@ -2453,7 +2367,6 @@ class ClaimsAdjudicationPipeline:
             _STEP_LOCAL.current_step += 1
             hosp_hours = line_item.hospitalization_hours or 0.0
             daily_cash_amount = getattr(context.policy, "hospital_daily_cash_amount", 0.0) or 0.0
-
             if daily_cash_amount <= 0.0:
                 # Policy does not have a configured daily cash benefit amount;
                 # route to ASSISTED_REVIEW.
@@ -2468,14 +2381,12 @@ class ClaimsAdjudicationPipeline:
                     confidence=0.5
                 ))
                 return 0.0, 0.0, deductions, traces
-
             dc_result = self._execute_tool(
                 context, line_item, "calculate_hospital_daily_cash", calculate_hospital_daily_cash,
                 daily_cash_amount=daily_cash_amount,
                 hospitalization_hours=hosp_hours,
                 hospital_daily_cash_days_used=context.benefit_balance.hospital_cash_days_used
             )
-
             if dc_result.days_exhausted:
                 traces.append(DecisionTrace(
                     step=_STEP_LOCAL.current_step,
@@ -2488,7 +2399,6 @@ class ClaimsAdjudicationPipeline:
                     source_section="R3_BEN_011"
                 ))
                 return 0.0, 0.0, deductions, traces
-
             final_cash_benefit = dc_result.total_cash_benefit
             traces.append(DecisionTrace(
                 step=_STEP_LOCAL.current_step,
@@ -2511,7 +2421,6 @@ class ClaimsAdjudicationPipeline:
             # Update state so Gate 7 can persist the new days consumed
             context.benefit_balance.hospital_cash_days_used += dc_result.eligible_days
             return final_cash_benefit, final_cash_benefit, deductions, traces
-
         # ================================================================
         # ISSUE 15: Personal Accident benefit — dedicated branch (R3_PA_001/002)
         # Co-pay and deductible exempt. Benefit is table-based, not SI-waterfall.
@@ -2519,14 +2428,12 @@ class ClaimsAdjudicationPipeline:
         if line_item.benefit_bucket == "Personal Accident":
             _STEP_LOCAL.current_step += 1
             pa_si = getattr(context.policy, "pa_sum_insured", 0.0) or context.policy.base_sum_insured
-
             pa_result = self._execute_tool(
                 context, line_item, "calculate_personal_accident_benefit", calculate_personal_accident_benefit,
                 pa_sum_insured=pa_si,
                 injury_description=line_item.description or line_item.condition_diagnosed,
                 accident_related=line_item.accident_related
             )
-
             if pa_result.pa_benefit_type in ("UNKNOWN", "NOT_APPLICABLE"):
                 traces.append(DecisionTrace(
                     step=_STEP_LOCAL.current_step,
@@ -2546,7 +2453,6 @@ class ClaimsAdjudicationPipeline:
                     confidence=0.5
                 ))
                 return 0.0, 0.0, deductions, traces
-
             pa_payout = pa_result.pa_payout_amount
             traces.append(DecisionTrace(
                 step=_STEP_LOCAL.current_step,
@@ -2567,14 +2473,12 @@ class ClaimsAdjudicationPipeline:
                 source_section="R3_PA_001"
             ))
             return pa_payout, pa_payout, deductions, traces
-
         # ================================================================
         # STEP 1: Room Pro-Rata (must execute first)
         # ================================================================
         if line_item.actual_room_rent and line_item.actual_room_rent > 0:
             _STEP_LOCAL.current_step += 1
             eligible_room = self._get_eligible_room_rent(context, line_item)
-
             if eligible_room is None:
                 # Fix 3: room_rent_limit not configured — cannot compute pro-rata
                 traces.append(DecisionTrace(
@@ -2599,7 +2503,6 @@ class ClaimsAdjudicationPipeline:
                 expense_components = self._calculate_associated_medical_expenses(
                     line_item, claimed_amount
                 )
-
                 if all(v == 0.0 for v in expense_components.values()):
                     # No itemised breakdown available — skip pro-rata, log notice
                     traces.append(DecisionTrace(
@@ -2627,12 +2530,10 @@ class ClaimsAdjudicationPipeline:
                         medical_practitioner_fees=expense_components["medical_practitioner_fees"],
                         ot_charges=expense_components["ot_charges"]
                     )
-
                     if pro_rata_result.deduction > 0:
                         admissible_amount -= pro_rata_result.deduction
                         payable_amount -= pro_rata_result.deduction
                         state.room_pro_rata_ratio = pro_rata_result.pro_rata_ratio
-
                         deductions.append(DeductionDetail(
                             deduction_type="room_pro_rata",
                             amount=pro_rata_result.deduction,
@@ -2650,7 +2551,6 @@ class ClaimsAdjudicationPipeline:
                                 )
                             }
                         ))
-
                         traces.append(DecisionTrace(
                             step=_STEP_LOCAL.current_step,
                             rule_id="R3_BEN_004",
@@ -2665,33 +2565,27 @@ class ClaimsAdjudicationPipeline:
                             reason=f"Pro-rata deduction: INR {pro_rata_result.deduction:.2f}",
                             source_section="6.2.4(d)"
                         ))
-
         # ================================================================
         # STEP 2: Prolonged Hospitalization Penalty (if applicable)
         # ================================================================
         if line_item.hospitalization_hours and line_item.hospitalization_hours > 168:  # > 7 days
             state.prolonged_hosp_penalty_triggered = True
-
         # ================================================================
         # STEP 3: HeadsUp / Tiered Network Penalties
         # ================================================================
         if context.policy.heads_up_opted:
             if not context.network.heads_up_recommended:
                 state.heads_up_penalty_triggered = True
-
         if context.policy.tiered_network_opted:
             if not context.network.tiered_network_member:
                 state.tiered_network_penalty_triggered = True
-
         # ================================================================
         # STEP 4: Annual Aggregate Deductible (before co-payment)
         # ================================================================
         if context.policy.annual_aggregate_deductible and context.policy.annual_aggregate_deductible > 0:
             _STEP_LOCAL.current_step += 1
-
             deductible_rule = self.product_memory.get_rule("R3_FIN_001")
             deductible_exempt = deductible_rule.not_applicable_to if deductible_rule else None
-
             deductible_result = self._execute_tool(
                 context, line_item, "calculate_deductible", calculate_deductible,
                 claim_amount=payable_amount,
@@ -2700,11 +2594,9 @@ class ClaimsAdjudicationPipeline:
                 benefit_bucket=line_item.benefit_bucket,
                 exempt_benefits=deductible_exempt
             )
-
             if deductible_result.deductible_applied > 0:
                 payable_amount = deductible_result.payable_amount
                 state.deductible_applied_this_claim = deductible_result.deductible_applied
-
                 deductions.append(DeductionDetail(
                     deduction_type="deductible",
                     amount=deductible_result.deductible_applied,
@@ -2716,7 +2608,6 @@ class ClaimsAdjudicationPipeline:
                         "applied_this_claim": deductible_result.deductible_applied
                     }
                 ))
-
                 traces.append(DecisionTrace(
                     step=_STEP_LOCAL.current_step,
                     rule_id="R3_FIN_001",
@@ -2727,13 +2618,11 @@ class ClaimsAdjudicationPipeline:
                     reason=f"Deductible: INR {deductible_result.deductible_applied:.2f}",
                     source_section="4.18"
                 ))
-
         # ================================================================
         # STEP 5: Co-Payment (stacks all penalties)
         # ================================================================
         if context.policy.co_payment_percent and context.policy.co_payment_percent > 0:
             _STEP_LOCAL.current_step += 1
-
             # Fix 6: Room category co-pay lookup via ProductMemory (R3_TBL_005 / Annexure V).
             # Replaces the incomplete partial hardcode that missed several combinations.
             room_copay_percent = 0.0
@@ -2742,15 +2631,12 @@ class ClaimsAdjudicationPipeline:
                     variant=context.policy.variant,
                     room_category_claimed=line_item.room_category_claimed
                 )
-
             # Defensive normalization: divide by 100.0 if percentage is > 1.0 (whole number)
             co_payment_percent = context.policy.co_payment_percent
             if co_payment_percent > 1.0:
                 co_payment_percent /= 100.0
-
             copay_rule = self.product_memory.get_rule("R3_FIN_002")
             copay_exempt = copay_rule.not_applicable_to if copay_rule else None
-
             copay_result = self._execute_tool(
                 context, line_item, "calculate_copayment", calculate_copayment,
                 admissible_amount=payable_amount,
@@ -2762,7 +2648,6 @@ class ClaimsAdjudicationPipeline:
                 room_category_copay_percent=room_copay_percent,
                 exempt_benefits=copay_exempt
             )
-
             if copay_result.copay_amount > 0:
                 copay_amt = copay_result.copay_amount
                 wallet_bal = getattr(context.benefit_balance, "cash_bag_plus_wallet", 0.0) or 0.0
@@ -2776,7 +2661,6 @@ class ClaimsAdjudicationPipeline:
                 # Deduct only the net co-payment from the payable_amount (Fix 7)
                 payable_amount = payable_amount - net_copay
                 state.copay_percent_total = copay_result.total_copay_percent
-
                 deductions.append(DeductionDetail(
                     deduction_type="co_payment",
                     amount=net_copay,
@@ -2789,7 +2673,6 @@ class ClaimsAdjudicationPipeline:
                         "net_copay": net_copay
                     }
                 ))
-
                 traces.append(DecisionTrace(
                     step=_STEP_LOCAL.current_step,
                     rule_id="R3_FIN_002",
@@ -2800,29 +2683,23 @@ class ClaimsAdjudicationPipeline:
                     reason=f"Total co-pay: INR {copay_amt:.2f} offset by INR {offset:.2f} from Cash-Bag+. Net deduction: INR {net_copay:.2f} ({copay_result.total_copay_percent:.1f}%)",
                     source_section="4.19"
                 ))
-
         # ================================================================
         # STEP 6: SI Waterfall Consumption (final step)
         # ================================================================
         _STEP_LOCAL.current_step += 1
-
         # BUG FIX #4: Use lifetime_state.reassure_forever_triggered exclusively.
         # DO NOT infer from prior_claims_count — a REJECTED claim does not trigger Forever.
         forever_pool_val = context.benefit_balance.reassure_forever_pool
         forever_triggered_val = context.lifetime_state.reassure_forever_triggered
-
         if not forever_triggered_val:
             forever_pool_val = 0.0
-
         # Deduct already allocated amounts from previous line items to prevent double-spending
         base_si_rem = max(0.0, context.benefit_balance.base_si_remaining - state.amount_from_base_si)
         booster_rem = max(0.0, context.benefit_balance.booster_plus_remaining - state.amount_from_booster)
         forever_pool_rem = max(0.0, forever_pool_val - state.amount_from_forever)
-
         # Defensive bounds enforcement: ensure running state and current payable amount are not negative
         state.running_payable_amount = max(0.0, state.running_payable_amount)
         payable_amount = max(0.0, payable_amount)
-
         si_result = self._execute_tool(
             context, line_item, "calculate_si_waterfall", calculate_si_waterfall,
             payable_amount=payable_amount,
@@ -2833,13 +2710,11 @@ class ClaimsAdjudicationPipeline:
             unlimited_si_opted=context.policy.unlimited_si_opted,
             base_si_original=context.policy.base_sum_insured
         )
-
         # Accumulate state allocations
         state.running_payable_amount += si_result.total_paid
         state.amount_from_base_si += si_result.amount_from_base_si
         state.amount_from_booster += si_result.amount_from_booster
         state.amount_from_forever += si_result.amount_from_forever
-
         if si_result.shortfall > 0:
             deductions.append(DeductionDetail(
                 deduction_type="si_cap",
@@ -2853,7 +2728,6 @@ class ClaimsAdjudicationPipeline:
                     "shortfall": si_result.shortfall
                 }
             ))
-
         traces.append(DecisionTrace(
             step=_STEP_LOCAL.current_step,
             rule_id="R3_SUM_001",
@@ -2872,10 +2746,8 @@ class ClaimsAdjudicationPipeline:
             ),
             source_section="3"
         ))
-
         final_payable = si_result.total_paid
         return admissible_amount, final_payable, deductions, traces
-
     
     def _gate_7_state_update(
         self, 
@@ -2891,7 +2763,6 @@ class ClaimsAdjudicationPipeline:
             session = telemetry_context.get()
             if session:
                 session.record_gate_latency("state_update", duration_ms)
-
     def _gate_7_state_update_internal(
         self, 
         context: ClaimContext,
@@ -2900,7 +2771,6 @@ class ClaimsAdjudicationPipeline:
     ) -> None:
         """
         Gate 7: State Update (PERSISTENCE GATE)
-
         Responsibilities (updated with Gap 1, 2, 3, 7 fixes):
         1. Update SI balances after all line items are processed
         2. ReAssure Forever state machine (NOT_TRIGGERED → TRIGGERED → ACTIVE → LAPSED)
@@ -2912,7 +2782,6 @@ class ClaimsAdjudicationPipeline:
         8. Record state update trace
         """
         _STEP_LOCAL.current_step += 1
-
         # ================================================================
         # Determine claim payment outcome for this adjudication call
         # ================================================================
@@ -2920,7 +2789,6 @@ class ClaimsAdjudicationPipeline:
             li.payable_amount for li in line_item_decisions
             if li.decision in ("APPROVED", "PARTIALLY_APPROVED")
         )
-
         trigger_buckets = {
             "Expenses in reaching a Hospital", "Expenses during Hospitalization",
             "Expenses before and after hospitalization", "Home Care / Domiciliary Treatment",
@@ -2932,7 +2800,6 @@ class ClaimsAdjudicationPipeline:
             and li.benefit_bucket in trigger_buckets
             for li in context.line_items
         )
-
         claim_event_date = self._coerce_to_date(
             min(
                 (li.admission_date or li.expense_date for li in context.line_items),
@@ -2947,20 +2814,16 @@ class ClaimsAdjudicationPipeline:
                 (self._coerce_to_date(context.policy.policy_end_date) - claim_event_date).days <= 30
             )
         )
-
         if total_paid > 0:
             # ================================================================
             # 1. UPDATE SI BALANCES (Base, Booster, Forever)
             # ================================================================
             if state.amount_from_base_si > 0:
                 context.benefit_balance.base_si_remaining -= state.amount_from_base_si
-
             if state.amount_from_booster > 0:
                 context.benefit_balance.booster_plus_remaining -= state.amount_from_booster
-
             if state.amount_from_forever > 0:
                 context.benefit_balance.reassure_forever_pool -= state.amount_from_forever
-
         # ================================================================
         # 2. REASSURE FOREVER — FULL 4-STATE MACHINE (Gap 2)
         #    NOT_TRIGGERED → TRIGGERED (first PAID claim in trigger bucket)
@@ -2970,7 +2833,6 @@ class ClaimsAdjudicationPipeline:
         # ================================================================
         rf_state = getattr(context.lifetime_state, "reassure_forever_state", "NOT_TRIGGERED")
         break_in = getattr(context.lifetime_state, "break_in_policy_detected", False)
-
         if rf_state == "NOT_TRIGGERED" and total_paid > 0 and has_trigger_bucket_claim:
             # First eligible paid claim → transition to TRIGGERED
             context.lifetime_state.reassure_forever_triggered = True
@@ -2987,7 +2849,6 @@ class ClaimsAdjudicationPipeline:
                 reason="ReAssure Forever triggered: first eligible paid claim. State: NOT_TRIGGERED → TRIGGERED.",
                 source_section="4.6, Section 7"
             ))
-
         elif rf_state == "TRIGGERED" and is_renewal_simulation and total_paid == 0:
             # Claim-free renewal after being triggered → transition to ACTIVE
             context.lifetime_state.reassure_forever_state = "ACTIVE"
@@ -3016,7 +2877,6 @@ class ClaimsAdjudicationPipeline:
                 ),
                 source_section="4.6, Section 7"
             ))
-
         elif rf_state == "ACTIVE" and is_renewal_simulation:
             if break_in:
                 # Break in policy continuity → LAPSED
@@ -3059,7 +2919,6 @@ class ClaimsAdjudicationPipeline:
                     ),
                     source_section="4.6, Section 7"
                 ))
-
         # ================================================================
         # 3. LOCK THE CLOCK — FLOATER vs INDIVIDUAL DISTINCTION (Gap 3)
         #    Spec Section 7.2: on a floater, ANY member's paid claim unlocks
@@ -3069,7 +2928,6 @@ class ClaimsAdjudicationPipeline:
             entry_age = context.lifetime_state.lock_the_clock_entry_age or context.member.entry_age or context.member.age
             current_age = context.member.age
             policy_type = context.policy.policy_type or "individual"
-
             # Gap 3: Floater unlock is triggered by any member's approved claim
             if policy_type == "floater":
                 # Any approved trigger-bucket claim unlocks the entire floater policy
@@ -3079,7 +2937,6 @@ class ClaimsAdjudicationPipeline:
                 # Individual: only this member's approved claim triggers unlock
                 ltc_claim_paid_flag = (context.history.prior_claims_count > 0) or has_trigger_bucket_claim
                 ltc_member_claiming = context.member.member_id
-
             ltc_result = self._execute_tool(
                 context, None, "calculate_lock_the_clock", calculate_lock_the_clock,
                 entry_age=entry_age,
@@ -3094,16 +2951,13 @@ class ClaimsAdjudicationPipeline:
             context.lifetime_state.lock_the_clock_age_locked = ltc_result.age_locked
             context.lifetime_state.lock_the_clock_current_premium_age = ltc_result.age_for_premium
             state.lock_the_clock_premium_delta = ltc_result.additional_premium_delta
-
         if state.lock_the_clock_age_unlocked:
             context.lifetime_state.lock_the_clock_unlocked_date = datetime.now(timezone.utc)
-
         # ================================================================
         # 4. UPDATE DEDUCTIBLE YTD CONSUMED
         # ================================================================
         if state.deductible_applied_this_claim > 0:
             context.benefit_balance.deductible_consumed_ytd += state.deductible_applied_this_claim
-
         # ================================================================
         # Deduct Cash-Bag+ offset used for co-payment (Fix 7)
         # ================================================================
@@ -3124,14 +2978,12 @@ class ClaimsAdjudicationPipeline:
                 evaluation="PASSED",
                 reason=f"Deducted INR {state.cash_bag_copay_offset:.2f} from Cash-Bag+ wallet balance to cover co-payment offset"
             ))
-
         # ================================================================
         # 5. CASH-BAG+ WALLET — WELLNESS CONVERSION (Section 7.4)
         # ================================================================
         if is_renewal_simulation and hasattr(context.lifetime_state, "live_healthy") and context.lifetime_state.live_healthy.current_points > 0:
             current_points = context.lifetime_state.live_healthy.current_points
             wallet_credit = round(float(current_points * 0.25), 4)
-
             context.lifetime_state.cash_bag_plus.balance = round(
                 context.lifetime_state.cash_bag_plus.balance + wallet_credit, 4
             )
@@ -3140,7 +2992,6 @@ class ClaimsAdjudicationPipeline:
                 context.benefit_balance.cash_bag_plus_wallet + wallet_credit, 4
             )
             context.lifetime_state.live_healthy.current_points = 0
-
             _STEP_LOCAL.decision_traces.append(DecisionTrace(
                 step=_STEP_LOCAL.current_step,
                 rule_id="CASH_BAG_PLUS_ACCRUAL",
@@ -3155,7 +3006,6 @@ class ClaimsAdjudicationPipeline:
                 reason=f"Successfully converted {current_points} wellness points to cash wallet credit: INR {wallet_credit:.4f}",
                 source_section="4.9, 4.10"
             ))
-
         # ================================================================
         # 6. BOOSTER+ ACCUMULATION AT CLAIM-FREE RENEWAL (Gap 1 — Tool 7)
         #    Tool 7 is called ONLY when:
@@ -3165,7 +3015,6 @@ class ClaimsAdjudicationPipeline:
         # ================================================================
         _VARIANT_BOOSTER_MULTIPLIERS = {"Classic": 2, "Select": 5, "Elite": 10}
         is_claim_free_renewal = is_renewal_simulation and (total_paid == 0)
-
         if is_claim_free_renewal:
             booster_result = self._execute_tool(
                 context, None, "calculate_booster_accumulation", calculate_booster_accumulation,
@@ -3198,7 +3047,6 @@ class ClaimsAdjudicationPipeline:
                     ),
                     source_section="4.6, R3_SUM_004"
                 ))
-
         # ================================================================
         # 7. ONE-TIME BENEFIT FLAGS — PERSIST AFTER PAID CLAIMS (Gap 7)
         #    Set convalescence_claimed and critical_illness_claimed only if
@@ -3218,10 +3066,8 @@ class ClaimsAdjudicationPipeline:
             )
             if not matching_li:
                 continue
-
             desc_lower = (matching_li.description or "").lower()
             cond_lower = matching_li.condition_diagnosed.lower()
-
             # Convalescence: once per lifetime
             if "convalescence" in desc_lower and not context.lifetime_state.convalescence_claimed:
                 context.lifetime_state.convalescence_claimed = True
@@ -3235,7 +3081,6 @@ class ClaimsAdjudicationPipeline:
                     reason="convalescence_claimed flag set after first approved convalescence benefit payment.",
                     source_section="7.3"
                 ))
-
             # Critical Illness: once per lifetime
             is_ci_payment = any(kw in cond_lower for kw in _CI_KEYWORDS)
             if is_ci_payment and not context.lifetime_state.critical_illness_claimed:
@@ -3254,7 +3099,6 @@ class ClaimsAdjudicationPipeline:
                     reason=f"critical_illness_claimed flag set for '{matching_li.condition_diagnosed}'.",
                     source_section="7.5"
                 ))
-
         # ================================================================
         # 8. RECORD STATE UPDATE SUMMARY TRACE
         # ================================================================
@@ -3277,7 +3121,6 @@ class ClaimsAdjudicationPipeline:
             reason=f"State updated after paid claims totaling INR {total_paid:.2f}",
             source_section="State Management"
         )
-
         _STEP_LOCAL.decision_traces.append(trace)
         AgentReasoningLogger.log_gate_evaluation(
             claim_id=context.claim_id,
@@ -3288,7 +3131,6 @@ class ClaimsAdjudicationPipeline:
             evaluation_status=trace.evaluation,
             reason=trace.reason
         )
-
     
     
     
@@ -3312,7 +3154,6 @@ class ClaimsAdjudicationPipeline:
             manual_review_required=False,
             review_reason=reason
         )
-
     def _create_claim_review_decision(
         self,
         context: ClaimContext,
@@ -3324,7 +3165,6 @@ class ClaimsAdjudicationPipeline:
         """Create a claim-level PENDING_REVIEW decision for constraint violation"""
         total_claimed = sum(li.claimed_amount for li in context.line_items)
         processing_duration = (time.time() - start_time) * 1000  # BUG FIX #8: Use actual start_time
-
         return ClaimDecision(
             claim_id=context.claim_id,
             claim_decision="PENDING_REVIEW",
@@ -3351,7 +3191,6 @@ class ClaimsAdjudicationPipeline:
             pas_submission_payload={},
             processing_duration_ms=processing_duration,
         )
-
     def _compose_claim_decision(
         self,
         context: ClaimContext,
@@ -3384,14 +3223,11 @@ class ClaimsAdjudicationPipeline:
                     deduction_breakdown.sublimits += deduction.amount
                 elif "penalty" in deduction.deduction_type:
                     deduction_breakdown.penalties += deduction.amount
-
         # Populate lock_the_clock_premium_delta from state
         deduction_breakdown.lock_the_clock_premium_delta = getattr(state, "lock_the_clock_premium_delta", 0.0)
-
         total_payable = sum(d.payable_amount for d in line_item_decisions)
         total_payable = max(0.0, total_payable - deduction_breakdown.lock_the_clock_premium_delta)
         total_deductions = total_claimed - total_payable
-
         # Fix 4C: Gate 7 has already subtracted amounts from context.benefit_balance.
         # Read the already-updated values directly — do NOT subtract again.
         si_waterfall = SIWaterfallBreakdown(
@@ -3419,10 +3255,8 @@ class ClaimsAdjudicationPipeline:
             overall_decision = "PARTIALLY_APPROVED"
         else:
             overall_decision = "APPROVED"
-
         # Calculate processing duration
         processing_duration = (time.time() - start_time) * 1000  # ms
-
         # Issue 22: Build structured PAS submission payload (Section 4.7).
         # Previously always returned {}; now contains the full decision record
         # needed by PAS for independent revalidation and concordance checking.
@@ -3469,7 +3303,6 @@ class ClaimsAdjudicationPipeline:
             "processing_duration_ms": processing_duration,
             "ai_version": "Claims2.0-v1.0",
         }
-
         # Build review_reasons: aggregate all non-None review_reason values from line
         # item decisions (PENDING_REVIEW / ASSISTED_REVIEW), plus any FAILED or
         # EXCLUSION_ACTIVE trace entries from the combined decision trace.
@@ -3485,7 +3318,6 @@ class ClaimsAdjudicationPipeline:
                 entry = f"[{t.rule_id}] {t.reason}"
                 if entry not in review_reasons:
                     review_reasons.append(entry)
-
         return ClaimDecision(
             claim_id=context.claim_id,
             claim_decision=overall_decision,
@@ -3503,8 +3335,6 @@ class ClaimsAdjudicationPipeline:
             processing_duration_ms=processing_duration,
             pas_submission_payload=pas_payload,
         )
-
-
     async def adjudicate_claim_async(self, context: ClaimContext) -> ClaimDecision:
         """
         Asynchronous entry point: Execute dynamic graph-based adjudication pipeline in parallel
@@ -3523,7 +3353,6 @@ class ClaimsAdjudicationPipeline:
             # Per-call local state — thread-safe by design (not stored on self)
             decision_traces: List[DecisionTrace] = []
             current_step = 0
-
             # Gap 11: Context staleness guard (Section 4.6 / API contract).
             _max_age_minutes = settings.context_max_age_minutes
             _assembled_at = getattr(context, 'context_assembled_at', None)
@@ -3538,7 +3367,6 @@ class ClaimsAdjudicationPipeline:
                         f"{_age_minutes:.1f}m ago (max allowed: {_max_age_minutes}m). "
                         "Re-assemble context before submitting for adjudication."
                     )
-
             # Issue 21 & Gap 10: Bind product memory to the version declared in this claim's context.
             claim_version = getattr(context, "product_json_version", "")
             if not claim_version:
@@ -3557,22 +3385,17 @@ class ClaimsAdjudicationPipeline:
                         claim_version = resolved_entry["version_id"]
                 except Exception as e:
                     _logger.warning("Failed to auto-resolve product version from policy details: %s", e)
-
             version_memory = get_product_memory(claim_version)
             if version_memory is not self.product_memory:
                 self.product_memory = version_memory
                 self.planner.product_memory = version_memory
-
             # Initialize per-claim state
             state = PerClaimState(claim_id=context.claim_id)
-
-
             # Validate mutual exclusivity constraints before processing
             mx_violation = self._validate_mutual_exclusivity(context)
             if mx_violation:
                 constraint_id, reason = mx_violation
                 self.manual_review_count += 1
-
                 # Log trace for mutual exclusivity violation
                 mx_trace = DecisionTrace(
                     step=0,
@@ -3593,25 +3416,41 @@ class ClaimsAdjudicationPipeline:
                     source_section="Extraction JSON: mutual_exclusivity_constraints",
                 )
                 decision_traces.append(mx_trace)
-
                 # Return claim with PENDING_REVIEW status
                 claim_decision = self._create_claim_review_decision(
                     context, constraint_id, reason, [mx_trace], start_time
                 )
                 return claim_decision
 
-            # Process each line item through dynamic execution plan concurrently
+            # Process each line item through dynamic execution plan concurrently.
+            # Gate 1 (policy validity) and Gate 2 (member eligibility) are structural
+            # pre-conditions not covered by the AIPlanner; they must always run first.
             line_item_decisions: List[LineItemDecision] = []
             tasks = []
             for line_item in context.line_items:
+                # Mandatory structural pre-checks before handing off to the async plan.
+                g1_passed, g1_trace = self._gate_1_policy_validation(context, line_item)
+                if not g1_passed:
+                    line_item_decisions.append(
+                        self._create_rejected_decision(line_item, g1_trace.reason, [g1_trace])
+                    )
+                    continue
+                g2_passed, g2_trace = self._gate_2_member_validation(context, line_item)
+                if not g2_passed:
+                    line_item_decisions.append(
+                        self._create_rejected_decision(line_item, g2_trace.reason, [g2_trace])
+                    )
+                    continue
                 # Create execution plan using AI Planner
                 execution_plan = self.planner.create_execution_plan(context, line_item)
                 self.plans_created += 1
                 
                 # Execute the plan asynchronously
                 tasks.append(self._execute_plan_async(execution_plan, line_item, context, state))
-                
-            line_item_decisions = list(await asyncio.gather(*tasks))
+
+
+            if tasks:
+                line_item_decisions.extend(list(await asyncio.gather(*tasks)))
             
             for decision in line_item_decisions:
                 if hasattr(decision, "decision_trace") and decision.decision_trace:
@@ -3619,7 +3458,6 @@ class ClaimsAdjudicationPipeline:
             
             # Gate 7: State Update and Persistence (BUG FIX #10)
             self._gate_7_state_update(context, state, line_item_decisions)
-
             # Merge Gate 7 cross-cutting traces (_STEP_LOCAL.decision_traces) into
             # the claim-level decision_traces so they appear in ClaimDecision.decision_trace.
             # Gate 7 appends traces for: RF state transitions, Booster+ accumulation,
@@ -3627,12 +3465,10 @@ class ClaimsAdjudicationPipeline:
             gate_7_traces = getattr(_STEP_LOCAL, 'decision_traces', [])
             if gate_7_traces:
                 decision_traces.extend(gate_7_traces)
-
             # Compose final claim-level decision
             claim_decision = self._compose_claim_decision(
                 context, line_item_decisions, state, start_time, decision_traces
             )
-
             return claim_decision
         finally:
             if claim_decision:
@@ -3642,7 +3478,6 @@ class ClaimsAdjudicationPipeline:
                 except Exception:
                     pass
             telemetry_context.reset(token)
-
     async def _execute_plan_async(
         self,
         plan: ExecutionPlan,
@@ -3729,7 +3564,6 @@ class ClaimsAdjudicationPipeline:
                     )
                     exclusion_hard_stop = trace.evaluation == "EXCLUSION_ACTIVE"
                     is_exclusion_gate = step.gate.value == "exclusion_validation" if hasattr(step.gate, "value") else "exclusion" in str(step.gate)
-
                     if trace.confidence < self.medical_review_threshold:
                         self.manual_review_count += 1
                         AgentReasoningLogger.log_routing(
@@ -3744,7 +3578,6 @@ class ClaimsAdjudicationPipeline:
                         return self._create_review_decision(
                             line_item, f"Low confidence: {trace.reason}", item_traces
                         )
-
                     elif exclusion_hard_stop and trace.confidence < 0.80:
                         self.manual_review_count += 1
                         AgentReasoningLogger.log_routing(
@@ -3759,7 +3592,6 @@ class ClaimsAdjudicationPipeline:
                         return self._create_medical_review_decision(
                             line_item, trace.reason, item_traces, confidence=trace.confidence
                         )
-
                     elif is_semantic_or_hybrid and not exclusion_hard_stop:
                         if is_exclusion_gate and trace.confidence < self.assisted_review_threshold:
                             self.manual_review_count += 1
@@ -3845,7 +3677,6 @@ class ClaimsAdjudicationPipeline:
                     manual_review_required=True,
                     review_reason=f"Mutual Exclusivity Constraint {constraint_id}: {reason}"
                 )
-
             final_admissible, final_payable, fin_deductions, fin_traces = \
                 self._execute_financial_gates(context, line_item, payable_amount, state)
             
@@ -3869,7 +3700,6 @@ class ClaimsAdjudicationPipeline:
         else:
             overall_confidence = 1.0
         state.overall_confidence = overall_confidence
-
         # Issue 16 / Gap 8: Four-tier confidence routing (Section 9.2):
         if overall_confidence < self.medical_review_threshold:
             self.manual_review_count += 1
@@ -3886,7 +3716,6 @@ class ClaimsAdjudicationPipeline:
                 manual_review_required=True,
                 review_reason=f"Very low confidence ({overall_confidence:.2f}) - full manual review required"
             )
-
         if overall_confidence < self.assisted_review_threshold:
             self.manual_review_count += 1
             return LineItemDecision(
@@ -3902,7 +3731,6 @@ class ClaimsAdjudicationPipeline:
                 manual_review_required=True,
                 review_reason=f"Intermediate confidence ({overall_confidence:.2f}) - clinical review required"
             )
-
         if overall_confidence < self.confidence_threshold:
             self.manual_review_count += 1
             if payable_amount == 0:
@@ -3924,7 +3752,6 @@ class ClaimsAdjudicationPipeline:
                 manual_review_required=True,
                 review_reason=f"Medium confidence ({overall_confidence:.2f}) - pre-populated for operations review (suggested: {assisted_status})"
             )
-
         # High confidence (>= 0.90)
         if payable_amount == 0:
             decision_status = "REJECTED"
@@ -3932,7 +3759,6 @@ class ClaimsAdjudicationPipeline:
             decision_status = "PARTIALLY_APPROVED"
         else:
             decision_status = "APPROVED"
-
         return LineItemDecision(
             line_item_id=line_item.line_item_id,
             description=line_item.description,
@@ -3946,8 +3772,6 @@ class ClaimsAdjudicationPipeline:
             manual_review_required=False,
             review_reason=None
         )
-
-
     async def _execute_step_async(
         self,
         step: ExecutionStep,
@@ -3985,7 +3809,6 @@ class ClaimsAdjudicationPipeline:
             session = telemetry_context.get()
             if session:
                 session.record_gate_latency(gate_name, duration_ms)
-
     async def _execute_hybrid_step_async(
         self,
         step: ExecutionStep,
