@@ -195,3 +195,108 @@ def test_cash_bag_plus_accrual():
     assert len(accrual_traces) == 1
     assert accrual_traces[0].evaluation == "PASSED"
     assert accrual_traces[0].inputs["wallet_credit"] == 700.0
+
+
+def test_semantic_agent_caching():
+    """Verify that SemanticExecutionAgent caches result of LLM calls."""
+    from semantic_agent import SemanticExecutionAgent
+    from unittest.mock import patch
+
+    agent = SemanticExecutionAgent(llm_provider="local")
+    
+    # Check that initial cache is empty
+    assert len(agent._result_cache) == 0
+    
+    prompt = "This is a test prompt for cosmetic treatment reconstruction."
+    rule_id = "R3_EXCL_004"
+    rule_type = "exclusion"
+    
+    # We call execute_semantic_rule first time.
+    # It should hit the mock_llm_response, count as a call, and populate cache.
+    res1 = agent.execute_semantic_rule(
+        rule_id=rule_id,
+        prompt=prompt,
+        rule_type=rule_type
+    )
+    
+    assert res1.passed is True
+    assert agent.call_count == 1
+    assert len(agent._result_cache) == 1
+    
+    # Subsequent call with the exact same arguments should bypass LLM call
+    with patch.object(SemanticExecutionAgent, "_call_llm", return_value='{"evaluation_status": "FAILED", "reasoning_trace": "cached", "confidence_score": 0.0}') as mock_call:
+        res2 = agent.execute_semantic_rule(
+            rule_id=rule_id,
+            prompt=prompt,
+            rule_type=rule_type
+        )
+        # Bypassed LLM completely, returning cached value
+        assert res2 == res1
+        assert mock_call.call_count == 0
+        
+        # Calling with a different prompt should hit _call_llm on cache miss
+        agent.execute_semantic_rule(
+            rule_id=rule_id,
+            prompt="Different prompt",
+            rule_type=rule_type
+        )
+        assert mock_call.call_count == 1
+
+
+def test_hybrid_step_bypass_semantic():
+    """Verify that hybrid steps bypass LLM on hard decisions and fallback on ambiguous/uncertain check results."""
+    from pipeline import ClaimsAdjudicationPipeline
+    from product_memory import RuleGate, ExecutionType
+    from planner import ExecutionStep
+    from schemas import PerClaimState
+    from unittest.mock import MagicMock, patch
+    from test_phase2_integration import create_test_context
+
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local", use_ai=True)
+    
+    # 1. Hard decision (passed waiting period check) should bypass semantic LLM
+    step_wp = ExecutionStep(
+        step_number=1,
+        rule_id="R3_EXCL_002",
+        rule_name="Specified Illness Waiting Period",
+        gate=RuleGate.WAITING_PERIOD_VALIDATION,
+        priority=20,
+        reason="Test waiting period step",
+        execution_type=ExecutionType.HYBRID.value,
+        depends_on=[]
+    )
+    
+    context = create_test_context()
+    context.policy.room_rent_limit = 10000.0  # Configure room rent limit to avoid routing to review
+    state = PerClaimState(claim_id=context.claim_id)
+    line_item = context.line_items[0]
+    
+    with patch.object(pipeline.semantic_agent, "execute_semantic_rule") as mock_sem:
+        passed, trace, deduction = pipeline._execute_hybrid_step(
+            step_wp, line_item, context, state
+        )
+        assert passed is True
+        assert trace.evaluation == "PASSED"
+        assert trace.confidence == 1.0
+        assert mock_sem.call_count == 0
+
+    # 2. Explicitly ambiguous decision (exclusion check passes keyword pre-check but requires semantic rule)
+    step_excl = ExecutionStep(
+        step_number=2,
+        rule_id="R3_EXCL_007",
+        rule_name="Cosmetic or Plastic Surgery",
+        gate=RuleGate.EXCLUSION_VALIDATION,
+        priority=40,
+        reason="Test exclusion step",
+        execution_type=ExecutionType.HYBRID.value,
+        depends_on=[]
+    )
+    
+    with patch.object(pipeline.semantic_agent, "execute_semantic_rule", return_value=MagicMock(passed=True, confidence=0.96, reason="Semantic approved")) as mock_sem:
+        passed, trace, deduction = pipeline._execute_hybrid_step(
+            step_excl, line_item, context, state
+        )
+        assert passed is True
+        assert mock_sem.call_count == 1
+        assert trace.confidence == 0.96
+        assert trace.reason == "Semantic approved"

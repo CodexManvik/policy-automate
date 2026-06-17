@@ -607,7 +607,7 @@ class ValidationGatesMixin:
                 return True, "Artificial life maintenance for brain dead or vegetative state is excluded"
         return False, ""
 
-    def _gate_5_exclusion_validation(self, context: ClaimContext, line_item, target_rule_id: Optional[str] = None) -> Tuple[bool, DecisionTrace]:
+    def _gate_5_exclusion_validation(self, context: ClaimContext, line_item, target_rule_id: Optional[str] = None, deterministic_only: bool = False) -> Tuple[bool, DecisionTrace]:
         """
         Gate 5: Exclusion Validation
         Checks all 23 exclusion rules dynamically from Product Memory.
@@ -644,7 +644,19 @@ class ValidationGatesMixin:
             # Semantic/Hybrid exclusions — delegate to semantic agent if available.
             # Fix 1: correct call signature; was passing wrong kwargs (rule=, context=, line_item=)
             elif rule.execution_type in (ExecutionType.SEMANTIC, ExecutionType.HYBRID):
-                if self.semantic_agent:
+                if deterministic_only:
+                    return True, DecisionTrace(
+                        step=_STEP_LOCAL.current_step,
+                        rule_id=rule.rule_id,
+                        rule_name=rule.rule_name,
+                        gate="exclusion_validation",
+                        inputs={"description": line_item.description, "condition": line_item.condition_diagnosed},
+                        evaluation="PENDING_REVIEW",
+                        reason="Deterministic keyword check passed, but rule requires semantic evaluation.",
+                        confidence=0.0,
+                        source_section=rule.section_ref
+                    )
+                elif self.semantic_agent:
                     try:
                         prompt = rule.semantic_prompt_template
                         if prompt:

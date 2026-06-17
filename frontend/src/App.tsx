@@ -22,7 +22,7 @@ export default function App() {
     handlePresetChange, updatePolicy, updateMember,
     updateLiveHealthy, updateCashBagPlus,
     updateBenefitBalance, toggleRenewalSimulation,
-    updateLineItem, addLineItem, removeLineItem,
+    updateLineItem,
     addEndorsement, removeEndorsement,
   } = useClaimContext();
 
@@ -46,6 +46,20 @@ export default function App() {
   const formatCurrency = (val: number | undefined) => {
     if (val === undefined) return '₹0.00';
     return `₹${Number(val).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  // Utility to gracefully strip or isolate model thinking tracks in the UI
+  const parseReasoningText = (text: string): { thinking: string; cleanText: string } => {
+    const thinkRegex = /<(?:\|thought\||think)>([\s\S]*?)<\/(?:\|thought\||think)>/i;
+    const match = text.match(thinkRegex);
+    
+    if (match) {
+      return {
+        thinking: match[1].trim(),
+        cleanText: text.replace(thinkRegex, '').trim()
+      };
+    }
+    return { thinking: '', cleanText: text };
   };
 
   // Find reasoning trace values in decision trace logs
@@ -557,7 +571,9 @@ export default function App() {
                 decision.claim_decision === 'APPROVED' ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300' :
                 decision.claim_decision === 'PARTIALLY_APPROVED' ? 'bg-amber-950/20 border-amber-500/30 text-amber-300' :
                 decision.claim_decision === 'REJECTED' ? 'bg-red-950/20 border-red-500/30 text-red-300' :
-                'bg-violet-950/20 border-violet-500/30 text-violet-300'
+                decision.claim_decision === 'ASSISTED_REVIEW' ? 'bg-amber-950/20 border-amber-500/30 text-amber-300' :
+                decision.claim_decision === 'MEDICAL_REVIEW' ? 'bg-purple-950/20 border-purple-500/30 text-purple-300' :
+                'bg-rose-950/20 border-rose-500/30 text-rose-300'
               }`}>
                 <div>
                   <div className="flex items-center gap-1.5">
@@ -573,6 +589,21 @@ export default function App() {
                   <p className="text-lg font-bold font-mono text-white">{formatCurrency(decision.total_payable)}</p>
                 </div>
               </div>
+
+              {/* MANUAL REVIEW REASONS CARD */}
+              {decision.manual_review_required && decision.review_reasons && decision.review_reasons.length > 0 && (
+                <div className="p-4 bg-amber-950/10 border border-amber-500/20 rounded-2xl flex flex-col gap-2 animate-pulse">
+                  <div className="flex items-center gap-2 text-amber-400 font-semibold text-xs uppercase tracking-wider">
+                    <AlertTriangle className="w-4 h-4 animate-bounce" />
+                    <span>Review Flags ({decision.claim_decision})</span>
+                  </div>
+                  <ul className="list-disc pl-5 text-[11px] text-slate-300 space-y-1">
+                    {decision.review_reasons.map((r, i) => (
+                      <li key={i}>{r}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {/* TELEMETRY BADGES CONTAINER */}
               {(decision.deduction_breakdown.lock_the_clock_premium_delta > 0 || decision.decision_trace.some(t => t.rule_id === "CASH_BAG_PLUS_ACCRUAL")) && (
@@ -630,19 +661,35 @@ export default function App() {
                     <p className="text-[10px] text-slate-500">{"[SYS] Executing semantic rules validation..."}</p>
                     
                     {reasoningTraces.length > 0 ? (
-                      reasoningTraces.map((trace, index) => (
-                        <div key={index} className="flex flex-col gap-1 border-t border-white/5 pt-2 mt-1 first:border-0 first:pt-0 first:mt-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[9px] uppercase text-violet-400 font-bold">{trace.rule_id}</span>
-                            <span className={`text-[8px] px-1 py-0.2 rounded font-semibold ${trace.evaluation === 'PASSED' ? 'bg-emerald-950 text-emerald-400' : 'bg-red-950 text-red-400'}`}>
-                              {trace.evaluation}
-                            </span>
+                      reasoningTraces.map((trace, index) => {
+                        const { thinking, cleanText } = parseReasoningText(trace.reason);
+                        return (
+                          <div key={index} className="flex flex-col gap-1 border-t border-white/5 pt-2 mt-1 first:border-0 first:pt-0 first:mt-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[9px] uppercase text-violet-400 font-bold">{trace.rule_id}</span>
+                              <span className={`text-[8px] px-1 py-0.2 rounded font-semibold ${trace.evaluation === 'PASSED' ? 'bg-emerald-950 text-emerald-400' : 'bg-red-950 text-red-400'}`}>
+                                {trace.evaluation}
+                              </span>
+                              {trace.confidence !== undefined && (
+                                <span className="text-[8px] text-slate-500">
+                                  {(trace.confidence * 100).toFixed(0)}% conf
+                                </span>
+                              )}
+                            </div>
+                            {thinking && (
+                              <details className="text-[10px] text-slate-500 pl-2 border-l border-white/10 mt-0.5 cursor-pointer select-none">
+                                <summary className="hover:text-slate-400 transition-smooth">View Thinking Process...</summary>
+                                <div className="mt-1 pl-2 border-l border-dashed border-white/5 whitespace-pre-wrap font-mono text-[9px] text-slate-600 bg-white/2 p-2 rounded">
+                                  {thinking}
+                                </div>
+                              </details>
+                            )}
+                            <p className="text-[11px] text-slate-300 leading-relaxed pl-2 border-l border-white/10 italic">
+                              {cleanText}
+                            </p>
                           </div>
-                          <p className="text-[11px] text-slate-300 leading-relaxed pl-2 border-l border-white/10 italic">
-                            &lt;think&gt; {trace.reason} &lt;/think&gt;
-                          </p>
-                        </div>
-                      ))
+                        );
+                      })
                     ) : (
                       <p className="text-[11px] text-slate-400 italic">No semantic agent reasoning traces generated for this claim.</p>
                     )}

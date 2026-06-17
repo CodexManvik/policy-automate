@@ -27,120 +27,81 @@ from metrics import telemetry_context, TelemetrySession, PipelineMetricsEngine
 
 
 class ExecutionMixin:
-    def _execute_plan(
+    def _process_step_result(
         self,
-        plan: ExecutionPlan,
-        line_item,
+        step: ExecutionStep,
+        passed: bool,
+        trace: DecisionTrace,
+        deduction: Optional[DeductionDetail],
+        claimed_amount: float,
+        admissible_amount: float,
+        payable_amount: float,
+        item_deductions: List[DeductionDetail],
+        item_traces: List[DecisionTrace],
+        step_confidences: List[Tuple[float, float]],
         context: ClaimContext,
-        state: PerClaimState
-    ) -> LineItemDecision:
+        line_item
+    ) -> Tuple[float, float, Optional[LineItemDecision]]:
         """
-        Execute the dynamically generated execution plan
-        
-        Phase 2: Routes each step to appropriate executor:
-        - Deterministic rules → calculation tools
-        - Semantic rules → AI agent
-        - Hybrid rules → both
+        Process the result of a single execution step.
+        Updates admissible/payable amounts, appends traces/deductions/confidences,
+        and returns a LineItemDecision if a fail-safe route is triggered.
         """
-        item_traces: List[DecisionTrace] = []
-        item_deductions: List[DeductionDetail] = []
+        item_traces.append(trace)
+        step_confidences.append((trace.confidence, getattr(step, 'confidence_weight', 1.0)))
         
-        claimed_amount = line_item.claimed_amount
-        admissible_amount = claimed_amount
-        payable_amount = claimed_amount
+        if deduction:
+            item_deductions.append(deduction)
+            admissible_amount -= deduction.amount
+            payable_amount -= deduction.amount
+            
+        # Log the gate evaluation
+        AgentReasoningLogger.log_gate_evaluation(
+            claim_id=context.claim_id,
+            line_item_id=line_item.line_item_id if line_item else None,
+            gate=step.gate.value if hasattr(step.gate, "value") else str(step.gate),
+            rule_id=step.rule_id,
+            inputs=trace.inputs if trace.inputs else {},
+            evaluation_status=trace.evaluation,
+            reason=trace.reason
+        )
         
-        # Track confidence
-        step_confidences = []
-        
-        # Per-call step counter — local variable, not instance state
-        current_step = 0
-        # Execute each step in the plan
-        for step in plan.execution_steps:
-            current_step += 1
-            
-            gate_name = step.gate.value if hasattr(step.gate, "value") else str(step.gate)
-            t_start = time.perf_counter()
-            
-            # Route based on execution type
-            if step.execution_type == ExecutionType.DETERMINISTIC.value:
-                passed, trace, deduction = self._execute_deterministic_step(
-                    step, line_item, context, state
-                )
-            
-            elif step.execution_type == ExecutionType.SEMANTIC.value:
-                passed, trace, deduction = self._execute_semantic_step(
-                    step, line_item, context, state
-                )
-                self.semantic_calls += 1
-            
-            elif step.execution_type == ExecutionType.HYBRID.value:
-                passed, trace, deduction = self._execute_hybrid_step(
-                    step, line_item, context, state
-                )
-            
-            else:
-                # Fallback to deterministic
-                passed, trace, deduction = self._execute_deterministic_step(
-                    step, line_item, context, state
-                )
-            
-            duration_ms = (time.perf_counter() - t_start) * 1000.0
-            session = telemetry_context.get()
-            if session:
-                session.record_gate_latency(gate_name, duration_ms)
-            
-            # Add trace
-            item_traces.append(trace)
-            step_confidences.append((trace.confidence, getattr(step, 'confidence_weight', 1.0)))
-            
-            # Add deduction if applicable
-            if deduction:
-                item_deductions.append(deduction)
-                admissible_amount -= deduction.amount
-                payable_amount -= deduction.amount
-            
-            # Log the gate evaluation
-            AgentReasoningLogger.log_gate_evaluation(
-                claim_id=context.claim_id,
-                line_item_id=line_item.line_item_id if line_item else None,
-                gate=step.gate.value if hasattr(step.gate, "value") else str(step.gate),
-                rule_id=step.rule_id,
-                inputs=trace.inputs if trace.inputs else {},
-                evaluation_status=trace.evaluation,
-                reason=trace.reason
+        if not passed:
+            is_semantic_or_hybrid = step.execution_type in (
+                ExecutionType.SEMANTIC.value, ExecutionType.HYBRID.value
             )
-            
-            # ---------------------------------------------------------------
-            # FAIL-SAFE ROUTING: Fail-safe, not fail-open.
-            # Distinguish between:
-            #   (a) Deterministic hard rejection (EXCLUSION_ACTIVE, policy
-            #       lapsed, member not eligible) → REJECTED is appropriate.
-            #   (b) Semantic / Hybrid ambiguity (model returns FAILED because
-            #       it lacks context to rule definitively) → must NOT produce
-            #       a zero-payout auto-approval. Route to ASSISTED_REVIEW.
-            #   (c) Confidence below threshold on any step type → PENDING_REVIEW.
-            # ---------------------------------------------------------------
-            if not passed:
-                is_semantic_or_hybrid = step.execution_type in (
-                    ExecutionType.SEMANTIC.value, ExecutionType.HYBRID.value
+            exclusion_hard_stop = trace.evaluation == "EXCLUSION_ACTIVE"
+            is_exclusion_gate = step.gate.value == "exclusion_validation" if hasattr(step.gate, "value") else "exclusion" in str(step.gate)
+            if trace.confidence < self.medical_review_threshold:
+                self.manual_review_count += 1
+                AgentReasoningLogger.log_routing(
+                    claim_id=context.claim_id,
+                    line_item_id=line_item.line_item_id if line_item else None,
+                    gate=step.gate.value if hasattr(step.gate, "value") else str(step.gate),
+                    rule_id=step.rule_id,
+                    confidence=trace.confidence,
+                    action="PENDING_REVIEW",
+                    reason=f"Very low confidence ({trace.confidence:.2f}) on failed step: {trace.reason}"
                 )
-                exclusion_hard_stop = trace.evaluation == "EXCLUSION_ACTIVE"
-                is_exclusion_gate = step.gate.value == "exclusion_validation" if hasattr(step.gate, "value") else "exclusion" in str(step.gate)
-                if trace.confidence < self.medical_review_threshold:
-                    self.manual_review_count += 1
-                    AgentReasoningLogger.log_routing(
-                        claim_id=context.claim_id,
-                        line_item_id=line_item.line_item_id if line_item else None,
-                        gate=step.gate.value if hasattr(step.gate, "value") else str(step.gate),
-                        rule_id=step.rule_id,
-                        confidence=trace.confidence,
-                        action="PENDING_REVIEW",
-                        reason=f"Very low confidence ({trace.confidence:.2f}) on failed step: {trace.reason}"
-                    )
-                    return self._create_review_decision(
-                        line_item, f"Low confidence: {trace.reason}", item_traces
-                    )
-                elif exclusion_hard_stop and trace.confidence < 0.80:
+                return admissible_amount, payable_amount, self._create_review_decision(
+                    line_item, f"Low confidence: {trace.reason}", item_traces
+                )
+            elif exclusion_hard_stop and trace.confidence < 0.80:
+                self.manual_review_count += 1
+                AgentReasoningLogger.log_routing(
+                    claim_id=context.claim_id,
+                    line_item_id=line_item.line_item_id if line_item else None,
+                    gate=step.gate.value if hasattr(step.gate, "value") else str(step.gate),
+                    rule_id=step.rule_id,
+                    confidence=trace.confidence,
+                    action="MEDICAL_REVIEW",
+                    reason=f"Low-confidence exclusion ({trace.confidence:.2f}): {trace.reason}"
+                )
+                return admissible_amount, payable_amount, self._create_medical_review_decision(
+                    line_item, trace.reason, item_traces, confidence=trace.confidence
+                )
+            elif is_semantic_or_hybrid and not exclusion_hard_stop:
+                if is_exclusion_gate and trace.confidence < self.assisted_review_threshold:
                     self.manual_review_count += 1
                     AgentReasoningLogger.log_routing(
                         claim_id=context.claim_id,
@@ -149,59 +110,60 @@ class ExecutionMixin:
                         rule_id=step.rule_id,
                         confidence=trace.confidence,
                         action="MEDICAL_REVIEW",
-                        reason=f"Low-confidence exclusion ({trace.confidence:.2f}): {trace.reason}"
+                        reason=f"Intermediate confidence ({trace.confidence:.2f}) on exclusion gate: {trace.reason}"
                     )
-                    return self._create_medical_review_decision(
+                    return admissible_amount, payable_amount, self._create_medical_review_decision(
                         line_item, trace.reason, item_traces, confidence=trace.confidence
                     )
-                elif is_semantic_or_hybrid and not exclusion_hard_stop:
-                    if is_exclusion_gate and trace.confidence < self.assisted_review_threshold:
-                        self.manual_review_count += 1
-                        AgentReasoningLogger.log_routing(
-                            claim_id=context.claim_id,
-                            line_item_id=line_item.line_item_id if line_item else None,
-                            gate=step.gate.value if hasattr(step.gate, "value") else str(step.gate),
-                            rule_id=step.rule_id,
-                            confidence=trace.confidence,
-                            action="MEDICAL_REVIEW",
-                            reason=f"Intermediate confidence ({trace.confidence:.2f}) on exclusion gate: {trace.reason}"
-                        )
-                        return self._create_medical_review_decision(
-                            line_item, trace.reason, item_traces, confidence=trace.confidence
-                        )
-                    elif trace.confidence < self.confidence_threshold:
-                        self.manual_review_count += 1
-                        AgentReasoningLogger.log_routing(
-                            claim_id=context.claim_id,
-                            line_item_id=line_item.line_item_id if line_item else None,
-                            gate=step.gate.value if hasattr(step.gate, "value") else str(step.gate),
-                            rule_id=step.rule_id,
-                            confidence=trace.confidence,
-                            action="ASSISTED_REVIEW",
-                            reason=f"Semantic ambiguity ({trace.confidence:.2f}): {trace.reason}"
-                        )
-                        return LineItemDecision(
-                            line_item_id=line_item.line_item_id,
-                            description=line_item.description,
-                            claimed_amount=claimed_amount,
-                            admissible_amount=admissible_amount,
-                            payable_amount=payable_amount,
-                            decision="ASSISTED_REVIEW",
-                            deductions=item_deductions,
-                            decision_trace=item_traces,
-                            confidence_score=trace.confidence,
-                            manual_review_required=True,
-                            review_reason=f"Semantic rule {step.rule_id} returned ambiguous evaluation: {trace.reason}"
-                        )
-                    else:
-                        return self._create_rejected_decision(
-                            line_item, trace.reason, item_traces
-                        )
+                elif trace.confidence < self.confidence_threshold:
+                    self.manual_review_count += 1
+                    AgentReasoningLogger.log_routing(
+                        claim_id=context.claim_id,
+                        line_item_id=line_item.line_item_id if line_item else None,
+                        gate=step.gate.value if hasattr(step.gate, "value") else str(step.gate),
+                        rule_id=step.rule_id,
+                        confidence=trace.confidence,
+                        action="ASSISTED_REVIEW",
+                        reason=f"Semantic ambiguity ({trace.confidence:.2f}): {trace.reason}"
+                    )
+                    return admissible_amount, payable_amount, LineItemDecision(
+                        line_item_id=line_item.line_item_id,
+                        description=line_item.description,
+                        claimed_amount=claimed_amount,
+                        admissible_amount=admissible_amount,
+                        payable_amount=payable_amount,
+                        decision="ASSISTED_REVIEW",
+                        deductions=item_deductions,
+                        decision_trace=item_traces,
+                        confidence_score=trace.confidence,
+                        manual_review_required=True,
+                        review_reason=f"Semantic rule {step.rule_id} returned ambiguous evaluation: {trace.reason}"
+                    )
                 else:
-                    return self._create_rejected_decision(
+                    return admissible_amount, payable_amount, self._create_rejected_decision(
                         line_item, trace.reason, item_traces
                     )
-        
+            else:
+                return admissible_amount, payable_amount, self._create_rejected_decision(
+                    line_item, trace.reason, item_traces
+                )
+        return admissible_amount, payable_amount, None
+
+    def _finalize_line_item_decision(
+        self,
+        claimed_amount: float,
+        admissible_amount: float,
+        payable_amount: float,
+        item_deductions: List[DeductionDetail],
+        item_traces: List[DecisionTrace],
+        step_confidences: List[Tuple[float, float]],
+        context: ClaimContext,
+        line_item,
+        state: PerClaimState
+    ) -> LineItemDecision:
+        """
+        Finalize financial gates and routing decisions for a line item.
+        """
         # Calculate final payable through financial gates
         if payable_amount > 0:
             # Enforce Mutual Exclusivity Constraints before running financials
@@ -296,11 +258,8 @@ class ExecutionMixin:
         else:
             overall_confidence = 1.0
         state.overall_confidence = overall_confidence
-        # Issue 16 / Gap 8: Four-tier confidence routing (Section 9.2):
-        #   >= 0.90   → auto-approve/reject deterministically
-        #   0.70-0.90 → ASSISTED_REVIEW: pre-populate, flag for operations review
-        #   0.50-0.70 → MEDICAL_REVIEW: clinical review for ambiguous exclusions (Gap 8)
-        #   < 0.50    → PENDING_REVIEW: full manual review
+        
+        # Issue 16 / Gap 8: Four-tier confidence routing (Section 9.2)
         if overall_confidence < self.medical_review_threshold:
             self.manual_review_count += 1
             AgentReasoningLogger.log_routing(
@@ -325,7 +284,7 @@ class ExecutionMixin:
                 manual_review_required=True,
                 review_reason=f"Very low confidence ({overall_confidence:.2f}) — full manual review required"
             )
-        if overall_confidence < self.assisted_review_threshold:
+        elif overall_confidence < self.assisted_review_threshold:
             self.manual_review_count += 1
             AgentReasoningLogger.log_routing(
                 claim_id=context.claim_id,
@@ -352,8 +311,7 @@ class ExecutionMixin:
                 manual_review_required=True,
                 review_reason=f"Intermediate confidence ({overall_confidence:.2f}) — clinical review required"
             )
-        if overall_confidence < self.confidence_threshold:
-            # Assisted mode: decision is pre-populated but flagged for ops review
+        elif overall_confidence < self.confidence_threshold:
             self.manual_review_count += 1
             if payable_amount == 0:
                 assisted_status = "REJECTED"
@@ -384,6 +342,7 @@ class ExecutionMixin:
                 manual_review_required=True,
                 review_reason=f"Medium confidence ({overall_confidence:.2f}) — pre-populated for operations review (suggested: {assisted_status})"
             )
+        
         # High confidence (>= 0.90): determine outcome from financials
         if payable_amount == 0:
             decision_status = "REJECTED"
@@ -410,8 +369,67 @@ class ExecutionMixin:
             deductions=item_deductions,
             decision_trace=item_traces,
             confidence_score=overall_confidence,
-            manual_review_required=False,
-            review_reason=None
+            manual_review_required=False
+        )
+
+    def _execute_plan(
+        self,
+        plan: ExecutionPlan,
+        line_item,
+        context: ClaimContext,
+        state: PerClaimState
+    ) -> LineItemDecision:
+        """
+        Execute the dynamically generated execution plan
+        """
+        item_traces: List[DecisionTrace] = []
+        item_deductions: List[DeductionDetail] = []
+        
+        claimed_amount = line_item.claimed_amount
+        admissible_amount = claimed_amount
+        payable_amount = claimed_amount
+        
+        step_confidences = []
+        
+        for step in plan.execution_steps:
+            gate_name = step.gate.value if hasattr(step.gate, "value") else str(step.gate)
+            t_start = time.perf_counter()
+            
+            # Route based on execution type
+            if step.execution_type == ExecutionType.DETERMINISTIC.value:
+                passed, trace, deduction = self._execute_deterministic_step(
+                    step, line_item, context, state
+                )
+            elif step.execution_type == ExecutionType.SEMANTIC.value:
+                passed, trace, deduction = self._execute_semantic_step(
+                    step, line_item, context, state
+                )
+                self.semantic_calls += 1
+            elif step.execution_type == ExecutionType.HYBRID.value:
+                passed, trace, deduction = self._execute_hybrid_step(
+                    step, line_item, context, state
+                )
+            else:
+                passed, trace, deduction = self._execute_deterministic_step(
+                    step, line_item, context, state
+                )
+            
+            duration_ms = (time.perf_counter() - t_start) * 1000.0
+            session = telemetry_context.get()
+            if session:
+                session.record_gate_latency(gate_name, duration_ms)
+                
+            admissible_amount, payable_amount, fail_decision = self._process_step_result(
+                step, passed, trace, deduction, claimed_amount, admissible_amount, payable_amount,
+                item_deductions, item_traces, step_confidences, context, line_item
+            )
+            if fail_decision:
+                return fail_decision
+                
+        return self._finalize_line_item_decision(
+            claimed_amount, admissible_amount, payable_amount,
+            item_deductions, item_traces, step_confidences,
+            context, line_item, state
         )
 
     def _process_line_item(
@@ -558,7 +576,7 @@ class ExecutionMixin:
             return self._execute_waiting_period_check(step, line_item, context, state)
         
         elif step.gate == RuleGate.EXCLUSION_VALIDATION:
-            passed, trace = self._gate_5_exclusion_validation(context, line_item, step.rule_id)
+            passed, trace = self._gate_5_exclusion_validation(context, line_item, step.rule_id, deterministic_only=True)
             return passed, trace, None
         
         # Default pass for unhandled deterministic rules
@@ -640,25 +658,72 @@ class ExecutionMixin:
             rule_type = "waiting_period"
         
         # Call semantic agent
-        result = self.semantic_agent.execute_semantic_rule(
-            step.rule_id,
-            step.semantic_prompt,
-            rule_type
-        )
+        try:
+            result = self.semantic_agent.execute_semantic_rule(
+                step.rule_id,
+                step.semantic_prompt,
+                rule_type
+            )
+            passed = result.passed
+            evaluation_status = "PASSED" if passed else "FAILED"
+            reason = result.reason
+            confidence = result.confidence
+        except Exception as semantic_err:
+            passed = False
+            evaluation_status = "PENDING_REVIEW"
+            reason = f"Semantic agent failed/timed out: {semantic_err}"
+            confidence = 0.0
         
         # Create trace
         trace = DecisionTrace(
             step=_STEP_LOCAL.current_step,
             rule_id=step.rule_id,
             rule_name=step.rule_name,
-            gate=step.gate.value,
-            inputs={"semantic_prompt": step.semantic_prompt[:200]},
-            evaluation="PASSED" if result.passed else "FAILED",
-            reason=result.reason,
-            confidence=result.confidence
+            gate=step.gate.value if hasattr(step.gate, "value") else str(step.gate),
+            inputs={"semantic_prompt": step.semantic_prompt[:200] if step.semantic_prompt else ""},
+            evaluation=evaluation_status,
+            reason=reason,
+            confidence=confidence
         )
         
-        return result.passed, trace, None
+        return passed, trace, None
+
+    def _execute_step_core(
+        self,
+        step: ExecutionStep,
+        line_item,
+        context: ClaimContext,
+        state: PerClaimState
+    ) -> Tuple[bool, DecisionTrace, Optional[DeductionDetail], bool]:
+        """
+        Core decision logic for hybrid rule execution.
+        Executes deterministic check and determines if semantic check is required.
+        """
+        det_passed, det_trace, det_deduction = self._execute_deterministic_step(
+            step, line_item, context, state
+        )
+        
+        is_hard_decision = det_trace.evaluation in ("PASSED", "FAILED", "EXCLUSION_ACTIVE", "NOT_APPLICABLE")
+        needs_semantic = (
+            not is_hard_decision 
+            or det_trace.evaluation in ("AMBIGUOUS", "UNCERTAIN") 
+            or det_trace.confidence == 0.0
+        )
+        
+        return det_passed, det_trace, det_deduction, needs_semantic
+
+    def _resolve_hybrid_decision(
+        self,
+        det_passed: bool,
+        det_trace: DecisionTrace,
+        det_deduction: Optional[DeductionDetail],
+        sem_passed: bool,
+        sem_trace: DecisionTrace
+    ) -> Tuple[bool, DecisionTrace, Optional[DeductionDetail]]:
+        """Resolve final decision from deterministic and semantic inputs based on confidence"""
+        if sem_trace.confidence > det_trace.confidence:
+            return sem_passed, sem_trace, det_deduction
+        return det_passed, det_trace, det_deduction
 
     def _execute_hybrid_step(
         self,
@@ -668,21 +733,17 @@ class ExecutionMixin:
         state: PerClaimState
     ) -> Tuple[bool, DecisionTrace, Optional[DeductionDetail]]:
         """Execute hybrid rule (deterministic + semantic)"""
-        
-        # First try deterministic check
-        det_passed, det_trace, det_deduction = self._execute_deterministic_step(
+        det_passed, det_trace, det_deduction, needs_semantic = self._execute_step_core(
             step, line_item, context, state
         )
         
-        # If deterministic check is uncertain, use semantic
-        if det_trace.confidence < 0.95:
+        if needs_semantic:
             sem_passed, sem_trace, _ = self._execute_semantic_step(
                 step, line_item, context, state
             )
-            
-            # Combine results - use semantic if higher confidence
-            if sem_trace.confidence > det_trace.confidence:
-                return sem_passed, sem_trace, det_deduction
+            return self._resolve_hybrid_decision(
+                det_passed, det_trace, det_deduction, sem_passed, sem_trace
+            )
         
         return det_passed, det_trace, det_deduction
 
@@ -698,13 +759,13 @@ class ExecutionMixin:
         Phase 2: Fixed implementation with proper logic
         """
         # Calculate continuous coverage months
-        continuous_months = context.history.claim_free_years * 12
-        
-        # Coerce inputs safely
         policy_start = self._coerce_to_date(context.policy.policy_start_date)
         member_addition = self._coerce_to_date(context.member.date_of_addition) if getattr(context.member, "date_of_addition", None) else None
         inception_date = max(policy_start, member_addition) if member_addition else policy_start
-        admission_date = self._coerce_to_date(line_item.admission_date or line_item.expense_date)
+        today = self._coerce_to_date(line_item.admission_date or line_item.expense_date)
+        months_since_inception = (today.year - inception_date.year) * 12 + (today.month - inception_date.month)
+        continuous_months = months_since_inception + context.porting.waiting_period_credit_months
+        admission_date = today
         
         specified_diseases = None
         tbl_007 = self.product_memory.tables.get("R3_TBL_007")
@@ -738,7 +799,7 @@ class ExecutionMixin:
             },
             evaluation="EXCLUSION_ACTIVE" if result.exclusion_active else "PASSED",
             reason=result.details.get("reason", "Waiting period check complete"),
-            confidence=0.95 if not result.exclusion_active else 1.0
+            confidence=1.0
         )
         
         return not result.exclusion_active, trace, None
@@ -785,7 +846,6 @@ class ExecutionMixin:
         admissible_amount = claimed_amount
         payable_amount = claimed_amount
         
-        # Track confidence
         step_confidences = []
         
         # Step 1: Compute execution depth for each step in the plan
@@ -834,232 +894,19 @@ class ExecutionMixin:
                 
             results = await asyncio.gather(*tasks)
             
-            # Process results for this layer
-            for passed, trace, deduction in results:
-                item_traces.append(trace)
-                step_confidences.append((trace.confidence, getattr(step, 'confidence_weight', 1.0)))
-                
-                if deduction:
-                    item_deductions.append(deduction)
-                    admissible_amount -= deduction.amount
-                    payable_amount -= deduction.amount
-                
-                # ---------------------------------------------------------------
-                # FAIL-SAFE ROUTING (async path) — mirrors sync logic exactly.
-                # ---------------------------------------------------------------
-                if not passed:
-                    is_semantic_or_hybrid = step.execution_type in (
-                        ExecutionType.SEMANTIC.value, ExecutionType.HYBRID.value
-                    )
-                    exclusion_hard_stop = trace.evaluation == "EXCLUSION_ACTIVE"
-                    is_exclusion_gate = step.gate.value == "exclusion_validation" if hasattr(step.gate, "value") else "exclusion" in str(step.gate)
-                    if trace.confidence < self.medical_review_threshold:
-                        self.manual_review_count += 1
-                        AgentReasoningLogger.log_routing(
-                            claim_id=context.claim_id,
-                            line_item_id=line_item.line_item_id if line_item else None,
-                            gate=step.gate.value if hasattr(step.gate, "value") else str(step.gate),
-                            rule_id=step.rule_id,
-                            confidence=trace.confidence,
-                            action="PENDING_REVIEW",
-                            reason=f"Very low confidence ({trace.confidence:.2f}) on failed step: {trace.reason}"
-                        )
-                        return self._create_review_decision(
-                            line_item, f"Low confidence: {trace.reason}", item_traces
-                        )
-                    elif exclusion_hard_stop and trace.confidence < 0.80:
-                        self.manual_review_count += 1
-                        AgentReasoningLogger.log_routing(
-                            claim_id=context.claim_id,
-                            line_item_id=line_item.line_item_id if line_item else None,
-                            gate=step.gate.value if hasattr(step.gate, "value") else str(step.gate),
-                            rule_id=step.rule_id,
-                            confidence=trace.confidence,
-                            action="MEDICAL_REVIEW",
-                            reason=f"Low-confidence exclusion ({trace.confidence:.2f}): {trace.reason}"
-                        )
-                        return self._create_medical_review_decision(
-                            line_item, trace.reason, item_traces, confidence=trace.confidence
-                        )
-                    elif is_semantic_or_hybrid and not exclusion_hard_stop:
-                        if is_exclusion_gate and trace.confidence < self.assisted_review_threshold:
-                            self.manual_review_count += 1
-                            AgentReasoningLogger.log_routing(
-                                claim_id=context.claim_id,
-                                line_item_id=line_item.line_item_id if line_item else None,
-                                gate=step.gate.value if hasattr(step.gate, "value") else str(step.gate),
-                                rule_id=step.rule_id,
-                                confidence=trace.confidence,
-                                action="MEDICAL_REVIEW",
-                                reason=f"Intermediate confidence ({trace.confidence:.2f}) on exclusion gate: {trace.reason}"
-                            )
-                            return self._create_medical_review_decision(
-                                line_item, trace.reason, item_traces, confidence=trace.confidence
-                            )
-                        elif trace.confidence < self.confidence_threshold:
-                            self.manual_review_count += 1
-                            AgentReasoningLogger.log_routing(
-                                claim_id=context.claim_id,
-                                line_item_id=line_item.line_item_id if line_item else None,
-                                gate=step.gate.value if hasattr(step.gate, "value") else str(step.gate),
-                                rule_id=step.rule_id,
-                                confidence=trace.confidence,
-                                action="ASSISTED_REVIEW",
-                                reason=f"Semantic ambiguity ({trace.confidence:.2f}): {trace.reason}"
-                            )
-                            return LineItemDecision(
-                                line_item_id=line_item.line_item_id,
-                                description=line_item.description,
-                                claimed_amount=claimed_amount,
-                                admissible_amount=admissible_amount,
-                                payable_amount=payable_amount,
-                                decision="ASSISTED_REVIEW",
-                                deductions=item_deductions,
-                                decision_trace=item_traces,
-                                confidence_score=trace.confidence,
-                                manual_review_required=True,
-                                review_reason=f"Semantic rule {step.rule_id} returned ambiguous evaluation: {trace.reason}"
-                            )
-                        else:
-                            return self._create_rejected_decision(
-                                line_item, trace.reason, item_traces
-                            )
-                    else:
-                        return self._create_rejected_decision(
-                            line_item, trace.reason, item_traces
-                        )
-        
-        # Calculate final payable through financial gates
-        if payable_amount > 0:
-            # Enforce Mutual Exclusivity Constraints before running financials
-            mx_violation = self._validate_mutual_exclusivity(context)
-            if mx_violation:
-                constraint_id, reason = mx_violation
-                self.manual_review_count += 1
-                
-                mx_trace = DecisionTrace(
-                    step=_STEP_LOCAL.current_step + 1,
-                    rule_id=constraint_id,
-                    rule_name="Mutual Exclusivity Validation",
-                    gate="financial_computation",
-                    inputs={
-                        "co_payment_percent": context.policy.co_payment_percent,
-                        "annual_aggregate_deductible": context.policy.annual_aggregate_deductible,
-                    },
-                    evaluation="FAILED",
-                    reason=reason,
-                    confidence=0.0,
-                    source_section="mutual_exclusivity_constraints"
+            # Process results for this layer (fixing scoping bug by using zip)
+            for step, (passed, trace, deduction) in zip(layer_steps, results):
+                admissible_amount, payable_amount, fail_decision = self._process_step_result(
+                    step, passed, trace, deduction, claimed_amount, admissible_amount, payable_amount,
+                    item_deductions, item_traces, step_confidences, context, line_item
                 )
-                item_traces.append(mx_trace)
-                
-                return LineItemDecision(
-                    line_item_id=line_item.line_item_id,
-                    description=line_item.description,
-                    claimed_amount=claimed_amount,
-                    admissible_amount=0.0,
-                    payable_amount=0.0,
-                    decision="PENDING_REVIEW",
-                    deductions=[],
-                    decision_trace=item_traces,
-                    confidence_score=0.0,
-                    manual_review_required=True,
-                    review_reason=f"Mutual Exclusivity Constraint {constraint_id}: {reason}"
-                )
-            final_admissible, final_payable, fin_deductions, fin_traces = \
-                self._execute_financial_gates(context, line_item, payable_amount, state)
-            
-            item_traces.extend(fin_traces)
-            item_deductions.extend(fin_deductions)
-            payable_amount = final_payable
-            admissible_amount = final_admissible
-        
-        # Calculate overall confidence using confidence_weight (Gap 12)
-        if step_confidences:
-            weighted_sum = 0.0
-            weight_total = 0.0
-            for entry in step_confidences:
-                if isinstance(entry, tuple):
-                    conf, w = entry
-                else:
-                    conf, w = entry, 1.0
-                weighted_sum += conf * w
-                weight_total += w
-            overall_confidence = weighted_sum / weight_total if weight_total > 0 else 1.0
-        else:
-            overall_confidence = 1.0
-        state.overall_confidence = overall_confidence
-        # Issue 16 / Gap 8: Four-tier confidence routing (Section 9.2):
-        if overall_confidence < self.medical_review_threshold:
-            self.manual_review_count += 1
-            return LineItemDecision(
-                line_item_id=line_item.line_item_id,
-                description=line_item.description,
-                claimed_amount=claimed_amount,
-                admissible_amount=admissible_amount,
-                payable_amount=payable_amount,
-                decision="PENDING_REVIEW",
-                deductions=item_deductions,
-                decision_trace=item_traces,
-                confidence_score=overall_confidence,
-                manual_review_required=True,
-                review_reason=f"Very low confidence ({overall_confidence:.2f}) - full manual review required"
-            )
-        if overall_confidence < self.assisted_review_threshold:
-            self.manual_review_count += 1
-            return LineItemDecision(
-                line_item_id=line_item.line_item_id,
-                description=line_item.description,
-                claimed_amount=claimed_amount,
-                admissible_amount=admissible_amount,
-                payable_amount=payable_amount,
-                decision="MEDICAL_REVIEW",
-                deductions=item_deductions,
-                decision_trace=item_traces,
-                confidence_score=overall_confidence,
-                manual_review_required=True,
-                review_reason=f"Intermediate confidence ({overall_confidence:.2f}) - clinical review required"
-            )
-        if overall_confidence < self.confidence_threshold:
-            self.manual_review_count += 1
-            if payable_amount == 0:
-                assisted_status = "REJECTED"
-            elif payable_amount < claimed_amount:
-                assisted_status = "PARTIALLY_APPROVED"
-            else:
-                assisted_status = "APPROVED"
-            return LineItemDecision(
-                line_item_id=line_item.line_item_id,
-                description=line_item.description,
-                claimed_amount=claimed_amount,
-                admissible_amount=admissible_amount,
-                payable_amount=payable_amount,
-                decision="ASSISTED_REVIEW",
-                deductions=item_deductions,
-                decision_trace=item_traces,
-                confidence_score=overall_confidence,
-                manual_review_required=True,
-                review_reason=f"Medium confidence ({overall_confidence:.2f}) - pre-populated for operations review (suggested: {assisted_status})"
-            )
-        # High confidence (>= 0.90)
-        if payable_amount == 0:
-            decision_status = "REJECTED"
-        elif payable_amount < claimed_amount:
-            decision_status = "PARTIALLY_APPROVED"
-        else:
-            decision_status = "APPROVED"
-        return LineItemDecision(
-            line_item_id=line_item.line_item_id,
-            description=line_item.description,
-            claimed_amount=claimed_amount,
-            admissible_amount=admissible_amount,
-            payable_amount=payable_amount,
-            decision=decision_status,
-            deductions=item_deductions,
-            decision_trace=item_traces,
-            confidence_score=overall_confidence,
-            manual_review_required=False,
-            review_reason=None
+                if fail_decision:
+                    return fail_decision
+                    
+        return self._finalize_line_item_decision(
+            claimed_amount, admissible_amount, payable_amount,
+            item_deductions, item_traces, step_confidences,
+            context, line_item, state
         )
 
 
@@ -1110,18 +957,18 @@ class ExecutionMixin:
         state: PerClaimState
     ) -> Tuple[bool, DecisionTrace, Optional[DeductionDetail]]:
         """Execute hybrid step, calling semantic LLM in thread pool if deterministic confidence is low"""
-        det_passed, det_trace, det_deduction = self._execute_deterministic_step(
+        det_passed, det_trace, det_deduction, needs_semantic = self._execute_step_core(
             step, line_item, context, state
         )
         
-        if det_trace.confidence < 0.95:
+        if needs_semantic:
             sem_passed, sem_trace, _ = await asyncio.to_thread(
                 self._execute_semantic_step, step, line_item, context, state
             )
             self.semantic_calls += 1
+            return self._resolve_hybrid_decision(
+                det_passed, det_trace, det_deduction, sem_passed, sem_trace
+            )
             
-            if sem_trace.confidence > det_trace.confidence:
-                return sem_passed, sem_trace, det_deduction
-                
         return det_passed, det_trace, det_deduction
 

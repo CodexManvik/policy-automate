@@ -204,7 +204,8 @@ export interface DecisionTrace {
   inputs: Record<string, unknown>;
   evaluation: string;
   reason: string;
-  confidence?: number;
+  confidence: number;
+  source_section?: string;
 }
 
 export interface LineItemDecision {
@@ -213,9 +214,12 @@ export interface LineItemDecision {
   claimed_amount: number;
   admissible_amount: number;
   payable_amount: number;
-  decision: string;
+  decision: ClaimDecisionStatus;
   deductions: DeductionDetail[];
   decision_trace: DecisionTrace[];
+  confidence_score: number;
+  manual_review_required: boolean;
+  review_reason?: string;
 }
 
 export interface DeductionBreakdown {
@@ -245,6 +249,7 @@ export type ClaimDecisionStatus =
   | 'PARTIALLY_APPROVED'
   | 'REJECTED'
   | 'ASSISTED_REVIEW'
+  | 'MEDICAL_REVIEW'
   | 'PENDING_REVIEW';
 
 export interface ClaimDecision {
@@ -268,11 +273,13 @@ export interface ClaimDecision {
 // ---------------------------------------------------------------------------
 
 export class ApiError extends Error {
+  public readonly status: number;
   constructor(
-    public readonly status: number,
+    status: number,
     message: string,
   ) {
     super(message);
+    this.status = status;
     this.name = 'ApiError';
   }
 }

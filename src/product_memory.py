@@ -16,7 +16,7 @@ import re
 # regardless of the working directory from which Python is invoked.
 _MODULE_DIR = Path(__file__).parent          # …/src/
 _DOCS_DIR   = _MODULE_DIR.parent / "docs"   # …/project_root/docs/
-_DEFAULT_EXTRACTION_FILE = _DOCS_DIR / "Product and Policy Rules Extraction.txt"
+_DEFAULT_EXTRACTION_FILE = _DOCS_DIR / "Product and Policy Rules Extraction.json"
 
 
 class RuleGate(str, Enum):
@@ -144,9 +144,9 @@ class ProductMemoryStore:
         else:
             paths_to_try = [
                 str(_DEFAULT_EXTRACTION_FILE),                                       # portable (primary)
-                "docs/Product and Policy Rules Extraction.txt",                      # CWD-relative (legacy)
-                "../docs/Product and Policy Rules Extraction.txt",                   # one level up (legacy)
-                "C:\\Project\\nivabupa\\policy automate\\docs\\Product and Policy Rules Extraction.txt"  # absolute (last resort)
+                "docs/Product and Policy Rules Extraction.json",                     # CWD-relative (legacy)
+                "../docs/Product and Policy Rules Extraction.json",                  # one level up (legacy)
+                "C:\\Project\\nivabupa\\policy automate\\docs\\Product and Policy Rules Extraction.json"  # absolute (last resort)
             ]
             
         for path in paths_to_try:
@@ -431,14 +431,17 @@ class ProductMemoryStore:
         # 2. Exclusions
         elif rule_id_upper.startswith("R3_EXCL"):
             gate = RuleGate.EXCLUSION_VALIDATION
-            if rule_id_upper in ["R3_EXCL_010", "R3_EXCL_020", "R3_EXCL_021"]:
+            if rule_id_upper in [
+                "R3_EXCL_004", "R3_EXCL_010", "R3_EXCL_011", "R3_EXCL_012",
+                "R3_EXCL_013", "R3_EXCL_015", "R3_EXCL_020", "R3_EXCL_021"
+            ]:
                 exec_type = ExecutionType.DETERMINISTIC
                 priority = 38
-            else:
-                exec_type = ExecutionType.SEMANTIC
                 if rule_id_upper == "R3_EXCL_004":
                     priority = 40
-                elif rule_id_upper == "R3_EXCL_016":
+            else:
+                exec_type = ExecutionType.SEMANTIC
+                if rule_id_upper == "R3_EXCL_016":
                     priority = 45
                 elif rule_id_upper == "R3_EXCL_007":
                     priority = 50

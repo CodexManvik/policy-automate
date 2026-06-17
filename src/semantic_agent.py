@@ -107,7 +107,8 @@ class SemanticExecutionAgent:
         self.llm_provider = llm_provider
         self.confidence_threshold = confidence_threshold
         self.local_llm_url = local_llm_url
-        self.api_key = os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+        from config import settings
+        self.api_key = settings.openai_api_key or os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
 
         if reasoning_on is not None:
             self.reasoning_on = reasoning_on
@@ -115,8 +116,9 @@ class SemanticExecutionAgent:
             self.reasoning_on = os.getenv("REASONING_ON", "true").lower() in ("true", "1", "yes")
 
         # Issue 20: split connect vs read timeouts for llama.cpp
-        self.connect_timeout_s: int = 5    # fast fail if server is not up
-        self.read_timeout_s: int = 120     # allow model to finish generating
+        from config import settings
+        self.connect_timeout_s: int = settings.llm_connect_timeout_s
+        self.read_timeout_s: int = settings.llm_read_timeout_s
 
         import threading
         self._local_llm_lock = threading.Lock()
@@ -124,6 +126,7 @@ class SemanticExecutionAgent:
         # Track semantic calls for observability
         self.call_count = 0
         self.total_confidence = 0.0
+        self._result_cache: Dict[str, SemanticResult] = {}
 
         # Fast probe to check if legacy raw /completion endpoint is supported and active
         self.use_legacy_completion = False
@@ -182,17 +185,24 @@ class SemanticExecutionAgent:
         Returns:
             SemanticResult with structured decision
         """
+        cache_key = f"{rule_id}:{rule_type}:{hash(prompt[:500])}"
+        if cache_key in self._result_cache:
+            return self._result_cache[cache_key]
+
         self.call_count += 1
         
         # Route to appropriate handler based on rule type
         if rule_type == "exclusion":
-            return self._assess_exclusion(rule_id, prompt, claim_id, line_item_id)
+            res = self._assess_exclusion(rule_id, prompt, claim_id, line_item_id)
         elif rule_type == "coverage":
-            return self._assess_coverage(rule_id, prompt, claim_id, line_item_id)
+            res = self._assess_coverage(rule_id, prompt, claim_id, line_item_id)
         elif rule_type == "waiting_period":
-            return self._assess_waiting_period(rule_id, prompt, claim_id, line_item_id)
+            res = self._assess_waiting_period(rule_id, prompt, claim_id, line_item_id)
         else:
             raise ValueError(f"Unknown rule type: {rule_type}")
+
+        self._result_cache[cache_key] = res
+        return res
     
     def _assess_exclusion(self, rule_id: str, prompt: str, claim_id: str, line_item_id: Optional[str]) -> SemanticResult:
         """
@@ -463,13 +473,14 @@ class SemanticExecutionAgent:
             client = openai.OpenAI(api_key=self.api_key)
             
             response = client.chat.completions.create(
-                model="gpt-4-turbo-preview",
+                model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
                 response_format={"type": "json_object"},
-                temperature=0.1  # Low temperature for consistency
+                temperature=0.0,  # Zero temperature for greedy decoding
+                seed=42
             )
             
             return response.choices[0].message.content
@@ -517,7 +528,8 @@ class SemanticExecutionAgent:
                 )
                 legacy_payload = {
                     "prompt": gemma_prompt,
-                    "temperature": 0.1,
+                    "temperature": 0.0,
+                    "seed": 42,
                     "top_p": 0.9,
                     "n_predict": 8196,
                     "stop": ["</s>", "<end_of_turn>", "<|eot_id|>", "<turn|>"],
@@ -550,7 +562,8 @@ class SemanticExecutionAgent:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                "temperature": 0.1,
+                "temperature": 0.0,
+                "seed": 42,
                 "max_tokens": 8196,
                 "stream": False,
             }

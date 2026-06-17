@@ -11,9 +11,9 @@ Usage:
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Annotated, Any
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict, NoDecode
 
 
 class Settings(BaseSettings):
@@ -51,6 +51,16 @@ class Settings(BaseSettings):
     reasoning_on: bool = Field(
         default=True,
         description="Enable extended chain-of-thought reasoning in local LLM completions",
+    )
+    llm_connect_timeout_s: int = Field(
+        default=60,
+        ge=1,
+        description="Connect timeout in seconds for local LLM requests",
+    )
+    llm_read_timeout_s: int = Field(
+        default=300,
+        ge=1,
+        description="Read timeout in seconds for local LLM requests",
     )
 
     # ------------------------------------------------------------------
@@ -92,7 +102,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # API Server
     # ------------------------------------------------------------------
-    cors_origins: List[str] = Field(
+    cors_origins: Annotated[List[str], NoDecode] = Field(
         default=["http://localhost:5173", "http://127.0.0.1:5173"],
         description="Allowed CORS origins. Use ['*'] ONLY for internal/development deployments.",
     )
@@ -134,6 +144,23 @@ class Settings(BaseSettings):
         if lower not in allowed:
             raise ValueError(f"llm_provider must be one of {allowed}, got '{v}'")
         return lower
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _validate_cors_origins(cls, v: Any) -> List[str]:
+        if isinstance(v, str):
+            if v.startswith("[") and v.endswith("]"):
+                try:
+                    import json
+                    parsed = json.loads(v)
+                    if isinstance(parsed, list):
+                        return [str(x).strip() for x in parsed]
+                except Exception:
+                    pass
+            return [x.strip() for x in v.split(",") if x.strip()]
+        if isinstance(v, list):
+            return [str(x).strip() for x in v]
+        return v
 
 
 
