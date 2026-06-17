@@ -98,7 +98,7 @@ async def test_full_integration_pipeline_smoke(local_server_url):
     assert context.endorsements[0].endorsement_id == "END-882"
 
     # Forward context into Adjudication Pipeline
-    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
     decision = pipeline.adjudicate_claim(context)
 
     # Capture and verify decision trace outputs

@@ -88,7 +88,7 @@ def create_base_test_context() -> ClaimContext:
 
 def test_copayment_percent_normalization():
     """Test 1: Co-payment percent normalization if provided as a whole number (> 1.0)"""
-    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
     
     # CASE A: co_payment_percent = 10.0 (whole number)
     context = create_base_test_context()
@@ -108,7 +108,7 @@ def test_copayment_percent_normalization():
 
 def test_room_rent_limit_fallback():
     """Test 2: Room rent limit fallback values (Select -> 4000.0, others -> 3000.0) when missing/None"""
-    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
     
     # Case A: Variant == Select, room_rent_limit = None
     context = create_base_test_context()
@@ -147,7 +147,7 @@ def test_dental_exclusion_deterministic():
     assert dental_rule.execution_type == ExecutionType.DETERMINISTIC
     assert dental_rule.priority == 38
 
-    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
 
     # Case A: Dental procedure in description, not accident-related -> Excluded
     context_excluded = create_base_test_context()
@@ -172,7 +172,7 @@ def test_dental_exclusion_deterministic():
 
 def test_waterfall_negative_bounds():
     """Test 4: Defensive wrap max(0.0, ...) on running payable amount and payable amount before waterfall"""
-    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
     context = create_base_test_context()
     
     # Let's verify that we can execute successfully without negative balance propagation
@@ -271,7 +271,7 @@ def test_deductible_dynamic_exempt_benefits():
 def test_reasoning_model_thinking_extraction():
     """Test 5: Verify that _extract_json_from_response correctly strips thinking blocks and parses JSON"""
     from semantic_agent import SemanticExecutionAgent
-    agent = SemanticExecutionAgent(llm_provider="mock", reasoning_on=True)
+    agent = SemanticExecutionAgent(llm_provider="local", reasoning_on=True)
     
     # CASE A: Standard DeepSeek style <think> block
     raw_response_ds = (
@@ -313,6 +313,7 @@ def test_gemma4_prompt_formatting():
     from unittest.mock import MagicMock
     
     agent = SemanticExecutionAgent(llm_provider="local", reasoning_on=True)
+    agent.use_legacy_completion = True
     
     # Mock self._http_post to return a valid JSON response so the call succeeds
     agent._http_post = MagicMock(return_value='{"content": "{\\"evaluation_status\\": \\"PASSED\\", \\"reasoning_trace\\": \\"test\\", \\"confidence_score\\": 0.95}"}')

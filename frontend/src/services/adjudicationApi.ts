@@ -14,7 +14,7 @@ import { ApiError } from '../types/claims';
 const BASE_URL: string =
   (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000';
 
-const DEFAULT_TIMEOUT_MS = 120_000; // 2 minutes: LLM calls can be slow
+const DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes: LLM calls can be slow
 
 /**
  * Submit a ClaimContext to the adjudication engine and return the ClaimDecision.
@@ -28,9 +28,9 @@ export async function adjudicateClaim(
   context: ClaimContext,
   signal?: AbortSignal,
 ): Promise<ClaimDecision> {
+  const controller = new AbortController();
   // Combine caller-provided signal with an internal timeout signal.
   const timeoutId = setTimeout(() => controller.abort('timeout'), DEFAULT_TIMEOUT_MS);
-  const controller = new AbortController();
   const combinedSignal = signal
     ? AbortSignal.any([signal, controller.signal])
     : controller.signal;

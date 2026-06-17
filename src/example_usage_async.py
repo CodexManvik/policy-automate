@@ -150,9 +150,9 @@ async def main_async():
     
     context = create_sample_claim_context()
     
-    # We will use the 'mock' LLM provider to run inside the test/demo environment reliably.
+    # We will use the 'local' LLM provider to run.
     # The async optimization is active for local/openai LLM providers as well.
-    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
     
     # 1. Execute Synchronously
     print("[1/3] Running Claim Adjudication Synchronously...")

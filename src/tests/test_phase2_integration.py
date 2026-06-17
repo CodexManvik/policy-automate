@@ -104,7 +104,7 @@ def test_semantic_agent_exclusions():
     print("="*70)
     
     # Use mock provider for testing
-    agent = SemanticExecutionAgent(llm_provider="mock")
+    agent = SemanticExecutionAgent(llm_provider="local")
     
     # Test cosmetic exclusion
     prompt_cosmetic = "Treatment: Rhinoplasty for cosmetic purposes"
@@ -143,7 +143,7 @@ def test_semantic_agent_coverage():
     print("="*70)
     
     # Use mock provider for testing
-    agent = SemanticExecutionAgent(llm_provider="mock")
+    agent = SemanticExecutionAgent(llm_provider="local")
     
     # Test valid coverage
     prompt = "Treatment: Appendectomy for acute appendicitis, medically necessary"
@@ -166,7 +166,7 @@ def test_confidence_based_routing():
     print("="*70)
     
     # Use mock provider for testing
-    agent = SemanticExecutionAgent(llm_provider="mock", confidence_threshold=0.90)
+    agent = SemanticExecutionAgent(llm_provider="local", confidence_threshold=0.90)
     
     # High confidence case
     result_high = agent.execute_semantic_rule(
@@ -302,7 +302,7 @@ def test_async_adjudication():
     from pipeline import ClaimsAdjudicationPipeline
     
     context = create_test_context()
-    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
     
     decision = asyncio.run(pipeline.adjudicate_claim_async(context))
     
@@ -348,7 +348,7 @@ def test_endorsement_processing():
     context.line_items[0].expense_date = datetime(2024, 6, 15)
     context.line_items[0].condition_diagnosed = "Fever"
     
-    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
     decision = pipeline.adjudicate_claim(context)
     
     # Resetting coverage continuous months means initial waiting period is active
@@ -403,7 +403,7 @@ def test_non_payable_deduction():
         )
     ]
     
-    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
     decision = pipeline.adjudicate_claim(context)
     
     # Should be fully rejected/deducted as non-payable items
@@ -447,7 +447,7 @@ def test_modern_treatment_sublimit():
         )
     ]
     
-    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
     decision = pipeline.adjudicate_claim(context)
     
     # Sub-limit of 50% = 50,000. Claimed = 80,000.
@@ -499,7 +499,7 @@ def test_hospital_daily_cash():
         )
     ]
     
-    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
     decision = pipeline.adjudicate_claim(context)
     
     assert decision.total_payable == 6000.0
@@ -535,7 +535,7 @@ def test_pa_benefit():
         )
     ]
     
-    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
     decision = pipeline.adjudicate_claim(context)
     
     assert decision.total_payable == 500000.0
@@ -558,7 +558,7 @@ def test_confidence_routing_assisted():
     context.policy.room_rent_limit = 10000.0
     context.line_items[0].description = "routine body optimization"
     
-    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock", confidence_threshold=0.99)
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local", confidence_threshold=0.99)
     decision = pipeline.adjudicate_claim(context)
     
     assert decision.claim_decision == "ASSISTED_REVIEW"

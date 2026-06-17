@@ -37,8 +37,8 @@ class Settings(BaseSettings):
     # LLM / Semantic Agent
     # ------------------------------------------------------------------
     llm_provider: str = Field(
-        default="mock",
-        description="LLM backend to use: 'mock' | 'local' | 'openai'",
+        default="default",
+        description="LLM backend to use: 'local' | 'openai' | 'default'",
     )
     llm_url: str = Field(
         default="http://127.0.0.1:8080",
@@ -129,12 +129,12 @@ class Settings(BaseSettings):
     @field_validator("llm_provider")
     @classmethod
     def _validate_llm_provider(cls, v: str) -> str:
-        allowed = {"mock", "local", "openai", "default"}
+        allowed = {"local", "openai", "default"}
         lower = v.lower()
         if lower not in allowed:
             raise ValueError(f"llm_provider must be one of {allowed}, got '{v}'")
-        # Normalize 'default' (legacy value from old env files) to 'mock'
-        return "mock" if lower == "default" else lower
+        return lower
+
 
 
 # Module-level singleton — import this everywhere rather than constructing Settings() repeatedly.

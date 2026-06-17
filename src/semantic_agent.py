@@ -99,7 +99,7 @@ class SemanticExecutionAgent:
 
     def __init__(
         self,
-        llm_provider: str = "mock",  # Issue 19: default to mock for local dev
+        llm_provider: str = "local",
         confidence_threshold: float = 0.90,
         local_llm_url: str = "http://127.0.0.1:8080",
         reasoning_on: Optional[bool] = None
@@ -118,11 +118,46 @@ class SemanticExecutionAgent:
         self.connect_timeout_s: int = 5    # fast fail if server is not up
         self.read_timeout_s: int = 120     # allow model to finish generating
 
+        import threading
+        self._local_llm_lock = threading.Lock()
+
         # Track semantic calls for observability
         self.call_count = 0
         self.total_confidence = 0.0
 
-        print(f"[AGENT] Semantic Agent initialized with {llm_provider} provider (reasoning_on={self.reasoning_on})")
+        # Fast probe to check if legacy raw /completion endpoint is supported and active
+        self.use_legacy_completion = False
+        if llm_provider == "local":
+            try:
+                parsed = urlparse(local_llm_url)
+                h = parsed.hostname or "127.0.0.1"
+                p = parsed.port or 8080
+                use_tls = parsed.scheme == "https"
+                
+                probe_payload = {
+                    "prompt": "health",
+                    "n_predict": 1,
+                    "stream": False
+                }
+                body = json.dumps(probe_payload).encode("utf-8")
+                conn_cls = http.client.HTTPSConnection if use_tls else http.client.HTTPConnection
+                conn = conn_cls(h, p, timeout=1.0)
+                try:
+                    conn.connect()
+                    conn.sock.settimeout(1.0)
+                    conn.request("POST", "/completion", body=body, headers={
+                        "Content-Type": "application/json",
+                        "Content-Length": str(len(body))
+                    })
+                    resp = conn.getresponse()
+                    if resp.status == 200:
+                        self.use_legacy_completion = True
+                finally:
+                    conn.close()
+            except Exception:
+                self.use_legacy_completion = False
+
+        print(f"[AGENT] Semantic Agent initialized with {llm_provider} provider (reasoning_on={self.reasoning_on}, legacy_completion={self.use_legacy_completion})")
         if llm_provider == "local":
             print(f"   Local LLM URL: {local_llm_url}")
     
@@ -399,25 +434,18 @@ class SemanticExecutionAgent:
         Routes to appropriate provider:
         - local: llama.cpp server on localhost:8080
         - openai: OpenAI GPT-4 Turbo
-        - mock: Testing fallback
         """
-        # Simulation override for Safety Guardrail demo
-        prompt_lower = user_prompt.lower()
-        if "lifestyle assessment" in prompt_lower or "routine body optimization" in prompt_lower:
-            return self._mock_llm_response(user_prompt, response_model)
-            
         if self.llm_provider == "local":
-            try:
-                return self._call_local_llm(system_prompt, user_prompt, response_model)
-            except Exception as e:
-                print(f"[WARN] Local LLM call failed: {e}. Falling back to mock.")
-                return self._mock_llm_response(user_prompt, response_model)
+            return self._call_local_llm(system_prompt, user_prompt, response_model)
         
         elif self.llm_provider == "openai" and self.api_key:
             return self._call_openai_structured(system_prompt, user_prompt, response_model)
         
         else:
-            return self._mock_llm_response(user_prompt, response_model)
+            raise ValueError(
+                f"Unsupported or unconfigured LLM provider: {self.llm_provider}. "
+                f"Ensure appropriate API keys or servers are active."
+            )
     
     def _call_openai_structured(
         self,
@@ -447,8 +475,8 @@ class SemanticExecutionAgent:
             return response.choices[0].message.content
         
         except Exception as e:
-            print(f"[WARN] OpenAI API call failed: {e}. Falling back to mock.")
-            return self._mock_llm_response(user_prompt, response_model)
+            print(f"[ERROR] OpenAI API call failed: {e}")
+            raise RuntimeError(f"OpenAI API call failed: {e}") from e
     
     def _call_local_llm(
         self,
@@ -469,74 +497,75 @@ class SemanticExecutionAgent:
         Timeouts: 5s connect, 120s read via http.client.
         n_predict=512: enough for the short JSON response.
         """
-        parsed = urlparse(self.local_llm_url)
-        host = parsed.hostname or "localhost"
-        port = parsed.port or 8080
-        use_tls = parsed.scheme == "https"
+        with self._local_llm_lock:
+            parsed = urlparse(self.local_llm_url)
+            host = parsed.hostname or "localhost"
+            port = parsed.port or 8080
+            use_tls = parsed.scheme == "https"
 
-        # ------------------------------------------------------------------ #
-        # Path 1: /completion (gemma4-e4b-qat reasoning chat template)        #
-        # ------------------------------------------------------------------ #
-        gemma_prompt = (
-            f"<|turn>system\n"
-            f"<|think|>\n"
-            f"{system_prompt}<turn|>\n"
-            f"<|turn>user\n"
-            f"{user_prompt}<turn|>\n"
-            f"<|turn>model\n"
-        )
-        legacy_payload = {
-            "prompt": gemma_prompt,
-            "temperature": 0.1,
-            "top_p": 0.9,
-            "n_predict": 2048,
-            "stop": ["</s>", "<end_of_turn>", "<|eot_id|>", "<turn|>"],
-            "stream": False,
-        }
-        if not self.reasoning_on:
-            legacy_payload["grammar"] = self._ADJUDICATION_GRAMMAR  # GBNF forces valid schema
+            if self.use_legacy_completion:
+                # ------------------------------------------------------------------ #
+                # Path 1: /completion (gemma4-e4b-qat reasoning chat template)        #
+                # ------------------------------------------------------------------ #
+                gemma_prompt = (
+                    f"<|turn>system\n"
+                    f"<|think|>\n"
+                    f"{system_prompt}<turn|>\n"
+                    f"<|turn>user\n"
+                    f"{user_prompt}<turn|>\n"
+                    f"<|turn>model\n"
+                )
+                legacy_payload = {
+                    "prompt": gemma_prompt,
+                    "temperature": 0.1,
+                    "top_p": 0.9,
+                    "n_predict": 8196,
+                    "stop": ["</s>", "<end_of_turn>", "<|eot_id|>", "<turn|>"],
+                    "stream": False,
+                }
+                if not self.reasoning_on:
+                    legacy_payload["grammar"] = self._ADJUDICATION_GRAMMAR  # GBNF forces valid schema
 
-        try:
+                try:
+                    content = self._http_post(
+                        host, port, use_tls, "/completion", legacy_payload
+                    )
+                    result = json.loads(content)
+                    if "content" in result:
+                        raw = result["content"].strip()
+                        # Ensure the JSON object is closed if truncated by grammar/stop tokens
+                        if raw and not raw.endswith("}"):
+                            raw += "}"
+                        return self._extract_json_from_response(raw)
+                    raise ValueError("Invalid /completion response: no 'content' key")
+                except Exception as legacy_err:
+                    print(f"[WARN] /completion path failed: {legacy_err}. Trying /v1/chat/completions...")
+
+            # ------------------------------------------------------------------ #
+            # Path 2: /v1/chat/completions (OpenAI-compatible fallback)          #
+            # ------------------------------------------------------------------ #
+            chat_payload = {
+                "model": "local",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "temperature": 0.1,
+                "max_tokens": 8196,
+                "stream": False,
+            }
+            if not self.reasoning_on:
+                chat_payload["response_format"] = {"type": "json_object"}
+
             content = self._http_post(
-                host, port, use_tls, "/completion", legacy_payload
+                host, port, use_tls, "/v1/chat/completions", chat_payload
             )
             result = json.loads(content)
-            if "content" in result:
-                raw = result["content"].strip()
-                # Ensure the JSON object is closed if truncated by grammar/stop tokens
-                if raw and not raw.endswith("}"):
-                    raw += "}"
-                return self._extract_json_from_response(raw)
-            raise ValueError("Invalid /completion response: no 'content' key")
-
-        except Exception as legacy_err:
-            print(f"[WARN] /completion path failed: {legacy_err}. Trying /v1/chat/completions...")
-
-        # ------------------------------------------------------------------ #
-        # Path 2: /v1/chat/completions (OpenAI-compatible fallback)          #
-        # ------------------------------------------------------------------ #
-        chat_payload = {
-            "model": "local",
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": 0.1,
-            "max_tokens": 2048,
-            "stream": False,
-        }
-        if not self.reasoning_on:
-            chat_payload["response_format"] = {"type": "json_object"}
-
-        content = self._http_post(
-            host, port, use_tls, "/v1/chat/completions", chat_payload
-        )
-        result = json.loads(content)
-        if "choices" in result and result["choices"]:
-            return self._extract_json_from_response(
-                result["choices"][0]["message"]["content"]
-            )
-        raise ValueError("Unexpected /v1/chat/completions response shape")
+            if "choices" in result and result["choices"]:
+                return self._extract_json_from_response(
+                    result["choices"][0]["message"]["content"]
+                )
+            raise ValueError("Unexpected /v1/chat/completions response shape")
 
     def _http_post(
         self,
@@ -656,192 +685,7 @@ class SemanticExecutionAgent:
             raise ValueError(f"Invalid JSON in response: {e}")
     
     
-    def _mock_llm_response(self, prompt: str, response_model: type[BaseModel]) -> str:
-        """
-        Mock LLM response for testing Phase 2
-        Generates realistic responses based on prompt content
-        """
-        prompt_lower = prompt.lower()
-        print(f"[MOCK_LLM] prompt_lower='{prompt_lower[:100]}'")
-        print(f"[MOCK_LLM] response_model={response_model.__name__}")
-        
-        # New strict payload model matching user requirements
-        if response_model == SemanticAdjudicationPayload:
-            if "lifestyle assessment" in prompt_lower or "routine body optimization" in prompt_lower:
-                response = json.dumps({
-                    "evaluation_status": "PASSED",
-                    "reasoning_trace": "Claim details contain highly ambiguous clinical terms (lifestyle assessment, routine body optimization). Unable to determine medical necessity with certainty.",
-                    "confidence_score": 0.75
-                })
-                print(f"[MOCK_LLM] Ambiguous clinical jargon low confidence -> {response}")
-                return response
-                
-            if "cosmetic" in prompt_lower or "plastic surgery" in prompt_lower or "rhinoplasty" in prompt_lower:
-                if "accident" in prompt_lower or "burn" in prompt_lower or "cancer" in prompt_lower or "reconstruction" in prompt_lower:
-                    response = json.dumps({
-                        "evaluation_status": "PASSED",
-                        "reasoning_trace": "Reconstruction after accident/burns/cancer is covered under policy section 5.1.7.",
-                        "confidence_score": 0.92
-                    })
-                    print(f"[MOCK_LLM] Cosmetic reconstruction -> {response}")
-                    return response
-                else:
-                    response = json.dumps({
-                        "evaluation_status": "EXCLUSION_ACTIVE",
-                        "reasoning_trace": "Treatment is cosmetic or plastic surgery which is strictly excluded under section 5.1.7.",
-                        "confidence_score": 0.95
-                    })
-                    print(f"[MOCK_LLM] Cosmetic excluded -> {response}")
-                    return response
-            
-            if ("maternity" in prompt_lower or "childbirth" in prompt_lower or "pregnancy" in prompt_lower 
-                or "delivery" in prompt_lower or "caesarean" in prompt_lower or "c-section" in prompt_lower):
-                if "ectopic" in prompt_lower:
-                    response = json.dumps({
-                        "evaluation_status": "PASSED",
-                        "reasoning_trace": "Ectopic pregnancy is covered as an exception to maternity exclusion under section 5.1.16.",
-                        "confidence_score": 0.98
-                    })
-                    print(f"[MOCK_LLM] Ectopic covered -> {response}")
-                    return response
-                else:
-                    response = json.dumps({
-                        "evaluation_status": "EXCLUSION_ACTIVE",
-                        "reasoning_trace": "Maternity expenses (childbirth, pregnancy) are excluded except ectopic pregnancy under section 5.1.16.",
-                        "confidence_score": 0.96
-                    })
-                    print(f"[MOCK_LLM] Maternity excluded -> {response}")
-                    return response
-            
-            if "investigation" in prompt_lower or "diagnostic" in prompt_lower or "mri" in prompt_lower or "scan" in prompt_lower:
-                if "treatment" in prompt_lower and "performed" in prompt_lower:
-                    response = json.dumps({
-                        "evaluation_status": "PASSED",
-                        "reasoning_trace": "Diagnostics were part of active treatment protocol under section 5.1.4.",
-                        "confidence_score": 0.90
-                    })
-                    print(f"[MOCK_LLM] Investigation with treatment -> {response}")
-                    return response
-                else:
-                    response = json.dumps({
-                        "evaluation_status": "EXCLUSION_ACTIVE",
-                        "reasoning_trace": "Admission primarily for diagnostic tests and evaluation without active treatment under section 5.1.4.",
-                        "confidence_score": 0.88
-                    })
-                    print(f"[MOCK_LLM] Investigation only excluded -> {response}")
-                    return response
-                    
-            if "appendicitis" in prompt_lower or "appendectomy" in prompt_lower:
-                response = json.dumps({
-                    "evaluation_status": "PASSED",
-                    "reasoning_trace": "Hospitalization for appendectomy is covered under inpatient hospitalization benefits.",
-                    "confidence_score": 0.93
-                })
-                print(f"[MOCK_LLM] Appendectomy covered -> {response}")
-                return response
-                
-            # Default response
-            response = json.dumps({
-                "evaluation_status": "PASSED",
-                "reasoning_trace": "No active exclusion or waiting period satisfy criteria.",
-                "confidence_score": 0.94
-            })
-            print(f"[MOCK_LLM] Default SemanticAdjudicationPayload -> {response}")
-            return response
-            
-        # Backward compatibility for old schemas
-        if response_model == ExclusionAssessment:
-            if "cosmetic" in prompt_lower or "plastic surgery" in prompt_lower or "rhinoplasty" in prompt_lower:
-                if "accident" in prompt_lower or "burn" in prompt_lower or "cancer" in prompt_lower or "reconstruction" in prompt_lower:
-                    response = json.dumps({
-                        "is_excluded": False,
-                        "exclusion_type": None,
-                        "confidence": 0.92,
-                        "reason": "Reconstruction after accident/burns/cancer is covered",
-                        "policy_section_ref": "5.1.7"
-                    })
-                    return response
-                else:
-                    response = json.dumps({
-                        "is_excluded": True,
-                        "exclusion_type": "Cosmetic Surgery",
-                        "confidence": 0.95,
-                        "reason": "Treatment appears cosmetic with no medical necessity",
-                        "policy_section_ref": "5.1.7"
-                    })
-                    return response
-            
-            if ("maternity" in prompt_lower or "childbirth" in prompt_lower or "pregnancy" in prompt_lower 
-                or "delivery" in prompt_lower or "caesarean" in prompt_lower or "c-section" in prompt_lower):
-                if "ectopic" in prompt_lower:
-                    response = json.dumps({
-                        "is_excluded": False,
-                        "exclusion_type": None,
-                        "confidence": 0.98,
-                        "reason": "Ectopic pregnancy is covered under policy",
-                        "policy_section_ref": "5.1.16"
-                    })
-                    return response
-                else:
-                    response = json.dumps({
-                        "is_excluded": True,
-                        "exclusion_type": "Maternity",
-                        "confidence": 0.96,
-                        "reason": "Maternity expenses excluded except ectopic pregnancy",
-                        "policy_section_ref": "5.1.16"
-                    })
-                    return response
-            
-            if "investigation" in prompt_lower or "diagnostic" in prompt_lower:
-                if "treatment" in prompt_lower and "performed" in prompt_lower:
-                    response = json.dumps({
-                        "is_excluded": False,
-                        "exclusion_type": None,
-                        "confidence": 0.90,
-                        "reason": "Diagnostics were part of active treatment protocol",
-                        "policy_section_ref": "5.1.4"
-                    })
-                    return response
-                else:
-                    response = json.dumps({
-                        "is_excluded": True,
-                        "exclusion_type": "Investigation Only",
-                        "confidence": 0.88,
-                        "reason": "Admission primarily for diagnostic tests without treatment",
-                        "policy_section_ref": "5.1.4"
-                    })
-                    return response
-        
-        elif response_model == CoverageAssessment:
-            response = json.dumps({
-                "is_covered": True,
-                "coverage_type": "Expenses during Hospitalization",
-                "confidence": 0.93,
-                "reason": "Treatment meets hospitalization eligibility criteria",
-                "requires_verification": False
-            })
-            return response
-        
-        elif response_model == SemanticDecision:
-            response = json.dumps({
-                "decision": "APPROVED",
-                "confidence": 0.91,
-                "reason": "No waiting period restrictions apply",
-                "evidence": {"analysis": "Condition assessment complete"},
-                "requires_manual_review": False
-            })
-            return response
-        
-        # Default safe response
-        response = json.dumps({
-            "decision": "UNCERTAIN",
-            "confidence": 0.70,
-            "reason": "Unable to determine with high confidence",
-            "evidence": {},
-            "requires_manual_review": True
-        })
-        print(f"[MOCK_LLM] Default uncertain -> {response}")
-        return response
+
     
     def get_average_confidence(self) -> float:
         """Get average confidence across all semantic calls"""
