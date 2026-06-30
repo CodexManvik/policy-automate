@@ -4,6 +4,7 @@ Parses and stores rule blueprints from Product JSON
 Provides structured metadata for AI Planner
 """
 
+import logging
 from datetime import date, datetime
 from typing import List, Dict, Any, Optional, Set, Tuple
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ from enum import Enum
 from pathlib import Path
 import json
 import re
+
+_logger = logging.getLogger("product_memory")
 
 # Resolve docs directory relative to this source file so the module works
 # regardless of the working directory from which Python is invoked.

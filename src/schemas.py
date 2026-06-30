@@ -298,6 +298,16 @@ class DecisionTrace(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class ToolCallTrace(BaseModel):
+    """Audit record for a single deterministic calculator/tool invocation within a gate."""
+    tool_name: str = Field(..., description="Name of the calculator function invoked (e.g. 'calculate_room_pro_rata')")
+    arguments: Dict[str, Any] = Field(default_factory=dict, description="Key-value inputs passed to the calculator")
+    result_summary: str = Field("", description="Human-readable summary of the computation result (e.g. 'payable=45000, deduction=5000')")
+    success: bool = Field(True, description="True if the calculator completed without exception")
+    error_message: Optional[str] = Field(None, description="Exception message if success=False")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class LineItemDecision(BaseModel):
     """Decision for a single line item"""
     line_item_id: str
@@ -313,10 +323,12 @@ class LineItemDecision(BaseModel):
     
     deductions: List[DeductionDetail] = Field(default_factory=list)
     decision_trace: List[DecisionTrace] = Field(default_factory=list)
+    tool_calls: List[ToolCallTrace] = Field(default_factory=list, description="Per-calculator invocation traces with pass/fail status")
     
     confidence_score: float = 1.0
     manual_review_required: bool = False
     review_reason: Optional[str] = None
+
 
 
 class SIWaterfallBreakdown(BaseModel):

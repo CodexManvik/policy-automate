@@ -2,6 +2,7 @@ import logging
 _logger = logging.getLogger("claims_adjudication_pipeline")
 from typing import List, Tuple, Optional, Any, Dict
 from datetime import datetime, timezone, date
+import copy
 import time
 import asyncio
 import threading
@@ -175,10 +176,19 @@ Gate Sequence (now dynamic based on plan):
                         claim_version = resolved_entry["version_id"]
                 except Exception as e:
                     _logger.warning("Failed to auto-resolve product version from policy details: %s", e)
-            version_memory = get_product_memory(claim_version)
-            if version_memory is not self.product_memory:
-                self.product_memory = version_memory
-                self.planner.product_memory = version_memory
+            # Fix 1: Resolve product memory for this claim version as a LOCAL variable.
+            # Never write the resolved version back to self.product_memory or
+            # self.planner.product_memory — doing so is a data race when two concurrent
+            # claims carry different product_json_version values, because they share the
+            # same singleton instance.
+            call_product_memory = get_product_memory(claim_version)
+            if call_product_memory is not self.product_memory:
+                # Version differs from the singleton default.  Create a call-scoped planner
+                # that uses the correct version memory without touching self.
+                from planner import AIPlanner as _AIPlanner
+                call_planner = _AIPlanner(call_product_memory)
+            else:
+                call_planner = self.planner
             # Initialize per-claim state
             state = PerClaimState(claim_id=context.claim_id)
             # Validate mutual exclusivity constraints before processing
@@ -221,19 +231,24 @@ Gate Sequence (now dynamic based on plan):
                     context, constraint_id, reason, decision_traces, start_time
                 )
                 return claim_decision
+            # Fix 3: Deep-copy the ClaimContext before applying endorsements so that
+            # the original caller-supplied object is never mutated.  If the pipeline
+            # raises mid-claim after an endorsement is applied, the caller’s context
+            # remains in its original state and any retry or audit replay will produce
+            # a consistent result against the unmodified context.
+            context_for_adjudication = copy.deepcopy(context)
             # Issue 11: Apply all mid-term endorsements that are effective by the
             # earliest admission date across line items (or claim receipt date as fallback).
-            # This mutates context in-place before any line item is processed.
             claim_event_date = self._coerce_to_date(
                 min(
-                    (li.admission_date or li.expense_date for li in context.line_items),
-                    default=context.claim_received_at
+                    (li.admission_date or li.expense_date for li in context_for_adjudication.line_items),
+                    default=context_for_adjudication.claim_received_at
                 )
             )
-            self._apply_endorsements(context, claim_event_date)
+            self._apply_endorsements(context_for_adjudication, claim_event_date)
             # Process each line item through dynamic execution plan
             line_item_decisions: List[LineItemDecision] = []
-            for line_item in context.line_items:
+            for line_item in context_for_adjudication.line_items:
 
                 # ---------------------------------------------------------------
                 # MANDATORY STRUCTURAL PRE-CHECKS (Gates 1 & 2)
@@ -242,20 +257,20 @@ Gate Sequence (now dynamic based on plan):
                 # enforced explicitly before the dynamic plan runs so that invalid
                 # policies and ineligible members are rejected unconditionally.
                 # ---------------------------------------------------------------
-                g1_passed, g1_trace = self._gate_1_policy_validation(context, line_item)
+                g1_passed, g1_trace = self._gate_1_policy_validation(context_for_adjudication, line_item)
                 if not g1_passed:
                     decision_traces.append(g1_trace)
                     decision = self._create_rejected_decision(line_item, g1_trace.reason, [g1_trace])
                     line_item_decisions.append(decision)
                     continue
-                g2_passed, g2_trace = self._gate_2_member_validation(context, line_item)
+                g2_passed, g2_trace = self._gate_2_member_validation(context_for_adjudication, line_item)
                 if not g2_passed:
                     decision_traces.append(g2_trace)
                     decision = self._create_rejected_decision(line_item, g2_trace.reason, [g2_trace])
                     line_item_decisions.append(decision)
                     continue
-                # Phase 2: Create execution plan using AI Planner
-                execution_plan = self.planner.create_execution_plan(context, line_item)
+                # Phase 2: Create execution plan using call-scoped planner (Fix 1)
+                execution_plan = call_planner.create_execution_plan(context_for_adjudication, line_item)
                 self.plans_created += 1
                 
                 # Log plan compilation
@@ -284,7 +299,7 @@ Gate Sequence (now dynamic based on plan):
                 )
                 
                 # Execute the plan
-                decision = self._execute_plan(execution_plan, line_item, context, state)
+                decision = self._execute_plan(execution_plan, line_item, context_for_adjudication, state)
                 line_item_decisions.append(decision)
                 
                 # Consolidate traces into per-call local list
@@ -292,17 +307,15 @@ Gate Sequence (now dynamic based on plan):
                     decision_traces.extend(decision.decision_trace)
             
             # Gate 7: State Update and Persistence (BUG FIX #10)
-            self._gate_7_state_update(context, state, line_item_decisions)
+            self._gate_7_state_update(context_for_adjudication, state, line_item_decisions)
             # Merge Gate 7 cross-cutting traces (_STEP_LOCAL.decision_traces) into
             # the claim-level decision_traces so they appear in ClaimDecision.decision_trace.
-            # Gate 7 appends traces for: RF state transitions, Booster+ accumulation,
-            # Cash-Bag+ wellness conversion, and one-time benefit flag persistence.
             gate_7_traces = getattr(_STEP_LOCAL, 'decision_traces', [])
             if gate_7_traces:
                 decision_traces.extend(gate_7_traces)
             # Compose final claim-level decision
             claim_decision = self._compose_claim_decision(
-                context, line_item_decisions, state, start_time, decision_traces
+                context_for_adjudication, line_item_decisions, state, start_time, decision_traces
             )
             try:
                 from pipeline_modules.graph_exporter import save_adjudication_graph
@@ -313,7 +326,7 @@ Gate Sequence (now dynamic based on plan):
         finally:
             if claim_decision:
                 try:
-                    engine = PipelineMetricsEngine()
+                    engine = PipelineMetricsEngine(settings.telemetry_file)
                     engine.record_execution(claim_decision, session)
                 except Exception:
                     pass
@@ -370,10 +383,13 @@ Gate Sequence (now dynamic based on plan):
                         claim_version = resolved_entry["version_id"]
                 except Exception as e:
                     _logger.warning("Failed to auto-resolve product version from policy details: %s", e)
-            version_memory = get_product_memory(claim_version)
-            if version_memory is not self.product_memory:
-                self.product_memory = version_memory
-                self.planner.product_memory = version_memory
+            # Fix 1: Same race-free pattern as adjudicate_claim — keep version memory local.
+            call_product_memory = get_product_memory(claim_version)
+            if call_product_memory is not self.product_memory:
+                from planner import AIPlanner as _AIPlanner
+                call_planner = _AIPlanner(call_product_memory)
+            else:
+                call_planner = self.planner
             # Initialize per-claim state
             state = PerClaimState(claim_id=context.claim_id)
             # Validate mutual exclusivity constraints before processing
@@ -407,31 +423,42 @@ Gate Sequence (now dynamic based on plan):
                 )
                 return claim_decision
 
-            # Process each line item through dynamic execution plan concurrently.
+            # Fix 3: Deep-copy context before applying endorsements (same as sync path).
+            # Each concurrent async adjudication gets its own mutated copy of the context
+            # so endorsements applied for one in-flight claim never bleed into another.
+            context_for_adjudication = copy.deepcopy(context)
+            # Apply mid-term endorsements to the isolated copy.
+            claim_event_date_async = self._coerce_to_date(
+                min(
+                    (li.admission_date or li.expense_date for li in context_for_adjudication.line_items),
+                    default=context_for_adjudication.claim_received_at
+                )
+            )
+            self._apply_endorsements(context_for_adjudication, claim_event_date_async)
             # Gate 1 (policy validity) and Gate 2 (member eligibility) are structural
             # pre-conditions not covered by the AIPlanner; they must always run first.
             line_item_decisions: List[LineItemDecision] = []
             tasks = []
-            for line_item in context.line_items:
+            for line_item in context_for_adjudication.line_items:
                 # Mandatory structural pre-checks before handing off to the async plan.
-                g1_passed, g1_trace = self._gate_1_policy_validation(context, line_item)
+                g1_passed, g1_trace = self._gate_1_policy_validation(context_for_adjudication, line_item)
                 if not g1_passed:
                     line_item_decisions.append(
                         self._create_rejected_decision(line_item, g1_trace.reason, [g1_trace])
                     )
                     continue
-                g2_passed, g2_trace = self._gate_2_member_validation(context, line_item)
+                g2_passed, g2_trace = self._gate_2_member_validation(context_for_adjudication, line_item)
                 if not g2_passed:
                     line_item_decisions.append(
                         self._create_rejected_decision(line_item, g2_trace.reason, [g2_trace])
                     )
                     continue
-                # Create execution plan using AI Planner
-                execution_plan = self.planner.create_execution_plan(context, line_item)
+                # Create execution plan using call-scoped planner (Fix 1)
+                execution_plan = call_planner.create_execution_plan(context_for_adjudication, line_item)
                 self.plans_created += 1
-                
+
                 # Execute the plan asynchronously
-                tasks.append(self._execute_plan_async(execution_plan, line_item, context, state))
+                tasks.append(self._execute_plan_async(execution_plan, line_item, context_for_adjudication, state))
 
 
             if tasks:
@@ -442,17 +469,14 @@ Gate Sequence (now dynamic based on plan):
                     decision_traces.extend(decision.decision_trace)
             
             # Gate 7: State Update and Persistence (BUG FIX #10)
-            self._gate_7_state_update(context, state, line_item_decisions)
-            # Merge Gate 7 cross-cutting traces (_STEP_LOCAL.decision_traces) into
-            # the claim-level decision_traces so they appear in ClaimDecision.decision_trace.
-            # Gate 7 appends traces for: RF state transitions, Booster+ accumulation,
-            # Cash-Bag+ wellness conversion, and one-time benefit flag persistence.
+            self._gate_7_state_update(context_for_adjudication, state, line_item_decisions)
+            # Merge Gate 7 cross-cutting traces into the claim-level decision_traces.
             gate_7_traces = getattr(_STEP_LOCAL, 'decision_traces', [])
             if gate_7_traces:
                 decision_traces.extend(gate_7_traces)
             # Compose final claim-level decision
             claim_decision = self._compose_claim_decision(
-                context, line_item_decisions, state, start_time, decision_traces
+                context_for_adjudication, line_item_decisions, state, start_time, decision_traces
             )
             try:
                 from pipeline_modules.graph_exporter import save_adjudication_graph
@@ -463,7 +487,7 @@ Gate Sequence (now dynamic based on plan):
         finally:
             if claim_decision:
                 try:
-                    engine = PipelineMetricsEngine()
+                    engine = PipelineMetricsEngine(settings.telemetry_file)
                     engine.record_execution(claim_decision, session)
                 except Exception:
                     pass

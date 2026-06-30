@@ -1,7 +1,7 @@
 """
 Agent Reasoning Logger for Claims Auto-Adjudication Engine
 Implements clean, structured tracking of LLM decisions, prompts, tool execution, and routing events.
-Logs are persisted to agent_reasoning.log in the workspace root.
+Logs are centralized under logs/ in the workspace root.
 """
 
 import os
@@ -11,9 +11,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# Resolve the log file path to the project root
+# Resolve the log directory to the project root's logs/ subdirectory
 WORKSPACE_ROOT = Path(__file__).parent.parent
-LOG_FILE_PATH = WORKSPACE_ROOT / "agent_reasoning.log"
+LOGS_DIR = WORKSPACE_ROOT / "logs"
+CLAIMS_LOGS_DIR = LOGS_DIR / "claims"
+LOG_FILE_PATH = LOGS_DIR / "agent_reasoning.log"
 
 class AgentReasoningLogger:
     """
@@ -28,6 +30,10 @@ class AgentReasoningLogger:
         if cls._logger is not None:
             return
 
+        # Ensure log directories exist before creating file handlers
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        CLAIMS_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
         logger = logging.getLogger("agent_reasoning_tracker")
         logger.setLevel(logging.INFO)
         logger.propagate = False
@@ -36,7 +42,7 @@ class AgentReasoningLogger:
         if logger.handlers:
             logger.handlers.clear()
 
-        # File Handler (persisting to workspace root)
+        # File Handler — centralized under logs/
         file_handler = logging.FileHandler(str(LOG_FILE_PATH), encoding="utf-8")
         file_formatter = logging.Formatter(
             "%(asctime)s [%(levelname)s] %(message)s"
@@ -80,6 +86,39 @@ class AgentReasoningLogger:
         logger = cls.get_logger()
         separator = "=" * 80
         logger.info(f"\n{separator}\n{title.upper():^80}\n{separator}")
+
+    @classmethod
+    def log_claim_context(
+        cls,
+        claim_id: str,
+        context_dict: Dict[str, Any]
+    ) -> None:
+        """
+        Writes the full assembled ClaimContext to a dedicated per-claim log file.
+        File path: logs/claims/<claim_id>_<YYYYMMDDTHHMMSS>.log
+        """
+        # Ensure directories exist (may be called before _initialize_logger)
+        CLAIMS_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        safe_claim_id = claim_id.replace("/", "_").replace("\\", "_")
+        log_file = CLAIMS_LOGS_DIR / f"{safe_claim_id}_{timestamp}.log"
+
+        payload = {
+            "event": "CLAIM_CONTEXT_ASSEMBLED",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "claim_id": claim_id,
+            "context": context_dict,
+        }
+
+        try:
+            with open(str(log_file), "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, indent=2, default=cls._default_serializer)
+        except OSError as exc:
+            # Non-fatal — log the failure to the main reasoning log and continue
+            cls.get_logger().warning(
+                "CONTEXT_LOG_WRITE_FAILED | Claim: %s | Error: %s", claim_id, exc
+            )
 
     @classmethod
     def log_endorsement(

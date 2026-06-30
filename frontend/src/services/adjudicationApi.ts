@@ -75,3 +75,81 @@ export async function fetchHealth(): Promise<Record<string, unknown>> {
   const response = await fetch(`${BASE_URL}/health`);
   return (await response.json()) as Record<string, unknown>;
 }
+
+/**
+ * Fetch policy details from the backend's external ledger endpoint.
+ */
+export async function fetchPolicyFromDb(policyId: string): Promise<any> {
+  const response = await fetch(`${BASE_URL}/api/external/policy/${policyId}`);
+  if (!response.ok) {
+    throw new Error(`Policy not found: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Fetch member details from the backend's external ledger endpoint.
+ */
+export async function fetchMemberFromDb(memberId: string): Promise<any> {
+  const response = await fetch(`${BASE_URL}/api/external/member/${memberId}`);
+  if (!response.ok) {
+    throw new Error(`Member not found: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Fetch claims history details from the backend's external ledger endpoint.
+ */
+export async function fetchClaimsHistoryFromDb(policyId: string, memberId: string): Promise<any> {
+  const response = await fetch(`${BASE_URL}/api/external/claims-history/${policyId}/${memberId}`);
+  if (!response.ok) {
+    throw new Error(`Claims history not found: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Fetch benefit balances details from the backend's external ledger endpoint.
+ */
+export async function fetchBalancesFromDb(policyId: string, memberId: string): Promise<any> {
+  const response = await fetch(`${BASE_URL}/api/external/balances/${policyId}/${memberId}`);
+  if (!response.ok) {
+    throw new Error(`Balances not found: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Fetch lifetime state details from the backend's external ledger endpoint.
+ */
+export async function fetchLifetimeStateFromDb(policyId: string): Promise<any> {
+  const response = await fetch(`${BASE_URL}/api/external/lifetime-state/${policyId}`);
+  if (!response.ok) {
+    throw new Error(`Lifetime state not found: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Fetch endorsements details from the backend's external ledger endpoint.
+ */
+export async function fetchEndorsementsFromDb(policyId: string): Promise<any> {
+  const response = await fetch(`${BASE_URL}/api/external/endorsements/${policyId}`);
+  if (!response.ok) {
+    throw new Error(`Endorsements not found: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Fetch porting details from the backend's external ledger endpoint.
+ */
+export async function fetchPortingFromDb(policyId: string): Promise<any> {
+  const response = await fetch(`${BASE_URL}/api/external/porting/${policyId}`);
+  if (!response.ok) {
+    throw new Error(`Porting credits not found: ${response.statusText}`);
+  }
+  return response.json();
+}
+

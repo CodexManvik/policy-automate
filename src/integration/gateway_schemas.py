@@ -21,6 +21,15 @@ class PolicyApiResponse(BaseModel):
     co_pay_option: Optional[float] = None
     deductible_option: Optional[float] = None
     room_category_entitled: str
+    # Financial correctness fields — previously hardcoded in context_builder.py.
+    # premium_paid: False for lapsed/cancelled policies; prevents incorrect adjudication.
+    premium_paid: bool = True
+    # policy_type: "individual" or "floater" — floater uses a shared SI pool.
+    policy_type: str = "individual"
+    # Daily cash benefit amount per covered day; None means benefit is not opted.
+    hospital_daily_cash_amount: Optional[float] = None
+    # Personal Accident SI; None means PA cover is not included in this plan.
+    pa_sum_insured: Optional[float] = None
 
 
 class MemberApiResponse(BaseModel):
@@ -42,6 +51,15 @@ class ClaimsHistoryApiResponse(BaseModel):
     prior_claims_count: int
     total_prior_amount_paid: float
     cumulative_exclusions_triggered: List[str] = Field(default_factory=list)
+    # YTD aggregate deductible already consumed by prior claims in the current policy year.
+    # The pipeline uses this to correctly compute remaining deductible on the current claim
+    # rather than re-applying the full deductible amount.  Defaults to 0.0 for backward
+    # compatibility with gateway implementations that have not yet added this field.
+    deductible_consumed_ytd: float = 0.0
+    # Last claim date — used by Booster+ and ReAssure Forever state machines.
+    last_claim_date: Optional[datetime] = None
+    # Claim-free years — used by Booster+ accumulation calculator.
+    claim_free_years: int = 0
 
 
 class PortingApiResponse(BaseModel):
@@ -108,3 +126,37 @@ class EndorsementItem(BaseModel):
 class EndorsementApiResponse(BaseModel):
     """Payload representing list of mid-term policy endorsements"""
     endorsements: List[EndorsementItem] = Field(default_factory=list)
+
+
+# ── New caseapi Integration Models ──────────────────────────────────────────
+
+class GetAuthTokenRequest(BaseModel):
+    UserID: str
+    Client_id: str
+    Identifier_Code: str
+
+
+class AuthTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "Bearer"
+
+
+class GetPolicyDetailsRequest(BaseModel):
+    PolicyNumber: str
+
+
+class GetPolicyDetailsByMobileRequest(BaseModel):
+    MobileNumber: str
+    PolicyNumber: str
+    DOB: str
+
+
+class GetClaimHistoryRequest(BaseModel):
+    PolicyNo_COI: str
+    Membership_No_ID: str = ""
+    AllowedInactiveRecord: str = "Y"
+
+
+class GetPolicyDataRequest(BaseModel):
+    PolicyNo_COI: str
+

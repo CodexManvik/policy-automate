@@ -159,11 +159,14 @@ class ExecutionMixin:
         step_confidences: List[Tuple[float, float]],
         context: ClaimContext,
         line_item,
-        state: PerClaimState
+        state: PerClaimState,
+        tool_calls: Optional[List] = None
     ) -> LineItemDecision:
         """
         Finalize financial gates and routing decisions for a line item.
+        tool_calls: accumulated ToolCallTrace entries from all calculator invocations.
         """
+        _tool_calls = tool_calls or []
         # Calculate final payable through financial gates
         if payable_amount > 0:
             # Enforce Mutual Exclusivity Constraints before running financials
@@ -188,7 +191,6 @@ class ExecutionMixin:
                 )
                 item_traces.append(mx_trace)
                 
-                # Log gate evaluation
                 AgentReasoningLogger.log_gate_evaluation(
                     claim_id=context.claim_id,
                     line_item_id=line_item.line_item_id if line_item else None,
@@ -199,7 +201,6 @@ class ExecutionMixin:
                     reason=mx_trace.reason
                 )
                 
-                # Log routing action
                 AgentReasoningLogger.log_routing(
                     claim_id=context.claim_id,
                     line_item_id=line_item.line_item_id if line_item else None,
@@ -219,6 +220,7 @@ class ExecutionMixin:
                     decision="PENDING_REVIEW",
                     deductions=[],
                     decision_trace=item_traces,
+                    tool_calls=_tool_calls,
                     confidence_score=0.0,
                     manual_review_required=True,
                     review_reason=f"Mutual Exclusivity Constraint {constraint_id}: {reason}"
@@ -231,7 +233,6 @@ class ExecutionMixin:
             payable_amount = final_payable
             admissible_amount = final_admissible
             
-            # Log financial computation gate evaluations
             for ft in fin_traces:
                 AgentReasoningLogger.log_gate_evaluation(
                     claim_id=context.claim_id,
@@ -259,7 +260,6 @@ class ExecutionMixin:
             overall_confidence = 1.0
         state.overall_confidence = overall_confidence
         
-        # Issue 16 / Gap 8: Four-tier confidence routing (Section 9.2)
         if overall_confidence < self.medical_review_threshold:
             self.manual_review_count += 1
             AgentReasoningLogger.log_routing(
@@ -280,6 +280,7 @@ class ExecutionMixin:
                 decision="PENDING_REVIEW",
                 deductions=item_deductions,
                 decision_trace=item_traces,
+                tool_calls=_tool_calls,
                 confidence_score=overall_confidence,
                 manual_review_required=True,
                 review_reason=f"Very low confidence ({overall_confidence:.2f}) — full manual review required"
@@ -307,6 +308,7 @@ class ExecutionMixin:
                 decision="MEDICAL_REVIEW",
                 deductions=item_deductions,
                 decision_trace=item_traces,
+                tool_calls=_tool_calls,
                 confidence_score=overall_confidence,
                 manual_review_required=True,
                 review_reason=f"Intermediate confidence ({overall_confidence:.2f}) — clinical review required"
@@ -338,6 +340,7 @@ class ExecutionMixin:
                 decision="ASSISTED_REVIEW",
                 deductions=item_deductions,
                 decision_trace=item_traces,
+                tool_calls=_tool_calls,
                 confidence_score=overall_confidence,
                 manual_review_required=True,
                 review_reason=f"Medium confidence ({overall_confidence:.2f}) — pre-populated for operations review (suggested: {assisted_status})"
@@ -368,6 +371,7 @@ class ExecutionMixin:
             decision=decision_status,
             deductions=item_deductions,
             decision_trace=item_traces,
+            tool_calls=_tool_calls,
             confidence_score=overall_confidence,
             manual_review_required=False
         )
@@ -384,6 +388,7 @@ class ExecutionMixin:
         """
         item_traces: List[DecisionTrace] = []
         item_deductions: List[DeductionDetail] = []
+        self._reset_tool_calls()  # Clear accumulator for this line item
         
         claimed_amount = line_item.claimed_amount
         admissible_amount = claimed_amount
@@ -429,7 +434,8 @@ class ExecutionMixin:
         return self._finalize_line_item_decision(
             claimed_amount, admissible_amount, payable_amount,
             item_deductions, item_traces, step_confidences,
-            context, line_item, state
+            context, line_item, state,
+            tool_calls=self._collect_tool_calls()
         )
 
     def _process_line_item(
@@ -442,6 +448,7 @@ class ExecutionMixin:
         
         item_traces: List[DecisionTrace] = []
         item_deductions: List[DeductionDetail] = []
+        self._reset_tool_calls()  # Clear accumulator for this line item
         
         claimed_amount = line_item.claimed_amount
         admissible_amount = claimed_amount
@@ -543,6 +550,7 @@ class ExecutionMixin:
             decision=decision_status,
             deductions=item_deductions,
             decision_trace=item_traces,
+            tool_calls=self._collect_tool_calls(),
             confidence_score=state.overall_confidence,
             manual_review_required=False
         )

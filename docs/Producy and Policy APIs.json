@@ -1,0 +1,293 @@
+{
+  "info": {
+    "_postman_id": "37ce57cd-e72c-412d-b651-5c5cdcd717e9",
+    "name": "Product and Policy APIs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "47947372",
+    "_collection_link": "https://go.postman.co/collection/47947372-37ce57cd-e72c-412d-b651-5c5cdcd717e9?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "Authentication API",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "x-apigw-api-id",
+            "value": "{{API_GATEWAY_ID}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"UserID\": \"MOBILE_APP\",\n  \"Client_id\": \"{{CLIENT_ID}}\",\n  \"Identifier_Code\": \"{{IDENTIFIER_CODE}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://{{BASE_URL}}/caseapi/api/auth/getauthtoken",
+          "protocol": "https",
+          "host": [
+            "{{HOST_PART_1}}",
+            "{{HOST_PART_2}}",
+            "com"
+          ],
+          "path": [
+            "caseapi",
+            "api",
+            "auth",
+            "getauthtoken"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Policy Details by Mobile Number",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "x-apigw-api-id",
+            "value": "{{API_GATEWAY_ID}}"
+          },
+          {
+            "key": "access_token",
+            "value": "{{ACCESS_TOKEN}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{BEARER_TOKEN}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"MobileNumber\": \"\",\n  \"PolicyNumber\": \"61362076202500\",\n  \"DOB\": \"\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://{{BASE_URL}}/caseapi/api/policy/getpolicydetailsbymoblienumber",
+          "protocol": "https",
+          "host": [
+            "{{HOST_PART_1}}",
+            "{{HOST_PART_2}}",
+            "com"
+          ],
+          "path": [
+            "caseapi",
+            "api",
+            "policy",
+            "getpolicydetailsbymoblienumber"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Policy Details",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "x-apigw-api-id",
+            "value": "{{API_GATEWAY_ID}}"
+          },
+          {
+            "key": "access_token",
+            "value": "{{ACCESS_TOKEN}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{BEARER_TOKEN}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"PolicyNumber\": \"61362076202500\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://{{BASE_URL}}/caseapi/api/policy/getcustomerpolicydetail",
+          "protocol": "https",
+          "host": [
+            "{{HOST_PART_1}}",
+            "{{HOST_PART_2}}",
+            "com"
+          ],
+          "path": [
+            "caseapi",
+            "api",
+            "policy",
+            "getcustomerpolicydetail"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Claim Lists",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "x-apigw-api-id",
+            "value": "{{API_GATEWAY_ID}}"
+          },
+          {
+            "key": "access_token",
+            "value": "{{ACCESS_TOKEN}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{BEARER_TOKEN}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"PolicyNo_COI\": \"30428632202300\",\n  \"Membership_No_ID\": \"\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://{{BASE_URL}}/caseapi/api/claim/getclaimhistory/{}",
+          "protocol": "https",
+          "host": [
+            "{{HOST_PART_1}}",
+            "{{HOST_PART_2}}",
+            "com"
+          ],
+          "path": [
+            "caseapi",
+            "api",
+            "claim",
+            "getclaimhistory",
+            "{}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Rider Details",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "access_token",
+            "value": "{{ACCESS_TOKEN}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{BEARER_TOKEN}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"PolicyNo_COI\": \"61362076202500\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://{{BASE_URL}}/caseapi/api/policy/getpolicydata",
+          "protocol": "https",
+          "host": [
+            "{{HOST_PART_1}}",
+            "{{HOST_PART_2}}",
+            "com"
+          ],
+          "path": [
+            "caseapi",
+            "api",
+            "policy",
+            "getpolicydata"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Claim History",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "x-apigw-api-id",
+            "value": "{{API_GATEWAY_ID}}"
+          },
+          {
+            "key": "access_token",
+            "value": "{{ACCESS_TOKEN}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"PolicyNo_COI\": \"33364837202500\",\n  \"Membership_No_ID\": \"\",\n  \"AllowedInactiveRecord\": \"Y\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://{{BASE_URL}}/caseapi/api/claim/getclaimhistory",
+          "protocol": "https",
+          "host": [
+            "{{HOST_PART_1}}",
+            "{{HOST_PART_2}}",
+            "com"
+          ],
+          "path": [
+            "caseapi",
+            "api",
+            "claim",
+            "getclaimhistory"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}

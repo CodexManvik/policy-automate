@@ -2,7 +2,8 @@
  * useClaimContext — Manages ClaimContext state and all its deep-nested mutators.
  *
  * Separates all data mutation logic from UI rendering.
- * Consumes the PRESETS map and exposes typed updater functions.
+ * Consumes the PRESETS map (imported from src/data/presets.ts) and exposes
+ * typed updater functions.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -17,175 +18,19 @@ import type {
   EndorsementType,
   BenefitBalanceData,
 } from '../types/claims';
+import { PRESETS } from '../data/presets';
+import {
+  fetchPolicyFromDb,
+  fetchMemberFromDb,
+  fetchClaimsHistoryFromDb,
+  fetchBalancesFromDb,
+  fetchLifetimeStateFromDb,
+  fetchEndorsementsFromDb,
+  fetchPortingFromDb,
+} from '../services/adjudicationApi';
 
-// ---------------------------------------------------------------------------
-// Demo scenario presets — kept here, not in UI component
-// ---------------------------------------------------------------------------
-
-export const PRESETS: Record<string, ClaimContext> = {
-  case1: {
-    claim_id: 'CLM-APP-001',
-    claim_received_at: '2026-06-10T12:00:00Z',
-    policy: {
-      policy_id: 'POL-1001', product_code: 'R3', variant: 'Classic',
-      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2026-01-01T00:00:00Z',
-      base_sum_insured: 500000.0, status: 'Active', premium_paid: true, grace_period_active: false,
-      policy_type: 'individual', policy_term_years: 1, co_payment_percent: 10.0,
-      annual_aggregate_deductible: null, room_category_entitled: 'Single Private Room',
-      room_rent_limit: null, hospital_daily_cash_amount: null, pa_sum_insured: 100000.0,
-      personal_waiting_period_months: 0, borderless_opted: false, borderless_specific_illness_opted: false,
-      unlimited_si_opted: false, modern_treatments_plus_opted: false, air_ambulance_plus_opted: false,
-      heads_up_opted: false, tiered_network_opted: true,
-    },
-    member: {
-      member_id: 'MEM-9921', policy_id: 'POL-1001', name: 'Jane Doe', age: 35, entry_age: 35,
-      relationship: 'Self', date_of_addition: '2025-01-01T00:00:00Z', ped_declarations: ['Diabetes'], eligibility_active: true,
-    },
-    history: {
-      policy_id: 'POL-1001', member_id: 'MEM-9921', prior_claims_count: 0,
-      total_utilized_si: 0.0, last_claim_date: null, prior_exclusions_triggered: [], claim_free_years: 1,
-    },
-    porting: {
-      policy_id: 'POL-1001', porting_applicable: false, prior_coverage_months: 12,
-      waiting_period_credit_months: 0, moratorium_eligible: false,
-    },
-    network: {
-      provider_id: 'PROV-551', provider_name: 'City Care Hospital', provider_type: 'Network',
-      tiered_network_member: false, heads_up_recommended: false,
-    },
-    benefit_balance: {
-      policy_id: 'POL-1001', base_si_remaining: 500000.0, booster_plus_remaining: 0.0,
-      reassure_forever_pool: 500000.0, cash_bag_plus_wallet: 0.0, hospital_cash_days_used: 0, deductible_consumed_ytd: 0.0,
-    },
-    lifetime_state: {
-      policy_id: 'POL-1001', reassure_forever_triggered: false, reassure_forever_triggered_date: null,
-      reassure_forever_triggered_claim_id: null, lock_the_clock_age_locked: true, lock_the_clock_entry_age: 35,
-      lock_the_clock_unlocked_date: null, lock_the_clock_current_premium_age: 35, booster_plus_accumulated: 0.0,
-      booster_plus_last_updated: null, convalescence_claimed: false, critical_illness_claimed: false,
-      critical_illness_type: null, live_healthy: { current_points: 1000, points_snapshot_date: null },
-      cash_bag_plus: { balance: 0.0, last_credited: null },
-    },
-    endorsements: [],
-    line_items: [{
-      line_item_id: 'LI-001', description: 'Inpatient Room & Nursing (Suite Upgrade)', claimed_amount: 34000.0,
-      expense_date: '2026-06-08T10:00:00Z', benefit_bucket: 'Expenses during Hospitalization',
-      admission_date: '2026-06-06T10:00:00Z', discharge_date: '2026-06-08T10:00:00Z', hospitalization_hours: 48.0,
-      actual_room_rent: 12000.0, room_category_claimed: 'Suite', treatment_type: 'Allopathic',
-      condition_diagnosed: 'Acute Appendicitis', accident_related: false, emergency: false,
-      room_charges: 24000.0, nursing_charges: 10000.0, medical_practitioner_fees: 8000.0, ot_charges: 12000.0,
-      doctor_advised: false, continuous_treatment: false, daily_monitoring_chart: false,
-    }],
-    product_json_version: 'R3_v2.1_2025-01-15', renewal_event_simulation: false,
-  },
-  case2: {
-    claim_id: 'CLM-LTC-002',
-    claim_received_at: '2026-06-10T12:00:00Z',
-    policy: {
-      policy_id: 'POL-2002', product_code: 'R3', variant: 'Select',
-      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2028-01-01T00:00:00Z',
-      base_sum_insured: 500000.0, status: 'Active', premium_paid: true, grace_period_active: false,
-      policy_type: 'individual', policy_term_years: 3, co_payment_percent: null,
-      annual_aggregate_deductible: null, room_category_entitled: 'Single Private Room',
-      room_rent_limit: null, hospital_daily_cash_amount: null, pa_sum_insured: null,
-      personal_waiting_period_months: 0, borderless_opted: false, borderless_specific_illness_opted: false,
-      unlimited_si_opted: true, modern_treatments_plus_opted: false, air_ambulance_plus_opted: false,
-      heads_up_opted: false, tiered_network_opted: false,
-    },
-    member: {
-      member_id: 'MEM-4432', policy_id: 'POL-2002', name: 'Arjun Mehra', age: 45, entry_age: 25,
-      relationship: 'Self', date_of_addition: '2025-01-01T00:00:00Z', ped_declarations: [], eligibility_active: true,
-    },
-    history: {
-      policy_id: 'POL-2002', member_id: 'MEM-4432', prior_claims_count: 1,
-      total_utilized_si: 120000.0, last_claim_date: '2025-04-10T00:00:00Z', prior_exclusions_triggered: [], claim_free_years: 0,
-    },
-    porting: {
-      policy_id: 'POL-2002', porting_applicable: false, prior_coverage_months: 24,
-      waiting_period_credit_months: 0, moratorium_eligible: false,
-    },
-    network: {
-      provider_id: 'PROV-112', provider_name: 'Apollo Spectra Hospital', provider_type: 'Network',
-      tiered_network_member: false, heads_up_recommended: false,
-    },
-    benefit_balance: {
-      policy_id: 'POL-2002', base_si_remaining: 380000.0, booster_plus_remaining: 0.0,
-      reassure_forever_pool: 500000.0, cash_bag_plus_wallet: 0.0, hospital_cash_days_used: 0, deductible_consumed_ytd: 0.0,
-    },
-    lifetime_state: {
-      policy_id: 'POL-2002', reassure_forever_triggered: false, reassure_forever_triggered_date: null,
-      reassure_forever_triggered_claim_id: null, lock_the_clock_age_locked: false, lock_the_clock_entry_age: 25,
-      lock_the_clock_unlocked_date: '2026-01-01T00:00:00Z', lock_the_clock_current_premium_age: 45, booster_plus_accumulated: 0.0,
-      booster_plus_last_updated: null, convalescence_claimed: false, critical_illness_claimed: false,
-      critical_illness_type: null, live_healthy: { current_points: 500, points_snapshot_date: null },
-      cash_bag_plus: { balance: 0.0, last_credited: null },
-    },
-    endorsements: [],
-    line_items: [{
-      line_item_id: 'LI-002', description: 'Inpatient Surgery - Hernia Repair', claimed_amount: 80000.0,
-      expense_date: '2026-06-08T10:00:00Z', benefit_bucket: 'Expenses during Hospitalization',
-      admission_date: '2026-06-06T10:00:00Z', discharge_date: '2026-06-08T10:00:00Z', hospitalization_hours: 48.0,
-      actual_room_rent: 5000.0, room_category_claimed: 'Single Private Room', treatment_type: 'Allopathic',
-      condition_diagnosed: 'Hernia Repair', accident_related: false, emergency: false,
-      room_charges: 10000.0, nursing_charges: 5000.0, medical_practitioner_fees: 35000.0, ot_charges: 30000.0,
-      doctor_advised: false, continuous_treatment: false, daily_monitoring_chart: false,
-    }],
-    product_json_version: 'R3_v2.1_2025-01-15', renewal_event_simulation: false,
-  },
-  case3: {
-    claim_id: 'CLM-CB-003',
-    claim_received_at: '2026-06-10T12:00:00Z',
-    policy: {
-      policy_id: 'POL-3003', product_code: 'R3', variant: 'Elite',
-      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2026-01-01T00:00:00Z',
-      base_sum_insured: 1000000.0, status: 'Active', premium_paid: true, grace_period_active: false,
-      policy_type: 'individual', policy_term_years: 1, co_payment_percent: null,
-      annual_aggregate_deductible: null, room_category_entitled: 'Single Private Room',
-      room_rent_limit: null, hospital_daily_cash_amount: 1500.0, pa_sum_insured: null,
-      personal_waiting_period_months: 0, borderless_opted: false, borderless_specific_illness_opted: false,
-      unlimited_si_opted: false, modern_treatments_plus_opted: false, air_ambulance_plus_opted: false,
-      heads_up_opted: false, tiered_network_opted: false,
-    },
-    member: {
-      member_id: 'MEM-7710', policy_id: 'POL-3003', name: 'Priya Sharma', age: 29, entry_age: 29,
-      relationship: 'Self', date_of_addition: '2025-01-01T00:00:00Z', ped_declarations: [], eligibility_active: true,
-    },
-    history: {
-      policy_id: 'POL-3003', member_id: 'MEM-7710', prior_claims_count: 0,
-      total_utilized_si: 0.0, last_claim_date: null, prior_exclusions_triggered: [], claim_free_years: 1,
-    },
-    porting: {
-      policy_id: 'POL-3003', porting_applicable: false, prior_coverage_months: 12,
-      waiting_period_credit_months: 0, moratorium_eligible: false,
-    },
-    network: {
-      provider_id: 'PROV-889', provider_name: 'Fortis Healthcare', provider_type: 'Network',
-      tiered_network_member: false, heads_up_recommended: false,
-    },
-    benefit_balance: {
-      policy_id: 'POL-3003', base_si_remaining: 1000000.0, booster_plus_remaining: 0.0,
-      reassure_forever_pool: 1000000.0, cash_bag_plus_wallet: 1000.0, hospital_cash_days_used: 0, deductible_consumed_ytd: 0.0,
-    },
-    lifetime_state: {
-      policy_id: 'POL-3003', reassure_forever_triggered: false, reassure_forever_triggered_date: null,
-      reassure_forever_triggered_claim_id: null, lock_the_clock_age_locked: true, lock_the_clock_entry_age: 29,
-      lock_the_clock_unlocked_date: null, lock_the_clock_current_premium_age: 29, booster_plus_accumulated: 0.0,
-      booster_plus_last_updated: null, convalescence_claimed: false, critical_illness_claimed: false,
-      critical_illness_type: null, live_healthy: { current_points: 2800, points_snapshot_date: null },
-      cash_bag_plus: { balance: 15000.0, last_credited: null },
-    },
-    endorsements: [],
-    line_items: [{
-      line_item_id: 'LI-003', description: 'Post-hospitalization physiotherapy', claimed_amount: 8000.0,
-      expense_date: '2026-06-08T10:00:00Z', benefit_bucket: 'Expenses before and after hospitalization',
-      admission_date: null, discharge_date: null, hospitalization_hours: null,
-      actual_room_rent: null, room_category_claimed: null, treatment_type: 'Allopathic',
-      condition_diagnosed: 'Post-surgical physiotherapy', accident_related: false, emergency: false,
-      room_charges: null, nursing_charges: null, medical_practitioner_fees: 8000.0, ot_charges: null,
-      doctor_advised: true, continuous_treatment: true, daily_monitoring_chart: false,
-    }],
-    product_json_version: 'R3_v2.1_2025-01-15', renewal_event_simulation: true,
-  },
-};
+// Re-export so existing consumers that import PRESETS from this module keep working.
+export { PRESETS };
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -196,6 +41,8 @@ export interface UseClaimContextReturn {
   activePreset: string;
   endType: string;
   endVal: string;
+  syncing: boolean;
+  syncError: string | null;
   setEndType: (t: string) => void;
   setEndVal: (v: string) => void;
   handlePresetChange: (name: string) => void;
@@ -210,6 +57,7 @@ export interface UseClaimContextReturn {
   removeLineItem: (index: number) => void;
   addEndorsement: () => boolean;
   removeEndorsement: (id: string) => void;
+  syncFromDb: (memberId: string) => Promise<void>;
 }
 
 export function useClaimContext(): UseClaimContextReturn {
@@ -219,6 +67,8 @@ export function useClaimContext(): UseClaimContextReturn {
   );
   const [endType, setEndType] = useState<string>('SIEnhancement');
   const [endVal, setEndVal] = useState<string>('{\n  "base_sum_insured": 500000.0\n}');
+  const [syncing, setSyncing] = useState<boolean>(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   // Auto-populate endorsement JSON template when type changes
   useEffect(() => {
@@ -239,11 +89,6 @@ export function useClaimContext(): UseClaimContextReturn {
         setEndVal('{}');
     }
   }, [endType]);
-
-  const handlePresetChange = useCallback((name: string) => {
-    setActivePreset(name);
-    setContext(JSON.parse(JSON.stringify(PRESETS[name])) as ClaimContext);
-  }, []);
 
   const updatePolicy = useCallback((key: keyof PolicyData, value: unknown) => {
     setContext(prev => ({ ...prev, policy: { ...prev.policy, [key]: value } }));
@@ -345,13 +190,202 @@ export function useClaimContext(): UseClaimContextReturn {
     }));
   }, []);
 
+  const syncFromDb = useCallback(async (memberId: string) => {
+    if (!memberId.trim()) {
+      setSyncError('Member ID is required to sync from DB.');
+      return;
+    }
+    setSyncing(true);
+    setSyncError(null);
+    try {
+      // Step 1: Look up member details first to resolve policy_id
+      const memberRes = await fetchMemberFromDb(memberId);
+      const policyId = memberRes.policy_id;
+
+      // Step 2: Fetch remaining policy and profile ledger data in parallel
+      const [
+        policyRes,
+        historyRes,
+        balancesRes,
+        lifetimeRes,
+        endorsementsRes,
+        portingRes,
+      ] = await Promise.all([
+        fetchPolicyFromDb(policyId),
+        fetchClaimsHistoryFromDb(policyId, memberId).catch(() => null),
+        fetchBalancesFromDb(policyId, memberId).catch(() => null),
+        fetchLifetimeStateFromDb(policyId).catch(() => null),
+        fetchEndorsementsFromDb(policyId).catch(() => null),
+        fetchPortingFromDb(policyId).catch(() => null),
+      ]);
+
+      const normalizedPolicy: PolicyData = {
+        policy_id: policyRes.policy_id,
+        product_code: policyRes.product_code,
+        variant: policyRes.policy_variant || policyRes.variant || 'Classic',
+        policy_start_date: policyRes.policy_start_date,
+        policy_end_date: policyRes.policy_end_date,
+        base_sum_insured: Number(policyRes.base_sum_insured),
+        status: policyRes.status || 'Active',
+        premium_paid: Boolean(policyRes.premium_paid),
+        grace_period_active: Boolean(policyRes.grace_period_active),
+        policy_type: policyRes.policy_type || 'individual',
+        policy_term_years: Number(policyRes.policy_term_years || 1),
+        co_payment_percent: policyRes.co_pay_option !== undefined && policyRes.co_pay_option !== null ? Number(policyRes.co_pay_option) * 100 : null,
+        annual_aggregate_deductible: policyRes.deductible_option !== undefined && policyRes.deductible_option !== null ? Number(policyRes.deductible_option) : null,
+        room_category_entitled: policyRes.room_category_entitled || 'Single Private Room',
+        room_rent_limit: policyRes.room_charges || null,
+        hospital_daily_cash_amount: policyRes.hospital_daily_cash_amount !== undefined && policyRes.hospital_daily_cash_amount !== null ? Number(policyRes.hospital_daily_cash_amount) : null,
+        pa_sum_insured: policyRes.pa_sum_insured !== undefined && policyRes.pa_sum_insured !== null ? Number(policyRes.pa_sum_insured) : null,
+        personal_waiting_period_months: Number(policyRes.personal_waiting_period_months || 0),
+        borderless_opted: Array.isArray(policyRes.optional_riders) && policyRes.optional_riders.includes('borderless'),
+        borderless_specific_illness_opted: Array.isArray(policyRes.optional_riders) && policyRes.optional_riders.includes('borderless_specific_illness'),
+        unlimited_si_opted: Array.isArray(policyRes.optional_riders) && policyRes.optional_riders.includes('unlimited_si'),
+        modern_treatments_plus_opted: Array.isArray(policyRes.optional_riders) && policyRes.optional_riders.includes('modern_treatments_plus'),
+        air_ambulance_plus_opted: Array.isArray(policyRes.optional_riders) && policyRes.optional_riders.includes('air_ambulance_plus'),
+        heads_up_opted: Array.isArray(policyRes.optional_riders) && policyRes.optional_riders.includes('heads_up'),
+        tiered_network_opted: Array.isArray(policyRes.optional_riders) && policyRes.optional_riders.includes('tiered_network'),
+      };
+
+      const normalizedMember: MemberData = {
+        member_id: memberRes.member_id,
+        policy_id: memberRes.policy_id,
+        name: memberRes.name || 'Unknown',
+        age: Number(memberRes.age),
+        entry_age: Number(memberRes.entry_age || memberRes.age),
+        relationship: memberRes.relationship || 'Self',
+        date_of_addition: memberRes.date_of_addition,
+        ped_declarations: Array.isArray(memberRes.ped_declarations) ? memberRes.ped_declarations : [],
+        eligibility_active: memberRes.eligibility_active !== undefined ? Boolean(memberRes.eligibility_active) : true,
+      };
+
+      const normalizedHistory = historyRes ? {
+        policy_id: historyRes.policy_id,
+        member_id: historyRes.member_id,
+        prior_claims_count: Number(historyRes.prior_claims_count || 0),
+        total_utilized_si: Number(historyRes.total_prior_amount_paid || historyRes.total_utilized_si || 0.0),
+        last_claim_date: historyRes.last_claim_date || null,
+        prior_exclusions_triggered: Array.isArray(historyRes.cumulative_exclusions_triggered)
+          ? historyRes.cumulative_exclusions_triggered
+          : Array.isArray(historyRes.prior_exclusions_triggered) ? historyRes.prior_exclusions_triggered : [],
+        claim_free_years: Number(historyRes.claim_free_years || 0),
+      } : {
+        policy_id: policyId,
+        member_id: memberId,
+        prior_claims_count: 0,
+        total_utilized_si: 0.0,
+        last_claim_date: null,
+        prior_exclusions_triggered: [],
+        claim_free_years: 0,
+      };
+
+      const normalizedPorting = portingRes ? {
+        policy_id: portingRes.policy_id,
+        porting_applicable: Boolean(portingRes.is_ported_policy),
+        prior_coverage_months: Number(portingRes.continuous_coverage_months || 0),
+        waiting_period_credit_months: Number(portingRes.waiting_period_credit_months || 0),
+        moratorium_eligible: Boolean(portingRes.moratorium_eligible_months),
+      } : {
+        policy_id: policyId,
+        porting_applicable: false,
+        prior_coverage_months: 0,
+        waiting_period_credit_months: 0,
+        moratorium_eligible: false,
+      };
+
+      const normalizedBalances = balancesRes ? {
+        policy_id: balancesRes.policy_id,
+        base_si_remaining: Number(balancesRes.base_si_remaining),
+        booster_plus_remaining: Number(balancesRes.booster_plus_remaining),
+        reassure_forever_pool: Number(balancesRes.reassure_forever_pool),
+        cash_bag_plus_wallet: Number(balancesRes.cash_bag_plus_wallet_balance || 0.0),
+        hospital_cash_days_used: Number(balancesRes.hospital_cash_days_used || 0),
+        deductible_consumed_ytd: Number(balancesRes.deductible_consumed_ytd || 0.0),
+      } : {
+        policy_id: policyId,
+        base_si_remaining: normalizedPolicy.base_sum_insured,
+        booster_plus_remaining: 0.0,
+        reassure_forever_pool: normalizedPolicy.base_sum_insured,
+        cash_bag_plus_wallet: 0.0,
+        hospital_cash_days_used: 0,
+        deductible_consumed_ytd: 0.0,
+      };
+
+      const normalizedLifetime = lifetimeRes ? {
+        policy_id: lifetimeRes.policy_id,
+        reassure_forever_triggered: Boolean(lifetimeRes.reassure_forever_triggered),
+        reassure_forever_triggered_date: lifetimeRes.reassure_forever_triggered_date || null,
+        reassure_forever_triggered_claim_id: lifetimeRes.reassure_forever_triggered_claim_id || null,
+        lock_the_clock_age_locked: Boolean(lifetimeRes.lock_the_clock_age_locked),
+        lock_the_clock_entry_age: Number(lifetimeRes.lock_the_clock_entry_age || normalizedMember.entry_age),
+        lock_the_clock_unlocked_date: lifetimeRes.lock_the_clock_unlocked_date || null,
+        lock_the_clock_current_premium_age: Number(lifetimeRes.lock_the_clock_current_premium_age || normalizedMember.age),
+        booster_plus_accumulated: Number(lifetimeRes.booster_plus_accumulated || 0.0),
+        booster_plus_last_updated: lifetimeRes.booster_plus_last_updated || null,
+        convalescence_claimed: Boolean(lifetimeRes.convalescence_claimed),
+        critical_illness_claimed: Boolean(lifetimeRes.critical_illness_claimed),
+        critical_illness_type: lifetimeRes.critical_illness_type || null,
+        live_healthy: {
+          current_points: Number(lifetimeRes.live_healthy_points !== undefined ? lifetimeRes.live_healthy_points : (lifetimeRes.live_healthy && lifetimeRes.live_healthy.current_points) || 0),
+          points_snapshot_date: null,
+        },
+        cash_bag_plus: {
+          balance: Number(lifetimeRes.cash_bag_balance !== undefined ? lifetimeRes.cash_bag_balance : (lifetimeRes.cash_bag_plus && lifetimeRes.cash_bag_plus.balance) || 0.0),
+          last_credited: null,
+        },
+      } : {
+        policy_id: policyId,
+        reassure_forever_triggered: false, reassure_forever_triggered_date: null, reassure_forever_triggered_claim_id: null,
+        lock_the_clock_age_locked: false, lock_the_clock_entry_age: normalizedMember.entry_age, lock_the_clock_unlocked_date: null,
+        lock_the_clock_current_premium_age: normalizedMember.age, booster_plus_accumulated: 0.0, booster_plus_last_updated: null,
+        convalescence_claimed: false, critical_illness_claimed: false, critical_illness_type: null,
+        live_healthy: { current_points: 0, points_snapshot_date: null },
+        cash_bag_plus: { balance: 0.0, last_credited: null },
+      };
+
+      const normalizedEndorsements = endorsementsRes && Array.isArray(endorsementsRes.endorsements)
+        ? endorsementsRes.endorsements.map((e: any) => ({
+            endorsement_id: e.endorsement_id || `END-${Date.now()}-${Math.random()}`,
+            policy_id: e.policy_id,
+            endorsement_type: e.endorsement_type || e.type,
+            effective_date: e.effective_date,
+            details: e.details || e.mutated_fields || {},
+          }))
+        : [];
+
+      setContext(prev => ({
+        ...prev,
+        policy: normalizedPolicy,
+        member: normalizedMember,
+        history: normalizedHistory,
+        porting: normalizedPorting,
+        benefit_balance: normalizedBalances,
+        lifetime_state: normalizedLifetime,
+        endorsements: normalizedEndorsements,
+      }));
+    } catch (err: any) {
+      setSyncError(err.message || 'Unknown database fetch error.');
+    } finally {
+      setSyncing(false);
+    }
+  }, []);
+
+  const handlePresetChange = useCallback((name: string) => {
+    setActivePreset(name);
+    const newPreset = JSON.parse(JSON.stringify(PRESETS[name])) as ClaimContext;
+    setContext(newPreset);
+    if (newPreset.member && newPreset.member.member_id) {
+      void syncFromDb(newPreset.member.member_id);
+    }
+  }, [syncFromDb]);
+
   return {
-    context, activePreset, endType, endVal,
+    context, activePreset, endType, endVal, syncing, syncError,
     setEndType, setEndVal,
     handlePresetChange, updatePolicy, updateMember,
     updateLiveHealthy, updateCashBagPlus,
     updateBenefitBalance, toggleRenewalSimulation,
     updateLineItem, addLineItem, removeLineItem,
-    addEndorsement, removeEndorsement,
+    addEndorsement, removeEndorsement, syncFromDb,
   };
 }

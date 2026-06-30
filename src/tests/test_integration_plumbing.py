@@ -107,3 +107,59 @@ async def test_full_integration_pipeline_smoke(local_server_url):
     assert decision.total_claimed == 100000.0
     assert len(decision.decision_trace) > 0
     assert decision.claim_decision in ("APPROVED", "PARTIALLY_APPROVED", "REJECTED", "ASSISTED_REVIEW", "PENDING_REVIEW")
+
+
+@pytest.mark.anyio
+async def test_caseapi_endpoints_directly(local_server_url):
+    """Directly test the new CaseAPI POST endpoints defined in the Postman collection"""
+    import httpx
+    
+    async with httpx.AsyncClient() as client:
+        # 1. Auth Token
+        auth_resp = await client.post(
+            f"{local_server_url}/api/external/caseapi/api/auth/getauthtoken",
+            json={"UserID": "MOBILE_APP", "Client_id": "test_id", "Identifier_Code": "test_code"}
+        )
+        assert auth_resp.status_code == 200
+        token_data = auth_resp.json()
+        assert "access_token" in token_data
+        token = token_data["access_token"]
+        
+        headers = {
+            "x-apigw-api-id": "mock_api_gateway_id",
+            "access_token": token,
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+        
+        # 2. Get Customer Policy Detail
+        policy_resp = await client.post(
+            f"{local_server_url}/api/external/caseapi/api/policy/getcustomerpolicydetail",
+            json={"PolicyNumber": "POL-1001"},
+            headers=headers
+        )
+        assert policy_resp.status_code == 200
+        policy_data = policy_resp.json()
+        assert policy_data["policy_id"] == "POL-1001"
+        assert policy_data["policy_variant"] == "Classic"
+        
+        # 3. Get Claim History
+        history_resp = await client.post(
+            f"{local_server_url}/api/external/caseapi/api/claim/getclaimhistory",
+            json={"PolicyNo_COI": "POL-1001", "Membership_No_ID": "MEM-9921"},
+            headers=headers
+        )
+        assert history_resp.status_code == 200
+        history_data = history_resp.json()
+        assert history_data["policy_id"] == "POL-1001"
+        
+        # 4. Get Policy Data (Riders / Endorsements)
+        riders_resp = await client.post(
+            f"{local_server_url}/api/external/caseapi/api/policy/getpolicydata",
+            json={"PolicyNo_COI": "POL-1001"},
+            headers=headers
+        )
+        assert riders_resp.status_code == 200
+        riders_data = riders_resp.json()
+        assert "endorsements" in riders_data
+

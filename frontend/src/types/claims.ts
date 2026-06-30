@@ -208,6 +208,15 @@ export interface DecisionTrace {
   source_section?: string;
 }
 
+export interface ToolCallTrace {
+  tool_name: string;
+  arguments: Record<string, unknown>;
+  result_summary: string;
+  success: boolean;
+  error_message?: string | null;
+  timestamp: string;
+}
+
 export interface LineItemDecision {
   line_item_id: string;
   description: string;
@@ -217,6 +226,7 @@ export interface LineItemDecision {
   decision: ClaimDecisionStatus;
   deductions: DeductionDetail[];
   decision_trace: DecisionTrace[];
+  tool_calls?: ToolCallTrace[];
   confidence_score: number;
   manual_review_required: boolean;
   review_reason?: string;

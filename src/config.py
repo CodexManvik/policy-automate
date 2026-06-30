@@ -11,6 +11,9 @@ Usage:
 
 from __future__ import annotations
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from typing import List, Optional, Annotated, Any
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict, NoDecode
@@ -100,6 +103,32 @@ class Settings(BaseSettings):
 
 
     # ------------------------------------------------------------------
+    # API Authentication
+    # ------------------------------------------------------------------
+    # Set ADJUDICATION_API_KEY in the environment or .env file to enable
+    # API key authentication on the adjudication endpoints.  When this
+    # variable is absent (None), authentication is disabled — acceptable for
+    # local development only.  Any production deployment MUST set this value.
+    #
+    # The key is stored as a plain string here; in a real deployment use a
+    # secrets manager (AWS Secrets Manager, Vault, GCP Secret Manager) and
+    # inject the resolved value as an environment variable at container start.
+    #
+    # Clients must send the key in the header named by api_key_header_name.
+    adjudication_api_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Shared secret key for adjudication endpoint authentication. "
+            "Set via ADJUDICATION_API_KEY environment variable. "
+            "If None, authentication is disabled (local dev only)."
+        ),
+    )
+    api_key_header_name: str = Field(
+        default="X-API-Key",
+        description="HTTP header name that clients must use to supply the API key.",
+    )
+
+    # ------------------------------------------------------------------
     # API Server
     # ------------------------------------------------------------------
     cors_origins: Annotated[List[str], NoDecode] = Field(
@@ -123,8 +152,8 @@ class Settings(BaseSettings):
     # Telemetry
     # ------------------------------------------------------------------
     telemetry_file: str = Field(
-        default="metrics_telemetry.jsonl",
-        description="Path to the JSONL telemetry log file",
+        default="logs/metrics_telemetry.jsonl",
+        description="Path to the JSONL telemetry log file (relative to workspace root or absolute)",
     )
 
     @field_validator("log_level")

@@ -10,7 +10,8 @@ from pipeline_modules.shared import _STEP_LOCAL
 
 from schemas import (
     ClaimContext, ClaimDecision, LineItemDecision, DeductionDetail,
-    DecisionTrace, PerClaimState, DeductionBreakdown, SIWaterfallBreakdown
+    DecisionTrace, PerClaimState, DeductionBreakdown, SIWaterfallBreakdown,
+    ToolCallTrace
 )
 from calculators import (
     calculate_waiting_period, calculate_room_pro_rata, calculate_copayment,
@@ -84,14 +85,53 @@ class PipelineHelpersMixin:
         tool_func: Any,
         **kwargs: Any
     ) -> Any:
-        """Helper to invoke a mathematical calculator tool and log its inputs and outputs."""
+        """Invoke a mathematical calculator tool, log inputs/outputs, and emit a ToolCallTrace."""
         t_start = time.perf_counter()
-        result = tool_func(**kwargs)
+        error_msg: Optional[str] = None
+        result: Any = None
+        success = True
+        result_summary = ""
+
+        try:
+            result = tool_func(**kwargs)
+            # Build a compact summary of the most useful numeric fields in the result
+            if hasattr(result, "__dict__"):
+                numeric_fields = {
+                    k: v for k, v in vars(result).items()
+                    if isinstance(v, (int, float)) and not isinstance(v, bool)
+                }
+                result_summary = ", ".join(
+                    f"{k}={v:.2f}" for k, v in list(numeric_fields.items())[:5]
+                ) or str(result)
+            else:
+                result_summary = str(result)
+        except Exception as exc:
+            success = False
+            error_msg = f"{type(exc).__name__}: {exc}"
+            result_summary = f"FAILED: {error_msg}"
+            _logger.error(
+                "Tool call FAILED | claim=%s | tool=%s | error=%s",
+                context.claim_id, tool_name, error_msg
+            )
+
         duration_ms = (time.perf_counter() - t_start) * 1000.0
-        
         session = telemetry_context.get()
         if session:
             session.record_tool_latency(tool_name, duration_ms)
+
+        # Emit ToolCallTrace and append to the current-line-item accumulator
+        trace = ToolCallTrace(
+            tool_name=tool_name,
+            arguments={k: (str(v) if not isinstance(v, (bool, int, float, str, type(None))) else v)
+                       for k, v in kwargs.items()},
+            result_summary=result_summary,
+            success=success,
+            error_message=error_msg,
+        )
+        if not hasattr(self, "_current_tool_calls"):
+            self._current_tool_calls: List[ToolCallTrace] = []
+        self._current_tool_calls.append(trace)
+
         AgentReasoningLogger.log_tool_call(
             claim_id=context.claim_id,
             line_item_id=line_item.line_item_id if line_item else None,
@@ -99,7 +139,20 @@ class PipelineHelpersMixin:
             arguments=kwargs,
             output=result
         )
+
+        if not success:
+            raise RuntimeError(error_msg)  # Re-raise so the calling gate can handle it
         return result
+
+    def _reset_tool_calls(self) -> None:
+        """Clear the per-line-item tool call accumulator before processing each line item."""
+        self._current_tool_calls: List[ToolCallTrace] = []
+
+    def _collect_tool_calls(self) -> List[ToolCallTrace]:
+        """Return and clear the accumulated ToolCallTrace list."""
+        traces = list(getattr(self, "_current_tool_calls", []))
+        self._current_tool_calls = []
+        return traces
 
     def _validate_mutual_exclusivity(
         self, context: ClaimContext, gate: str = "policy_validation"

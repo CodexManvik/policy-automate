@@ -1,15 +1,17 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
-  Sparkles, Activity, Shield, ShieldCheck, ShieldAlert,
-  ChevronDown, ChevronRight, Plus, Trash2, Cpu, DollarSign, Wallet,
+  Sparkles, Activity,
+  ChevronDown, ChevronRight, Plus, Trash2, Cpu, DollarSign,
   RefreshCw, AlertTriangle, AlertCircle, Clock, BookOpen, User, Building2
 } from 'lucide-react';
 
 import { useClaimContext } from './hooks/useClaimContext';
 import { useAdjudication } from './hooks/useAdjudication';
-
-
-
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { DecisionBanner } from './components/decision/DecisionBanner';
+import { CashBagAccrualCard } from './components/decision/CashBagAccrualCard';
+import { WaterfallChart } from './components/decision/WaterfallChart';
+import { ReasoningTerminal } from './components/decision/ReasoningTerminal';
 
 
 // MAIN APP COMPONENT
@@ -17,19 +19,25 @@ import { useAdjudication } from './hooks/useAdjudication';
 
 export default function App() {
   const {
-    context, activePreset, endType, endVal,
+    context, activePreset, endType, endVal, syncing, syncError,
     setEndType, setEndVal,
     handlePresetChange, updatePolicy, updateMember,
     updateLiveHealthy, updateCashBagPlus,
     updateBenefitBalance, toggleRenewalSimulation,
     updateLineItem,
-    addEndorsement, removeEndorsement,
+    addEndorsement, removeEndorsement, syncFromDb,
   } = useClaimContext();
 
   const { decision, loading, error, submit } = useAdjudication();
 
   // UI Accordion States
   const [openSection, setOpenSection] = useState<string>('policy');
+  const [memberSearchId, setMemberSearchId] = useState<string>('MEM-9921');
+
+  // Keep search ID in sync when changing presets
+  useEffect(() => {
+    setMemberSearchId(context.member.member_id);
+  }, [context.member.member_id]);
 
   const handleAdjudicate = () => {
     void submit(context);
@@ -43,24 +51,10 @@ export default function App() {
 
 
   // Helper formatting utility (strictly styled float precision)
-  const formatCurrency = (val: number | undefined) => {
-    if (val === undefined) return '₹0.00';
-    return `₹${Number(val).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  };
-
-  // Utility to gracefully strip or isolate model thinking tracks in the UI
-  const parseReasoningText = (text: string): { thinking: string; cleanText: string } => {
-    const thinkRegex = /<(?:\|thought\||think)>([\s\S]*?)<\/(?:\|thought\||think)>/i;
-    const match = text.match(thinkRegex);
-    
-    if (match) {
-      return {
-        thinking: match[1].trim(),
-        cleanText: text.replace(thinkRegex, '').trim()
-      };
-    }
-    return { thinking: '', cleanText: text };
-  };
+  const formatCurrency = (val: number | undefined) =>
+    val === undefined
+      ? '₹0'
+      : new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 }).format(val);
 
   // Find reasoning trace values in decision trace logs
   const reasoningTraces = decision?.decision_trace.filter(
@@ -99,9 +93,16 @@ export default function App() {
               onChange={(e) => handlePresetChange(e.target.value)}
               className="bg-vanta-black text-white text-xs rounded-full py-1.5 px-4 pr-8 border border-white/5 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer appearance-none font-medium"
             >
-              <option value="case1">Case 1: Standard Inpatient Appendectomy - Pro-Rata Breach</option>
-              <option value="case2">Case 2: 3-Year Lock the Clock Multi-Tenure Delta</option>
-              <option value="case3">Case 3: Cash-Bag+ wellness Points conversion</option>
+              <option value="case1">MEM-9921 — Case 1: Room Rent Pro-Rata Breach</option>
+              <option value="case2">MEM-8822 — Case 2: Lapsed Policy / Premium Unpaid</option>
+              <option value="case3">MEM-7723 — Case 3: Wellness Points Conversion</option>
+              <option value="case4">MEM-6624 — Case 4: ReAssure Forever Waterfall</option>
+              <option value="case5">MEM-5525 — Case 5: Clean Approval (Cholecystectomy)</option>
+              <option value="case6">MEM-4426 — Case 6: Multi-Line (Surgery + Physio + Cash)</option>
+              <option value="case7">MEM-3327 — Case 7: Deductible Option Applied</option>
+              <option value="case8">MEM-2228 — Case 8: Suite Upgrade & Co-payment</option>
+              <option value="case9">MEM-1129 — Case 9: Porting Credit Waiting Period Waiver</option>
+              <option value="case10">MEM-1010 — Case 10: Tiered Network Penalty</option>
             </select>
             <ChevronDown className="w-3.5 h-3.5 absolute right-4 text-slate-400 pointer-events-none" />
           </div>
@@ -125,7 +126,44 @@ export default function App() {
             </span>
           </div>
 
+          {syncError && (
+            <div className="p-4 bg-red-500/10 border border-red-500/30 text-red-300 rounded-2xl flex items-start gap-3 text-xs">
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Database Sync Error</p>
+                <p className="text-[10px] text-red-400 mt-1">{syncError}</p>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-col gap-4">
+            
+            {/* LEDGER SEARCH & SYNC BAR */}
+            <div className="outer-shell bg-white/5 border border-white/10 rounded-[1.5rem] p-4 flex flex-col md:flex-row items-center gap-3">
+              <div className="flex-1 w-full">
+                <label className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">
+                  Sync Member Profile (Enter Member ID)
+                </label>
+                <div className="relative">
+                  <User className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={memberSearchId}
+                    onChange={(e) => setMemberSearchId(e.target.value)}
+                    placeholder="e.g. MEM-9921"
+                    className="w-full bg-vanta-black border border-white/5 rounded-xl py-2 pl-9 pr-3 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono font-medium"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={() => void syncFromDb(memberSearchId)}
+                disabled={syncing}
+                className="w-full md:w-auto h-[38px] mt-auto flex items-center justify-center gap-1.5 bg-indigo-600/80 hover:bg-indigo-600 active:scale-[0.98] disabled:bg-white/5 disabled:text-slate-500 text-white rounded-xl px-5 text-xs font-semibold border border-white/10 transition-all cursor-pointer shadow-lg hover:shadow-indigo-500/10"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing ? 'Syncing...' : 'Sync from DB'}
+              </button>
+            </div>
             
             {/* POLICY DETAILS ACCORDION */}
             <div className="outer-shell bg-white/5 border border-white/10 rounded-[1.5rem] p-1 overflow-hidden transition-all duration-300">
@@ -567,28 +605,9 @@ export default function App() {
             <div className="flex flex-col gap-6">
               
               {/* THE ADJUDICATION BANNER */}
-              <div className={`p-4 rounded-2xl border flex items-center justify-between transition-smooth ${
-                decision.claim_decision === 'APPROVED' ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300' :
-                decision.claim_decision === 'PARTIALLY_APPROVED' ? 'bg-amber-950/20 border-amber-500/30 text-amber-300' :
-                decision.claim_decision === 'REJECTED' ? 'bg-red-950/20 border-red-500/30 text-red-300' :
-                decision.claim_decision === 'ASSISTED_REVIEW' ? 'bg-amber-950/20 border-amber-500/30 text-amber-300' :
-                decision.claim_decision === 'MEDICAL_REVIEW' ? 'bg-purple-950/20 border-purple-500/30 text-purple-300' :
-                'bg-rose-950/20 border-rose-500/30 text-rose-300'
-              }`}>
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    {decision.claim_decision === 'APPROVED' ? <ShieldCheck className="w-4 h-4" /> :
-                     decision.claim_decision === 'REJECTED' ? <ShieldAlert className="w-4 h-4" /> :
-                     <Shield className="w-4 h-4 animate-pulse" />}
-                    <span className="text-[10px] uppercase tracking-wider font-bold">Adjudication Decision</span>
-                  </div>
-                  <h3 className="text-xl font-bold tracking-tight mt-0.5 font-display">{decision.claim_decision}</h3>
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] uppercase tracking-wider text-slate-400 block font-semibold">Total Payable</span>
-                  <p className="text-lg font-bold font-mono text-white">{formatCurrency(decision.total_payable)}</p>
-                </div>
-              </div>
+              <ErrorBoundary label="Adjudication Banner">
+                <DecisionBanner decision={decision} formatCurrency={formatCurrency} />
+              </ErrorBoundary>
 
               {/* MANUAL REVIEW REASONS CARD */}
               {decision.manual_review_required && decision.review_reasons && decision.review_reasons.length > 0 && (
@@ -608,7 +627,7 @@ export default function App() {
               {/* TELEMETRY BADGES CONTAINER */}
               {(decision.deduction_breakdown.lock_the_clock_premium_delta > 0 || decision.decision_trace.some(t => t.rule_id === "CASH_BAG_PLUS_ACCRUAL")) && (
                 <div className="flex flex-col gap-3">
-                  
+
                   {/* Lock the Clock Telemetry Banner */}
                   {decision.deduction_breakdown.lock_the_clock_premium_delta > 0 && (
                     <div className="p-3 bg-red-950/10 border border-red-500/20 rounded-xl flex items-start gap-2.5">
@@ -622,148 +641,66 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Cash-Bag+ Telemetry Card */}
-                  {decision.decision_trace.some(t => t.rule_id === "CASH_BAG_PLUS_ACCRUAL") && (
-                    <div className="p-4 bg-emerald-950/10 border border-emerald-500/20 rounded-2xl flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                          <Wallet className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <p className="text-xs font-semibold text-white">Cash-Bag+ Wallet Accrual</p>
-                          <p className="text-[10px] text-slate-400 mt-0.5">
-                            Wellness Points Converted! 2,800 points converted to <span className="text-emerald-300 font-semibold font-mono">₹700.00</span> Cash-Bag+ wallet credit.
-                          </p>
-                        </div>
-                      </div>
-                      <span className="text-xs font-mono font-bold text-emerald-300 bg-emerald-500/10 px-2 py-1 rounded-lg">
-                        +₹700.00
-                      </span>
-                    </div>
-                  )}
+                  {/* Cash-Bag+ Telemetry Card — data-driven, not hardcoded */}
+                  <ErrorBoundary label="Cash-Bag+ Accrual">
+                    <CashBagAccrualCard decision={decision} formatCurrency={formatCurrency} />
+                  </ErrorBoundary>
 
                 </div>
               )}
 
               {/* LIVE THINKING TERMINAL */}
-              <div className="outer-shell bg-white/5 border border-white/10 rounded-2xl p-1 overflow-hidden">
-                <div className="bg-black/90 font-mono text-xs p-4 rounded-[calc(2rem-0.75rem)] flex flex-col gap-2 min-h-[160px] border border-white/5 shadow-inner">
-                  <div className="flex items-center justify-between border-b border-white/5 pb-2 mb-1">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
-                      <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Semantic Agent Reasoning Terminal</span>
-                    </div>
-                    <span className="text-[9px] uppercase tracking-wider text-slate-600 font-medium">gemma4-e4b-qat</span>
-                  </div>
-                  
-                  <div className="flex-1 flex flex-col gap-2 overflow-y-auto max-h-[220px] pr-2">
-                    <p className="text-[10px] text-slate-500">{"[SYS] Loaded LLM template: <|turn>system <|think|>..."}</p>
-                    <p className="text-[10px] text-slate-500">{"[SYS] Executing semantic rules validation..."}</p>
-                    
-                    {reasoningTraces.length > 0 ? (
-                      reasoningTraces.map((trace, index) => {
-                        const { thinking, cleanText } = parseReasoningText(trace.reason);
-                        return (
-                          <div key={index} className="flex flex-col gap-1 border-t border-white/5 pt-2 mt-1 first:border-0 first:pt-0 first:mt-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[9px] uppercase text-violet-400 font-bold">{trace.rule_id}</span>
-                              <span className={`text-[8px] px-1 py-0.2 rounded font-semibold ${trace.evaluation === 'PASSED' ? 'bg-emerald-950 text-emerald-400' : 'bg-red-950 text-red-400'}`}>
-                                {trace.evaluation}
-                              </span>
-                              {trace.confidence !== undefined && (
-                                <span className="text-[8px] text-slate-500">
-                                  {(trace.confidence * 100).toFixed(0)}% conf
-                                </span>
-                              )}
-                            </div>
-                            {thinking && (
-                              <details className="text-[10px] text-slate-500 pl-2 border-l border-white/10 mt-0.5 cursor-pointer select-none">
-                                <summary className="hover:text-slate-400 transition-smooth">View Thinking Process...</summary>
-                                <div className="mt-1 pl-2 border-l border-dashed border-white/5 whitespace-pre-wrap font-mono text-[9px] text-slate-600 bg-white/2 p-2 rounded">
-                                  {thinking}
-                                </div>
-                              </details>
-                            )}
-                            <p className="text-[11px] text-slate-300 leading-relaxed pl-2 border-l border-white/10 italic">
-                              {cleanText}
-                            </p>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <p className="text-[11px] text-slate-400 italic">No semantic agent reasoning traces generated for this claim.</p>
-                    )}
-                  </div>
-                </div>
-              </div>
+              <ErrorBoundary label="Reasoning Terminal">
+                <ReasoningTerminal traces={reasoningTraces} />
+              </ErrorBoundary>
+
 
               {/* GATE 6 WATERFALL COMPONENT */}
-              <div className="outer-shell bg-white/5 border border-white/10 rounded-[2.5rem] p-1.5 overflow-hidden">
-                <div className="p-6 bg-vanta-black rounded-[calc(2.5rem-0.375rem)] flex flex-col gap-4">
-                  <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                    <h4 className="text-xs font-bold text-white uppercase tracking-wider font-display">Gate 6: Financial Computation Waterfall</h4>
-                    <span className="text-[10px] text-slate-500 font-mono">Deduction breakdown</span>
-                  </div>
+              <ErrorBoundary label="Waterfall Chart">
+                <WaterfallChart decision={decision} formatCurrency={formatCurrency} />
+              </ErrorBoundary>
 
-                  <div className="flex flex-col gap-3 relative before:absolute before:left-3.5 before:top-2 before:bottom-2 before:w-[1px] before:bg-white/5">
-                    
-                    {/* Item 0: Claimed Amount */}
-                    <div className="flex items-center justify-between pl-8 relative">
-                      <div className="absolute left-2 w-3.5 h-3.5 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center text-[8px] font-bold text-white">
-                        0
+
+              {/* CALCULATOR TOOL CALLS PANEL */}
+              {decision.line_items && decision.line_items.some(li => li.tool_calls && li.tool_calls.length > 0) && (
+                <div className="outer-shell bg-white/5 border border-white/10 rounded-2xl p-1 overflow-hidden">
+                  <div className="bg-black/90 font-mono text-xs p-4 rounded-[calc(2rem-0.75rem)] flex flex-col gap-2 min-h-[80px] border border-white/5 shadow-inner">
+                    <div className="flex items-center justify-between border-b border-white/5 pb-2 mb-1">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                        <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Calculator Tool Calls</span>
                       </div>
-                      <span className="text-xs text-slate-300">Initial Claimed Amount</span>
-                      <span className="text-xs font-bold font-mono text-white">{formatCurrency(decision.total_claimed)}</span>
+                      <span className="text-[9px] uppercase tracking-wider text-slate-600 font-medium">per line item</span>
                     </div>
-
-                    {/* Item 1: Non-Payable */}
-                    <div className="flex items-center justify-between pl-8 relative">
-                      <div className="absolute left-2 w-3.5 h-3.5 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center text-[8px] font-bold text-white">
-                        1
-                      </div>
-                      <span className="text-xs text-slate-400">Step 0: Non-Payables Excluded</span>
-                      <span className="text-xs font-medium font-mono text-red-400">-{formatCurrency(decision.deduction_breakdown.non_payable_items)}</span>
+                    <div className="flex flex-col gap-3 overflow-y-auto max-h-[320px] pr-1">
+                      {decision.line_items.map((li, liIdx) => (
+                        li.tool_calls && li.tool_calls.length > 0 ? (
+                          <div key={liIdx} className="flex flex-col gap-1.5">
+                            <p className="text-[9px] uppercase tracking-wider text-cyan-500 font-bold">
+                              {li.line_item_id}: {li.description.substring(0, 48)}{li.description.length > 48 ? '…' : ''}
+                            </p>
+                            {li.tool_calls.map((tc, tcIdx) => (
+                              <div key={tcIdx} className={`flex flex-col gap-0.5 pl-2 border-l-2 ${ tc.success ? 'border-emerald-600' : 'border-red-600' }`}>
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-[8px] px-1 rounded font-bold ${ tc.success ? 'bg-emerald-950 text-emerald-400' : 'bg-red-950 text-red-400' }`}>
+                                    {tc.success ? 'OK' : 'FAIL'}
+                                  </span>
+                                  <span className="text-[10px] text-slate-300 font-semibold">{tc.tool_name}</span>
+                                </div>
+                                {tc.error_message ? (
+                                  <p className="text-[10px] text-red-400 pl-2 italic">{tc.error_message}</p>
+                                ) : (
+                                  <p className="text-[10px] text-slate-500 pl-2">{tc.result_summary}</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : null
+                      ))}
                     </div>
-
-                    {/* Item 2: Room Pro-Rata */}
-                    <div className="flex items-center justify-between pl-8 relative">
-                      <div className="absolute left-2 w-3.5 h-3.5 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center text-[8px] font-bold text-white">
-                        2
-                      </div>
-                      <span className="text-xs text-slate-400">Step 1: Room Rent Pro-Rata Deduction (Tool 2)</span>
-                      <span className="text-xs font-medium font-mono text-red-400">-{formatCurrency(decision.deduction_breakdown.room_pro_rata)}</span>
-                    </div>
-
-                    {/* Item 3: Deductible */}
-                    <div className="flex items-center justify-between pl-8 relative">
-                      <div className="absolute left-2 w-3.5 h-3.5 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center text-[8px] font-bold text-white">
-                        3
-                      </div>
-                      <span className="text-xs text-slate-400">Step 4: Annual Deductible Applied (Tool 4)</span>
-                      <span className="text-xs font-medium font-mono text-red-400">-{formatCurrency(decision.deduction_breakdown.deductible)}</span>
-                    </div>
-
-                    {/* Item 4: Co-Pay */}
-                    <div className="flex items-center justify-between pl-8 relative">
-                      <div className="absolute left-2 w-3.5 h-3.5 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center text-[8px] font-bold text-white">
-                        4
-                      </div>
-                      <span className="text-xs text-slate-400">Step 5: Stacked Co-Payment Applied (Tool 3)</span>
-                      <span className="text-xs font-medium font-mono text-red-400">-{formatCurrency(decision.deduction_breakdown.co_payment)}</span>
-                    </div>
-
-                    {/* Item 5: Sum Insured depletion */}
-                    <div className="flex items-center justify-between pl-8 relative border-t border-white/5 pt-3 mt-1">
-                      <div className="absolute left-2 w-3.5 h-3.5 rounded-full bg-indigo-500 flex items-center justify-center text-[8px] font-bold text-white">
-                        ✓
-                      </div>
-                      <span className="text-xs font-bold text-indigo-300">Payable Payout (Gate 6 Waterfall)</span>
-                      <span className="text-sm font-bold font-mono text-indigo-400">{formatCurrency(decision.total_payable)}</span>
-                    </div>
-
                   </div>
                 </div>
-              </div>
+              )}
 
             </div>
           )}

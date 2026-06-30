@@ -23,12 +23,17 @@ from typing import Any
 
 sys.path.append(str(Path(__file__).parent))
 
-from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, Security, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.security import APIKeyHeader
 from pydantic import ValidationError
+import secrets
 
 from config import settings
 from schemas import ClaimContext, ClaimDecision
+from agent_reasoning import AgentReasoningLogger
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +140,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from integration.mock_routers import router as mock_router
+app.include_router(mock_router)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.error("Request validation failed: %s", exc.errors())
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": exc.errors(), "body": exc.body},
+    )
+
 # ---------------------------------------------------------------------------
 # Middleware — X-Request-ID tracing
 # ---------------------------------------------------------------------------
@@ -198,6 +215,49 @@ async def readiness_check():
 
 
 # ---------------------------------------------------------------------------
+# API Key authentication dependency
+# ---------------------------------------------------------------------------
+
+_api_key_scheme = APIKeyHeader(
+    name=settings.api_key_header_name,
+    auto_error=False,   # We raise ourselves for a controlled error message
+    description="Shared API key. Required when ADJUDICATION_API_KEY is configured.",
+)
+
+
+async def verify_api_key(api_key: str | None = Security(_api_key_scheme)) -> None:
+    """
+    FastAPI dependency: validates the incoming API key against the configured secret.
+
+    Behaviour:
+      - If settings.adjudication_api_key is None, authentication is disabled and the
+        request passes through unconditionally.  This is safe only in local dev.
+      - If the header is missing or the key does not match, returns 401.
+      - Uses secrets.compare_digest for constant-time comparison to prevent
+        timing-based side-channel attacks.
+    """
+    configured_key = settings.adjudication_api_key
+    if configured_key is None:
+        # Authentication not configured — allow all requests (dev mode only).
+        return
+
+    if api_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Missing API key. Supply it in the '{settings.api_key_header_name}' header.",
+            headers={"WWW-Authenticate": f"APIKey header={settings.api_key_header_name}"},
+        )
+
+    # Constant-time comparison prevents timing oracle attacks.
+    if not secrets.compare_digest(api_key.encode(), configured_key.encode()):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API key.",
+            headers={"WWW-Authenticate": f"APIKey header={settings.api_key_header_name}"},
+        )
+
+
+# ---------------------------------------------------------------------------
 # Adjudication endpoints — v1 and v2 share the same handler
 # ---------------------------------------------------------------------------
 
@@ -215,6 +275,16 @@ async def _adjudicate_handler(context: ClaimContext) -> ClaimDecision:
         )
 
     logger.info("Adjudicating claim: %s", context.claim_id)
+
+    # Persist the full ClaimContext to a dedicated per-claim log file before adjudication.
+    # Non-fatal: any write error is caught inside log_claim_context and only logged as WARNING.
+    try:
+        AgentReasoningLogger.log_claim_context(
+            context.claim_id,
+            context.model_dump(mode="json")
+        )
+    except Exception:
+        pass  # Logging failures must never block adjudication
 
     try:
         decision: ClaimDecision = await _pipeline.adjudicate_claim_async(context)
@@ -263,7 +333,10 @@ async def _adjudicate_handler(context: ClaimContext) -> ClaimDecision:
     description="Processes the claim context payload through the 7-gate dynamic execution graph.",
     tags=["Adjudication"],
 )
-async def adjudicate_v1(context: ClaimContext) -> ClaimDecision:
+async def adjudicate_v1(
+    context: ClaimContext,
+    _: None = Depends(verify_api_key),
+) -> ClaimDecision:
     return await _adjudicate_handler(context)
 
 
@@ -275,5 +348,8 @@ async def adjudicate_v1(context: ClaimContext) -> ClaimDecision:
     description="Processes the claim context payload through the 7-gate dynamic execution graph.",
     tags=["Adjudication"],
 )
-async def adjudicate_v2(context: ClaimContext) -> ClaimDecision:
+async def adjudicate_v2(
+    context: ClaimContext,
+    _: None = Depends(verify_api_key),
+) -> ClaimDecision:
     return await _adjudicate_handler(context)
