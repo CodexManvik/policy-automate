@@ -1,6 +1,6 @@
 import logging
 _logger = logging.getLogger("claims_adjudication_pipeline")
-from typing import List, Tuple, Optional, Any, Dict
+from typing import List, Tuple, Optional, Any, Dict, Callable
 from datetime import datetime, timezone, date
 import time
 import asyncio
@@ -841,7 +841,8 @@ class ExecutionMixin:
         plan: ExecutionPlan,
         line_item,
         context: ClaimContext,
-        state: PerClaimState
+        state: PerClaimState,
+        on_trace: Optional[Callable[[DecisionTrace], None]] = None
     ) -> LineItemDecision:
         """
         Execute the dynamically generated execution plan asynchronously.
@@ -908,6 +909,8 @@ class ExecutionMixin:
                     step, passed, trace, deduction, claimed_amount, admissible_amount, payable_amount,
                     item_deductions, item_traces, step_confidences, context, line_item
                 )
+                if on_trace:
+                    on_trace(trace)
                 if fail_decision:
                     return fail_decision
                     

@@ -416,7 +416,7 @@ class ProductMemoryStore:
         rule_id_upper = rule_id.upper()
         
         # 1. Waiting Periods
-        if rule_id_upper in ["R3_EXCL_001", "R3_EXCL_002", "R3_EXCL_003"] or rule_id_upper.startswith("R3_WT"):
+        if rule_id_upper in ["R3_EXCL_001", "R3_EXCL_002", "R3_EXCL_003", "R3_EXCL_017"] or rule_id_upper.startswith("R3_WT"):
             gate = RuleGate.WAITING_PERIOD_VALIDATION
             if rule_id_upper == "R3_EXCL_003":
                 priority = 10
@@ -427,6 +427,9 @@ class ProductMemoryStore:
             elif rule_id_upper == "R3_EXCL_001":
                 priority = 30
                 exec_type = ExecutionType.HYBRID
+            elif rule_id_upper == "R3_EXCL_017":
+                priority = 32
+                exec_type = ExecutionType.DETERMINISTIC
             else:
                 priority = 35
                 exec_type = ExecutionType.DETERMINISTIC

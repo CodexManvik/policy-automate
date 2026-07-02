@@ -670,7 +670,7 @@ class ValidationGatesMixin:
                                 "{procedures}": line_item.description,
                                 "{icd_codes}": "[]",
                                 "{doctor_notes}": "",
-                                "{discharge_summary}": "",
+                                "{discharge_summary}": line_item.discharge_summary or "",
                                 "{medical_history}": str(context.member.ped_declarations),
                             }
                             for placeholder, value in replacements.items():

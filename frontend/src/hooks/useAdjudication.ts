@@ -6,20 +6,25 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import type { ClaimContext, ClaimDecision } from '../types/claims';
+import type { ClaimContext, ClaimDecision, DecisionTrace } from '../types/claims';
 import { ApiError } from '../types/claims';
-import { adjudicateClaim } from '../services/adjudicationApi';
+import { adjudicateClaimStream } from '../services/adjudicationApi';
 
 export interface UseAdjudicationReturn {
   decision: ClaimDecision | null;
+  liveTraces: DecisionTrace[];
   loading: boolean;
   error: string | null;
-  submit: (context: ClaimContext) => Promise<void>;
+  submitStream: (
+    context: ClaimContext,
+    onTraceAdded?: (trace: DecisionTrace) => void
+  ) => Promise<void>;
   reset: () => void;
 }
 
 export function useAdjudication(): UseAdjudicationReturn {
   const [decision, setDecision] = useState<ClaimDecision | null>(null);
+  const [liveTraces, setLiveTraces] = useState<DecisionTrace[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,7 +32,10 @@ export function useAdjudication(): UseAdjudicationReturn {
   // when the component unmounts or when reset() is called.
   const abortRef = useRef<AbortController | null>(null);
 
-  const submit = useCallback(async (context: ClaimContext): Promise<void> => {
+  const submitStream = useCallback(async (
+    context: ClaimContext,
+    onTraceAdded?: (trace: DecisionTrace) => void
+  ): Promise<void> => {
     // Cancel any previous in-flight request
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -36,10 +44,28 @@ export function useAdjudication(): UseAdjudicationReturn {
     setLoading(true);
     setError(null);
     setDecision(null);
+    setLiveTraces([]);
 
     try {
-      const result = await adjudicateClaim(context, controller.signal);
-      setDecision(result);
+      await adjudicateClaimStream(
+        context,
+        (trace) => {
+          setLiveTraces((prev) => {
+            const next = [...prev, trace];
+            if (onTraceAdded) {
+              onTraceAdded(trace);
+            }
+            return next;
+          });
+        },
+        (finalDecision) => {
+          setDecision(finalDecision);
+        },
+        (errText) => {
+          setError(errText);
+        },
+        controller.signal
+      );
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         // Request was intentionally cancelled — do not set error state
@@ -60,9 +86,10 @@ export function useAdjudication(): UseAdjudicationReturn {
   const reset = useCallback(() => {
     abortRef.current?.abort();
     setDecision(null);
+    setLiveTraces([]);
     setError(null);
     setLoading(false);
   }, []);
 
-  return { decision, loading, error, submit, reset };
+  return { decision, liveTraces, loading, error, submitStream, reset };
 }

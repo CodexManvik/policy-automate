@@ -433,7 +433,7 @@ class AIPlanner:
             "{procedures}": line_item.description,
             "{icd_codes}": "[]",  # Would come from medical records
             "{doctor_notes}": "",  # Would come from claim documents
-            "{discharge_summary}": "",  # Would come from hospital
+            "{discharge_summary}": line_item.discharge_summary or "",
             "{medical_history}": str(claim_context.member.ped_declarations),
             "{disease_list}": "Cataract, Hernia, Stones, PCOD, Hysterectomy, Hemorrhoids, Fistula, Varicose Veins"
         }

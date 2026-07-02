@@ -166,6 +166,7 @@ export interface LineItemData {
   doctor_advised: boolean;
   continuous_treatment: boolean;
   daily_monitoring_chart: boolean;
+  discharge_summary?: string | null;
 }
 
 export interface ClaimContext {
@@ -292,4 +293,27 @@ export class ApiError extends Error {
     this.status = status;
     this.name = 'ApiError';
   }
+}
+
+// ---------------------------------------------------------------------------
+// Document extraction types
+// ---------------------------------------------------------------------------
+
+export interface DocumentExtractionLLMPayload {
+  discharge_summary: string | null;
+  condition_diagnosed: string | null;
+  admission_date: string | null;
+  discharge_date: string | null;
+  hospitalization_hours: number | null;
+  claimed_amount: number | null;
+  room_charges: number | null;
+  nursing_charges: number | null;
+  medical_practitioner_fees: number | null;
+  ot_charges: number | null;
+}
+
+export interface DocumentExtractionResult {
+  filename: string;
+  raw_text_length: number;
+  extracted: DocumentExtractionLLMPayload;
 }

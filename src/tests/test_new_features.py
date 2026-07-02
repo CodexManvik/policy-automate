@@ -301,3 +301,69 @@ def test_hybrid_step_bypass_semantic():
         assert mock_sem.call_count == 1
         assert trace.confidence == 0.96
         assert trace.reason == "Semantic approved"
+
+
+def test_claim_summary_endpoint():
+    """Verify the POST /api/v2/adjudicate/summary API route returns clean JSON summaries."""
+    from fastapi.testclient import TestClient
+    from unittest.mock import patch, MagicMock
+    from main import app
+    
+    client = TestClient(app)
+    
+    decision_payload = {
+        "claim_id": "CLM-TEST-99",
+        "claim_decision": "PARTIALLY_APPROVED",
+        "total_claimed": 10000.0,
+        "total_admissible": 8000.0,
+        "total_payable": 7200.0,
+        "total_deductions": 2800.0,
+        "deduction_breakdown": {
+            "room_pro_rata": 1000.0,
+            "co_payment": 800.0,
+            "deductible": 0.0,
+            "non_payable_items": 1000.0,
+            "sublimits": 0.0,
+            "penalties": 0.0,
+            "si_cap": 0.0,
+            "lock_the_clock_premium_delta": 0.0
+        },
+        "si_waterfall_breakdown": {
+            "amount_from_base_si": 7200.0,
+            "amount_from_booster": 0.0,
+            "amount_from_forever": 0.0,
+            "total_paid": 7200.0,
+            "shortfall": 0.0,
+            "updated_base_si": 492800.0,
+            "updated_booster": 0.0,
+            "updated_forever_pool": 0.0
+        },
+        "line_items": [],
+        "decision_trace": [
+            {
+                "step": 1,
+                "rule_id": "R3_EXCL_004",
+                "rule_name": "Diagnostic Only Exclusion",
+                "gate": "exclusion_validation",
+                "inputs": {},
+                "evaluation": "EXCLUSION_ACTIVE",
+                "reason": "Hospitalization is diagnostic only",
+                "source_section": "5.1"
+            }
+        ]
+    }
+    
+    # We patch main._pipeline to simulate active semantic agent
+    import main
+    mock_pipeline = MagicMock()
+    mock_pipeline.semantic_agent = MagicMock()
+    mock_pipeline.semantic_agent._call_llm = MagicMock(
+        return_value='{"summary": "The claim was partially approved due to a diagnostic exclusion."}'
+    )
+    
+    with patch("main._pipeline", mock_pipeline):
+        resp = client.post("/api/v2/adjudicate/summary", json=decision_payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "summary" in data
+        assert data["summary"] == "The claim was partially approved due to a diagnostic exclusion."

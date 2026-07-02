@@ -1,6 +1,6 @@
 import logging
 _logger = logging.getLogger("claims_adjudication_pipeline")
-from typing import List, Tuple, Optional, Any, Dict
+from typing import List, Tuple, Optional, Any, Dict, Callable
 from datetime import datetime, timezone, date
 import copy
 import time
@@ -327,13 +327,15 @@ Gate Sequence (now dynamic based on plan):
             if claim_decision:
                 try:
                     engine = PipelineMetricsEngine(settings.telemetry_file)
-                    engine.record_execution(claim_decision, session)
                 except Exception:
                     pass
             telemetry_context.reset(token)
 
-
-    async def adjudicate_claim_async(self, context: ClaimContext) -> ClaimDecision:
+    async def adjudicate_claim_async(
+        self,
+        context: ClaimContext,
+        on_trace: Optional[Callable[[DecisionTrace], None]] = None
+    ) -> ClaimDecision:
         """
         Asynchronous entry point: Execute dynamic graph-based adjudication pipeline in parallel
         
@@ -351,7 +353,7 @@ Gate Sequence (now dynamic based on plan):
             # Per-call local state — thread-safe by design (not stored on self)
             decision_traces: List[DecisionTrace] = []
             current_step = 0
-            # Gap 11: Context staleness guard (Section 4.6 / API contract).
+            # Gate 11: Context staleness guard (Section 4.6 / API contract).
             _max_age_minutes = settings.context_max_age_minutes
             _assembled_at = getattr(context, 'context_assembled_at', None)
             if _assembled_at is not None:
@@ -417,6 +419,8 @@ Gate Sequence (now dynamic based on plan):
                     source_section="Extraction JSON: mutual_exclusivity_constraints",
                 )
                 decision_traces.append(mx_trace)
+                if on_trace:
+                    on_trace(mx_trace)
                 # Return claim with PENDING_REVIEW status
                 claim_decision = self._create_claim_review_decision(
                     context, constraint_id, reason, [mx_trace], start_time
@@ -442,12 +446,16 @@ Gate Sequence (now dynamic based on plan):
             for line_item in context_for_adjudication.line_items:
                 # Mandatory structural pre-checks before handing off to the async plan.
                 g1_passed, g1_trace = self._gate_1_policy_validation(context_for_adjudication, line_item)
+                if on_trace:
+                    on_trace(g1_trace)
                 if not g1_passed:
                     line_item_decisions.append(
                         self._create_rejected_decision(line_item, g1_trace.reason, [g1_trace])
                     )
                     continue
                 g2_passed, g2_trace = self._gate_2_member_validation(context_for_adjudication, line_item)
+                if on_trace:
+                    on_trace(g2_trace)
                 if not g2_passed:
                     line_item_decisions.append(
                         self._create_rejected_decision(line_item, g2_trace.reason, [g2_trace])
@@ -458,7 +466,7 @@ Gate Sequence (now dynamic based on plan):
                 self.plans_created += 1
 
                 # Execute the plan asynchronously
-                tasks.append(self._execute_plan_async(execution_plan, line_item, context_for_adjudication, state))
+                tasks.append(self._execute_plan_async(execution_plan, line_item, context_for_adjudication, state, on_trace))
 
 
             if tasks:
@@ -474,6 +482,9 @@ Gate Sequence (now dynamic based on plan):
             gate_7_traces = getattr(_STEP_LOCAL, 'decision_traces', [])
             if gate_7_traces:
                 decision_traces.extend(gate_7_traces)
+                if on_trace:
+                    for t in gate_7_traces:
+                        on_trace(t)
             # Compose final claim-level decision
             claim_decision = self._compose_claim_decision(
                 context_for_adjudication, line_item_decisions, state, start_time, decision_traces

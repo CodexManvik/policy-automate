@@ -132,7 +132,12 @@ class Settings(BaseSettings):
     # API Server
     # ------------------------------------------------------------------
     cors_origins: Annotated[List[str], NoDecode] = Field(
-        default=["http://localhost:5173", "http://127.0.0.1:5173"],
+        default=[
+            "http://localhost:5173", 
+            "http://127.0.0.1:5173",
+            "http://localhost:5174",
+            "http://127.0.0.1:5174"
+        ],
         description="Allowed CORS origins. Use ['*'] ONLY for internal/development deployments.",
     )
     log_level: str = Field(

@@ -200,6 +200,7 @@ class LineItemData(BaseModel):
     admission_date: Optional[datetime] = None
     discharge_date: Optional[datetime] = None
     hospitalization_hours: Optional[float] = None
+    discharge_summary: Optional[str] = None
     
     # Room rent details (if applicable)
     actual_room_rent: Optional[float] = None
@@ -500,3 +501,40 @@ class PASReconciliationResult(BaseModel):
     pas_total_payable: Optional[float] = None
     checked_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     check_duration_ms: Optional[float] = None
+
+
+class DecisionSummaryPayload(BaseModel):
+    """Payload for structured LLM decision summary generation"""
+    summary: str = Field(..., description="Detailed markdown formatted explanation of the decision, why rules were triggered or rejected, and the financial breakdown.")
+
+
+class ClaimSummaryResponse(BaseModel):
+    """Response payload returning the AI-generated claim decision summary"""
+    summary: str
+
+
+class DocumentExtractionLLMPayload(BaseModel):
+    """Structured payload the LLM returns when parsing a clinical document."""
+    discharge_summary: Optional[str] = None
+    condition_diagnosed: Optional[str] = None
+    admission_date: Optional[str] = None
+    discharge_date: Optional[str] = None
+    hospitalization_hours: Optional[float] = None
+    claimed_amount: Optional[float] = None
+    room_charges: Optional[float] = None
+    nursing_charges: Optional[float] = None
+    medical_practitioner_fees: Optional[float] = None
+    ot_charges: Optional[float] = None
+
+
+class DocumentExtractionResult(BaseModel):
+    """
+    Response returned by POST /api/v2/extract-document.
+
+    All fields are Optional — the caller (frontend) renders only non-null
+    fields for confirmation before auto-filling the claim form.
+    """
+    filename: str
+    raw_text_length: int = Field(description="Character count of text extracted before LLM processing.")
+    extracted: DocumentExtractionLLMPayload
+

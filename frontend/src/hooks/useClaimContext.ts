@@ -152,6 +152,7 @@ export function useClaimContext(): UseClaimContextReturn {
           room_charges: null, nursing_charges: null,
           medical_practitioner_fees: null, ot_charges: null,
           doctor_advised: false, continuous_treatment: false, daily_monitoring_chart: false,
+          discharge_summary: null,
         },
       ],
     }));

@@ -12,7 +12,7 @@ export const PRESETS: Record<string, ClaimContext> = {
     claim_received_at: '2026-06-10T12:00:00Z',
     policy: {
       policy_id: 'POL-1001', product_code: 'R3', variant: 'Classic',
-      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2026-01-01T00:00:00Z',
+      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2027-01-01T00:00:00Z',
       base_sum_insured: 500000.0, status: 'Active', premium_paid: true, grace_period_active: false,
       policy_type: 'individual', policy_term_years: 1, co_payment_percent: 10.0,
       annual_aggregate_deductible: null, room_category_entitled: 'Single Private Room',
@@ -66,6 +66,7 @@ export const PRESETS: Record<string, ClaimContext> = {
       condition_diagnosed: 'Acute Appendicitis', accident_related: false, emergency: false,
       room_charges: 24000.0, nursing_charges: 10000.0, medical_practitioner_fees: 8000.0, ot_charges: 12000.0,
       doctor_advised: false, continuous_treatment: false, daily_monitoring_chart: false,
+      discharge_summary: null,
     }],
     product_json_version: 'R3_v2.1_2025-01-15', renewal_event_simulation: false,
   },
@@ -128,7 +129,7 @@ export const PRESETS: Record<string, ClaimContext> = {
     claim_received_at: '2026-06-10T12:00:00Z',
     policy: {
       policy_id: 'POL-3003', product_code: 'R3', variant: 'Select',
-      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2026-01-01T00:00:00Z',
+      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2027-01-01T00:00:00Z',
       base_sum_insured: 750000.0, status: 'Active', premium_paid: true, grace_period_active: false,
       policy_type: 'individual', policy_term_years: 1, co_payment_percent: null,
       annual_aggregate_deductible: 10000.0, room_category_entitled: 'Shared Accommodation',
@@ -190,7 +191,7 @@ export const PRESETS: Record<string, ClaimContext> = {
     claim_received_at: '2026-06-10T12:00:00Z',
     policy: {
       policy_id: 'POL-4004', product_code: 'R3', variant: 'Elite',
-      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2026-01-01T00:00:00Z',
+      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2027-01-01T00:00:00Z',
       base_sum_insured: 1000000.0, status: 'Active', premium_paid: true, grace_period_active: false,
       policy_type: 'individual', policy_term_years: 1, co_payment_percent: null,
       annual_aggregate_deductible: null, room_category_entitled: 'Suite',
@@ -244,7 +245,7 @@ export const PRESETS: Record<string, ClaimContext> = {
     claim_received_at: '2026-06-12T09:30:00Z',
     policy: {
       policy_id: 'POL-5005', product_code: 'R3', variant: 'Classic',
-      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2026-01-01T00:00:00Z',
+      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2027-01-01T00:00:00Z',
       base_sum_insured: 500000.0, status: 'Active', premium_paid: true, grace_period_active: false,
       policy_type: 'individual', policy_term_years: 1, co_payment_percent: null,
       annual_aggregate_deductible: null, room_category_entitled: 'Single Private Room',
@@ -299,7 +300,7 @@ export const PRESETS: Record<string, ClaimContext> = {
     claim_received_at: '2026-06-14T08:00:00Z',
     policy: {
       policy_id: 'POL-6006', product_code: 'R3', variant: 'Elite',
-      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2026-01-01T00:00:00Z',
+      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2027-01-01T00:00:00Z',
       base_sum_insured: 2000000.0, status: 'Active', premium_paid: true, grace_period_active: false,
       policy_type: 'floater', policy_term_years: 1, co_payment_percent: null,
       annual_aggregate_deductible: null, room_category_entitled: 'Single Private Room',
@@ -376,7 +377,7 @@ export const PRESETS: Record<string, ClaimContext> = {
     claim_received_at: '2026-06-15T10:00:00Z',
     policy: {
       policy_id: 'POL-7007', product_code: 'R3', variant: 'Select',
-      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2026-01-01T00:00:00Z',
+      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2027-01-01T00:00:00Z',
       base_sum_insured: 300000.0, status: 'Active', premium_paid: true, grace_period_active: false,
       policy_type: 'individual', policy_term_years: 1, co_payment_percent: null,
       annual_aggregate_deductible: 10000.0, room_category_entitled: 'Single Private Room',
@@ -431,7 +432,7 @@ export const PRESETS: Record<string, ClaimContext> = {
     claim_received_at: '2026-06-16T11:00:00Z',
     policy: {
       policy_id: 'POL-8008', product_code: 'R3', variant: 'Classic',
-      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2026-01-01T00:00:00Z',
+      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2027-01-01T00:00:00Z',
       base_sum_insured: 500000.0, status: 'Active', premium_paid: true, grace_period_active: false,
       policy_type: 'individual', policy_term_years: 1, co_payment_percent: 10.0,
       annual_aggregate_deductible: null, room_category_entitled: 'Single Private Room',
@@ -486,7 +487,7 @@ export const PRESETS: Record<string, ClaimContext> = {
     claim_received_at: '2026-06-17T10:00:00Z',
     policy: {
       policy_id: 'POL-9009', product_code: 'R3', variant: 'Select',
-      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2026-01-01T00:00:00Z',
+      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2027-01-01T00:00:00Z',
       base_sum_insured: 500000.0, status: 'Active', premium_paid: true, grace_period_active: false,
       policy_type: 'individual', policy_term_years: 1, co_payment_percent: null,
       annual_aggregate_deductible: null, room_category_entitled: 'Single Private Room',
@@ -540,7 +541,7 @@ export const PRESETS: Record<string, ClaimContext> = {
     claim_received_at: '2026-06-18T11:00:00Z',
     policy: {
       policy_id: 'POL-1010', product_code: 'R3', variant: 'Classic',
-      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2026-01-01T00:00:00Z',
+      policy_start_date: '2025-01-01T00:00:00Z', policy_end_date: '2027-01-01T00:00:00Z',
       base_sum_insured: 500000.0, status: 'Active', premium_paid: true, grace_period_active: false,
       policy_type: 'individual', policy_term_years: 1, co_payment_percent: null,
       annual_aggregate_deductible: null, room_category_entitled: 'Single Private Room',
