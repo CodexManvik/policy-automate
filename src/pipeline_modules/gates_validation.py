@@ -696,7 +696,8 @@ class ValidationGatesMixin:
                                 evaluation="EXCLUSION_ACTIVE",
                                 reason=sem_result.reason,
                                 confidence=sem_result.confidence,
-                                source_section=rule.section_ref
+                                source_section=rule.section_ref,
+                                raw_llm_response=sem_result.raw_response if isinstance(getattr(sem_result, "raw_response", None), str) else None,
                             )
                         elif sem_result.confidence < self.confidence_threshold:
                             # Low confidence — flag for review but do not hard-reject
@@ -712,7 +713,8 @@ class ValidationGatesMixin:
                                     f"{rule.rule_id} — flagged for review"
                                 ),
                                 confidence=sem_result.confidence,
-                                source_section=rule.section_ref
+                                source_section=rule.section_ref,
+                                raw_llm_response=sem_result.raw_response if isinstance(getattr(sem_result, "raw_response", None), str) else None,
                             ))
                     except Exception as e:
                         # Never let a semantic error crash adjudication — log and continue

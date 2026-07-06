@@ -17,10 +17,15 @@ from pydantic import BaseModel, Field
 telemetry_context = contextvars.ContextVar("telemetry_context", default=None)
 
 class TelemetrySession:
-    """Holds execution latencies for a single run of the adjudication pipeline"""
+    """Holds execution latencies and LLM token counts for a single run of the adjudication pipeline"""
     def __init__(self):
         self.tool_latencies: Dict[str, List[float]] = {}
         self.gate_latencies: Dict[str, List[float]] = {}
+        # Aggregate token counters for the full adjudication run
+        self.total_prompt_tokens: int = 0
+        self.total_completion_tokens: int = 0
+        # Per-gate token breakdown: {gate_name: {"prompt": int, "completion": int}}
+        self.gate_token_usage: Dict[str, Dict[str, int]] = {}
 
     def record_tool_latency(self, tool_name: str, duration_ms: float):
         if tool_name not in self.tool_latencies:
@@ -31,6 +36,20 @@ class TelemetrySession:
         if gate_name not in self.gate_latencies:
             self.gate_latencies[gate_name] = []
         self.gate_latencies[gate_name].append(duration_ms)
+
+    def record_llm_tokens(
+        self,
+        gate_name: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+    ) -> None:
+        """Accumulate LLM token usage for a single LLM call, attributed to a gate."""
+        self.total_prompt_tokens += prompt_tokens
+        self.total_completion_tokens += completion_tokens
+        if gate_name not in self.gate_token_usage:
+            self.gate_token_usage[gate_name] = {"prompt": 0, "completion": 0}
+        self.gate_token_usage[gate_name]["prompt"] += prompt_tokens
+        self.gate_token_usage[gate_name]["completion"] += completion_tokens
 
 
 _telemetry_file_lock = threading.Lock()
@@ -109,7 +128,17 @@ class PipelineMetricsEngine:
             "pas_decision": pas_decision,
             "tool_latencies": session.tool_latencies if session else {},
             "gate_latencies": session.gate_latencies if session else {},
-            "failed_rules": failed_rules
+            "failed_rules": failed_rules,
+            # LLM token usage — populated only when semantic gates fire
+            "llm_token_usage": {
+                "total_prompt_tokens": session.total_prompt_tokens if session else 0,
+                "total_completion_tokens": session.total_completion_tokens if session else 0,
+                "total_tokens": (
+                    (session.total_prompt_tokens + session.total_completion_tokens)
+                    if session else 0
+                ),
+                "per_gate_breakdown": session.gate_token_usage if session else {},
+            },
         }
 
         # Append to file thread-safely

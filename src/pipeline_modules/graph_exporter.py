@@ -22,8 +22,10 @@ def save_adjudication_graph(claim_decision: ClaimDecision, context: ClaimContext
     """
     Generates a self-contained, interactive HTML file visualizing the adjudication graph.
     Saves it inside the `graphs/` directory in the project root.
-    
-    Returns the file path of the generated HTML.
+
+    Returns the bare filename (e.g. 'claim_decision_CLM-001_20260704_152030.html').
+    The full disk path is NOT returned; the file is served via the /graphs/ static
+    route mounted in main.py.
     """
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     graphs_dir = os.path.join(project_root, "graphs")
@@ -111,7 +113,8 @@ def save_adjudication_graph(claim_decision: ClaimDecision, context: ClaimContext
             "confidence": trace.confidence,
             "inputs": trace.inputs,
             "source_section": trace.source_section,
-            "source_page": trace.source_page
+            "source_page": trace.source_page,
+            "raw_llm_response": trace.raw_llm_response,
         }
         last_node_id = node_id
         current_level += 1
@@ -192,7 +195,8 @@ def save_adjudication_graph(claim_decision: ClaimDecision, context: ClaimContext
                 "confidence": li_trace.confidence,
                 "inputs": li_trace.inputs,
                 "source_section": li_trace.source_section,
-                "source_page": li_trace.source_page
+                "source_page": li_trace.source_page,
+                "raw_llm_response": li_trace.raw_llm_response,
             }
             li_last_node_id = node_id
             branch_depth += 1
@@ -249,7 +253,8 @@ def save_adjudication_graph(claim_decision: ClaimDecision, context: ClaimContext
             "confidence": trace.confidence,
             "inputs": trace.inputs,
             "source_section": trace.source_section,
-            "source_page": trace.source_page
+            "source_page": trace.source_page,
+            "raw_llm_response": trace.raw_llm_response,
         }
         last_node_id = node_id
         current_level += 1
@@ -452,6 +457,46 @@ def save_adjudication_graph(claim_decision: ClaimDecision, context: ClaimContext
             border: 1px solid #1e293b;
             color: #38bdf8;
             max-height: 250px;
+        }}
+        .think-block {{
+            margin: 8px 0;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 8px;
+            overflow: hidden;
+            background: rgba(120, 53, 15, 0.12);
+        }}
+        .think-summary {{
+            cursor: pointer;
+            padding: 9px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #fbbf24;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            user-select: none;
+            list-style: none;
+        }}
+        .think-summary::-webkit-details-marker {{ display: none; }}
+        .think-summary::before {{
+            content: "▶";
+            font-size: 9px;
+            transition: transform 0.2s;
+        }}
+        details[open] .think-summary::before {{ transform: rotate(90deg); }}
+        .think-pre {{
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            background: rgba(9, 13, 22, 0.9);
+            padding: 10px 14px;
+            margin: 0;
+            border-top: 1px solid rgba(245, 158, 11, 0.2);
+            color: #fde68a;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 400px;
+            overflow-y: auto;
+            border-radius: 0;
         }}
         .toolbar {{
             position: absolute;
@@ -711,6 +756,33 @@ def save_adjudication_graph(claim_decision: ClaimDecision, context: ClaimContext
                 const statusClass = data.evaluation === "PASSED" ? "passed" : 
                                     (data.evaluation.includes("FAIL") || data.evaluation.includes("EXCL")) ? "failed" : "warning";
                 
+                // Extract <think> block from raw LLM response if present
+                let thinkHtml = "";
+                if (data.raw_llm_response) {{
+                    const raw = data.raw_llm_response;
+                    let thinkText = null;
+                    // Match <think>...</think> or <|think|>...</|think|>
+                    const m1 = raw.match(/<think>([\\s\\S]*?)<\\/think>/i);
+                    const m2 = raw.match(/<\\|think\\|>([\\s\\S]*?)<\\/\\|think\\|>/i);
+                    if (m1) thinkText = m1[1].trim();
+                    else if (m2) thinkText = m2[1].trim();
+                    if (thinkText) {{
+                        const escaped = thinkText
+                            .replace(/&/g, "&amp;")
+                            .replace(/</g, "&lt;")
+                            .replace(/>/g, "&gt;");
+                        thinkHtml = `
+                            <details class="think-block">
+                                <summary class="think-summary">
+                                    <span style="font-size:13px;">&#x1F9E0;</span>
+                                    AI Reasoning Chain (Raw Think Block)
+                                </summary>
+                                <pre class="think-pre">${{escaped}}</pre>
+                            </details>
+                        `;
+                    }}
+                }}
+                
                 html += `
                     <div class="card">
                         <div class="card-title">Evaluation Summary</div>
@@ -723,6 +795,7 @@ def save_adjudication_graph(claim_decision: ClaimDecision, context: ClaimContext
                         <div class="card-title">Reasoning Trace</div>
                         <div class="reason-box ${{statusClass}}">${{data.reason}}</div>
                     </div>
+                    ${{thinkHtml}}
                     <div class="card">
                         <div class="card-title">Rule Inputs</div>
                         <pre><code>${{formatJson(data.inputs)}}</code></pre>
@@ -806,4 +879,4 @@ def save_adjudication_graph(claim_decision: ClaimDecision, context: ClaimContext
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(html_template)
         
-    return filepath
+    return filename

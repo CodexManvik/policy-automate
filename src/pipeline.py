@@ -319,7 +319,8 @@ Gate Sequence (now dynamic based on plan):
             )
             try:
                 from pipeline_modules.graph_exporter import save_adjudication_graph
-                save_adjudication_graph(claim_decision, context)
+                graph_fname = save_adjudication_graph(claim_decision, context)
+                claim_decision.graph_filename = graph_fname
             except Exception as e:
                 _logger.warning("Failed to save adjudication debug graph: %s", e)
             return claim_decision
@@ -491,7 +492,8 @@ Gate Sequence (now dynamic based on plan):
             )
             try:
                 from pipeline_modules.graph_exporter import save_adjudication_graph
-                save_adjudication_graph(claim_decision, context)
+                graph_fname = save_adjudication_graph(claim_decision, context)
+                claim_decision.graph_filename = graph_fname
             except Exception as e:
                 _logger.warning("Failed to save adjudication debug graph: %s", e)
             return claim_decision

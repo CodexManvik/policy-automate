@@ -17,6 +17,7 @@ import type {
   EndorsementData,
   EndorsementType,
   BenefitBalanceData,
+  PolicyVariant,
 } from '../types/claims';
 import { PRESETS } from '../data/presets';
 import {
@@ -72,22 +73,25 @@ export function useClaimContext(): UseClaimContextReturn {
 
   // Auto-populate endorsement JSON template when type changes
   useEffect(() => {
-    switch (endType) {
-      case 'MemberAddition':
-        setEndVal(JSON.stringify({ name: 'Bob Jones', age: 28, relationship: 'Spouse' }, null, 2));
-        break;
-      case 'SIEnhancement':
-        setEndVal(JSON.stringify({ base_sum_insured: 750000.0 }, null, 2));
-        break;
-      case 'IndividualToFloater':
-        setEndVal(JSON.stringify({ members: [{ member_id: 'MEM-9921', booster_plus: 40000 }] }, null, 2));
-        break;
-      case 'FloaterSplit':
-        setEndVal(JSON.stringify({ new_policies: [{ member_id: 'MEM-9921', new_sum_insured: 300000 }] }, null, 2));
-        break;
-      default:
-        setEndVal('{}');
-    }
+    const tid = setTimeout(() => {
+      switch (endType) {
+        case 'MemberAddition':
+          setEndVal(JSON.stringify({ name: 'Bob Jones', age: 28, relationship: 'Spouse' }, null, 2));
+          break;
+        case 'SIEnhancement':
+          setEndVal(JSON.stringify({ base_sum_insured: 750000.0 }, null, 2));
+          break;
+        case 'IndividualToFloater':
+          setEndVal(JSON.stringify({ members: [{ member_id: 'MEM-9921', booster_plus: 40000 }] }, null, 2));
+          break;
+        case 'FloaterSplit':
+          setEndVal(JSON.stringify({ new_policies: [{ member_id: 'MEM-9921', new_sum_insured: 300000 }] }, null, 2));
+          break;
+        default:
+          setEndVal('{}');
+      }
+    }, 0);
+    return () => clearTimeout(tid);
   }, [endType]);
 
   const updatePolicy = useCallback((key: keyof PolicyData, value: unknown) => {
@@ -167,7 +171,7 @@ export function useClaimContext(): UseClaimContextReturn {
 
   /** Returns true on success, false on JSON parse error */
   const addEndorsement = useCallback((): boolean => {
-    let parsedDetails: Record<string, unknown> = {};
+    let parsedDetails: Record<string, unknown>;
     try {
       parsedDetails = JSON.parse(endVal) as Record<string, unknown>;
     } catch {
@@ -223,7 +227,7 @@ export function useClaimContext(): UseClaimContextReturn {
       const normalizedPolicy: PolicyData = {
         policy_id: policyRes.policy_id,
         product_code: policyRes.product_code,
-        variant: policyRes.policy_variant || policyRes.variant || 'Classic',
+        variant: (policyRes.policy_variant || policyRes.variant || 'Classic') as PolicyVariant,
         policy_start_date: policyRes.policy_start_date,
         policy_end_date: policyRes.policy_end_date,
         base_sum_insured: Number(policyRes.base_sum_insured),
@@ -345,10 +349,18 @@ export function useClaimContext(): UseClaimContextReturn {
       };
 
       const normalizedEndorsements = endorsementsRes && Array.isArray(endorsementsRes.endorsements)
-        ? endorsementsRes.endorsements.map((e: any) => ({
+        ? (endorsementsRes.endorsements as Array<{
+            endorsement_id?: string;
+            policy_id: string;
+            endorsement_type?: string;
+            type?: string;
+            effective_date: string;
+            details?: Record<string, unknown>;
+            mutated_fields?: Record<string, unknown>;
+          }>).map((e) => ({
             endorsement_id: e.endorsement_id || `END-${Date.now()}-${Math.random()}`,
             policy_id: e.policy_id,
-            endorsement_type: e.endorsement_type || e.type,
+            endorsement_type: (e.endorsement_type || e.type || 'SIEnhancement') as EndorsementType,
             effective_date: e.effective_date,
             details: e.details || e.mutated_fields || {},
           }))
@@ -364,8 +376,9 @@ export function useClaimContext(): UseClaimContextReturn {
         lifetime_state: normalizedLifetime,
         endorsements: normalizedEndorsements,
       }));
-    } catch (err: any) {
-      setSyncError(err.message || 'Unknown database fetch error.');
+    } catch (err) {
+      const error = err as Error;
+      setSyncError(error.message || 'Unknown database fetch error.');
     } finally {
       setSyncing(false);
     }

@@ -277,6 +277,8 @@ export interface ClaimDecision {
   confidence_score: number;
   manual_review_required: boolean;
   review_reasons: string[];
+  /** Bare filename of the interactive HTML trace graph, served at /graphs/{graph_filename} */
+  graph_filename?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -317,3 +319,61 @@ export interface DocumentExtractionResult {
   raw_text_length: number;
   extracted: DocumentExtractionLLMPayload;
 }
+
+// ---------------------------------------------------------------------------
+// Raw Database Ledger types (returned by API external endpoints before normalization)
+// ---------------------------------------------------------------------------
+
+export interface DbPolicy extends Partial<PolicyData> {
+  policy_id: string;
+  product_code: string;
+  policy_start_date: string;
+  policy_end_date: string;
+  policy_variant?: string;
+  co_pay_option?: number | null;
+  deductible_option?: number | null;
+  room_charges?: number | null;
+  optional_riders?: string[];
+}
+
+
+export interface DbMember extends Partial<MemberData> {
+  member_id: string;
+  policy_id: string;
+  name?: string;
+  age: number;
+  entry_age?: number;
+  relationship?: MemberRelationship;
+  date_of_addition: string;
+  ped_declarations?: string[];
+  eligibility_active?: boolean;
+}
+
+export interface DbClaimsHistory extends Partial<ClaimsHistoryData> {
+  policy_id: string;
+  member_id: string;
+  total_prior_amount_paid?: number;
+  cumulative_exclusions_triggered?: string[];
+}
+
+export interface DbPortingMigration extends Partial<PortingMigrationData> {
+  policy_id: string;
+  is_ported_policy?: boolean;
+  continuous_coverage_months?: number;
+  moratorium_eligible_months?: number;
+}
+
+export interface DbBenefitBalance extends Partial<BenefitBalanceData> {
+  policy_id: string;
+  base_si_remaining: number;
+  booster_plus_remaining: number;
+  reassure_forever_pool: number;
+  cash_bag_plus_wallet_balance?: number;
+}
+
+export interface DbLifetimeState extends Partial<LifetimeStateData> {
+  policy_id: string;
+  live_healthy_points?: number;
+  cash_bag_balance?: number;
+}
+

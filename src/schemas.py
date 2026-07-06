@@ -297,6 +297,9 @@ class DecisionTrace(BaseModel):
     source_section: Optional[str] = None
     source_page: Optional[int] = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # Full raw LLM response text for semantic gate nodes, including any <think>...</think>
+    # reasoning chain. None for deterministic (non-LLM) gate evaluations.
+    raw_llm_response: Optional[str] = None
 
 
 class ToolCallTrace(BaseModel):
@@ -396,6 +399,9 @@ class ClaimDecision(BaseModel):
     # Metadata
     decision_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     processing_duration_ms: Optional[float] = None
+    # Filename (not path) of the interactive HTML adjudication trace graph.
+    # Served by FastAPI at /graphs/{graph_filename}. None when graph generation fails.
+    graph_filename: Optional[str] = None
 
 
 # ============================================================================

@@ -676,11 +676,13 @@ class ExecutionMixin:
             evaluation_status = "PASSED" if passed else "FAILED"
             reason = result.reason
             confidence = result.confidence
+            raw_llm_resp = result.raw_response if isinstance(getattr(result, "raw_response", None), str) else None
         except Exception as semantic_err:
             passed = False
             evaluation_status = "PENDING_REVIEW"
             reason = f"Semantic agent failed/timed out: {semantic_err}"
             confidence = 0.0
+            raw_llm_resp = None
         
         # Create trace
         trace = DecisionTrace(
@@ -691,7 +693,8 @@ class ExecutionMixin:
             inputs={"semantic_prompt": step.semantic_prompt[:200] if step.semantic_prompt else ""},
             evaluation=evaluation_status,
             reason=reason,
-            confidence=confidence
+            confidence=confidence,
+            raw_llm_response=raw_llm_resp,
         )
         
         return passed, trace, None

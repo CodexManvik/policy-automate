@@ -29,6 +29,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import APIKeyHeader
+from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 import secrets
 
@@ -146,6 +147,12 @@ app.add_middleware(
 
 from integration.mock_routers import router as mock_router
 app.include_router(mock_router)
+
+# Serve generated HTML adjudication graphs as static files at /graphs/<filename>.
+# The graphs/ directory is created here so the mount never fails on a fresh clone.
+_graphs_dir = Path(__file__).parent.parent / "graphs"
+_graphs_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/graphs", StaticFiles(directory=str(_graphs_dir)), name="graphs")
 
 
 @app.exception_handler(RequestValidationError)

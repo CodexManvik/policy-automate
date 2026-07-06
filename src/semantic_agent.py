@@ -127,6 +127,9 @@ class SemanticExecutionAgent:
         self.call_count = 0
         self.total_confidence = 0.0
         self._result_cache: Dict[str, SemanticResult] = {}
+        # Carry token counts from _call_* up to _assess_* — reset before each LLM call
+        self._last_prompt_tokens: int = 0
+        self._last_completion_tokens: int = 0
 
         # Fast probe to check if legacy raw /completion endpoint is supported and active
         self.use_legacy_completion = False
@@ -203,7 +206,7 @@ class SemanticExecutionAgent:
 
         self._result_cache[cache_key] = res
         return res
-    
+
     def _assess_exclusion(self, rule_id: str, prompt: str, claim_id: str, line_item_id: Optional[str]) -> SemanticResult:
         """
         Assess if an exclusion applies
@@ -224,7 +227,17 @@ class SemanticExecutionAgent:
             "Correct response example (output EXACTLY this structure, with your own content):\n"
             '{"evaluation_status": "PASSED", "reasoning_trace": "The treatment is an appendectomy (active surgery), not a diagnostic-only admission. Exclusion R3_EXCL_004 does not apply.", "confidence_score": 0.96}'
         )
+        self._last_prompt_tokens = 0
+        self._last_completion_tokens = 0
         raw_response = self._call_llm(system_prompt, prompt, SemanticAdjudicationPayload)
+        prompt_tok = self._last_prompt_tokens
+        completion_tok = self._last_completion_tokens
+
+        # Record token usage into the context-local telemetry session
+        from metrics import telemetry_context
+        _session = telemetry_context.get()
+        if _session is not None:
+            _session.record_llm_tokens("exclusion_validation", prompt_tok, completion_tok)
         
         try:
             assessment = SemanticAdjudicationPayload.model_validate_json(raw_response)
@@ -236,7 +249,7 @@ class SemanticExecutionAgent:
             # Accumulate confidence for tracking
             self.total_confidence += assessment.confidence_score
             
-            # Log structured agent reasoning
+            # Log structured agent reasoning (includes token counts)
             AgentReasoningLogger.log_llm_call(
                 claim_id=claim_id,
                 line_item_id=line_item_id,
@@ -248,7 +261,9 @@ class SemanticExecutionAgent:
                 raw_response=raw_response,
                 structured_output=assessment.model_dump(),
                 confidence=assessment.confidence_score,
-                requires_manual_review=requires_review
+                requires_manual_review=requires_review,
+                prompt_tokens=prompt_tok,
+                completion_tokens=completion_tok,
             )
             
             return SemanticResult(
@@ -271,7 +286,9 @@ class SemanticExecutionAgent:
                 raw_response=raw_response,
                 structured_output={"error": str(e)},
                 confidence=0.0,
-                requires_manual_review=True
+                requires_manual_review=True,
+                prompt_tokens=prompt_tok,
+                completion_tokens=completion_tok,
             )
             return SemanticResult(
                 passed=False,
@@ -299,7 +316,17 @@ class SemanticExecutionAgent:
             "Correct response example (output EXACTLY this structure, with your own content):\n"
             '{"evaluation_status": "PASSED", "reasoning_trace": "Hospitalization exceeds 24 hours and is for active surgical treatment. Coverage criteria are met.", "confidence_score": 0.97}'
         )
+        self._last_prompt_tokens = 0
+        self._last_completion_tokens = 0
         raw_response = self._call_llm(system_prompt, prompt, SemanticAdjudicationPayload)
+        prompt_tok = self._last_prompt_tokens
+        completion_tok = self._last_completion_tokens
+
+        # Record token usage into the context-local telemetry session
+        from metrics import telemetry_context
+        _session = telemetry_context.get()
+        if _session is not None:
+            _session.record_llm_tokens("coverage_validation", prompt_tok, completion_tok)
         
         try:
             assessment = SemanticAdjudicationPayload.model_validate_json(raw_response)
@@ -311,7 +338,7 @@ class SemanticExecutionAgent:
             # Accumulate confidence
             self.total_confidence += assessment.confidence_score
             
-            # Log structured agent reasoning
+            # Log structured agent reasoning (includes token counts)
             AgentReasoningLogger.log_llm_call(
                 claim_id=claim_id,
                 line_item_id=line_item_id,
@@ -323,7 +350,9 @@ class SemanticExecutionAgent:
                 raw_response=raw_response,
                 structured_output=assessment.model_dump(),
                 confidence=assessment.confidence_score,
-                requires_manual_review=requires_review
+                requires_manual_review=requires_review,
+                prompt_tokens=prompt_tok,
+                completion_tokens=completion_tok,
             )
             
             return SemanticResult(
@@ -346,7 +375,9 @@ class SemanticExecutionAgent:
                 raw_response=raw_response,
                 structured_output={"error": str(e)},
                 confidence=0.0,
-                requires_manual_review=True
+                requires_manual_review=True,
+                prompt_tokens=prompt_tok,
+                completion_tokens=completion_tok,
             )
             return SemanticResult(
                 passed=False,
@@ -374,7 +405,17 @@ class SemanticExecutionAgent:
             "Correct response example (output EXACTLY this structure, with your own content):\n"
             '{"evaluation_status": "PASSED", "reasoning_trace": "Policy inception was 2022-01-01. Claim date is 2025-06-01. The 36-month PED waiting period has been fully served.", "confidence_score": 0.98}'
         )
+        self._last_prompt_tokens = 0
+        self._last_completion_tokens = 0
         raw_response = self._call_llm(system_prompt, prompt, SemanticAdjudicationPayload)
+        prompt_tok = self._last_prompt_tokens
+        completion_tok = self._last_completion_tokens
+
+        # Record token usage into the context-local telemetry session
+        from metrics import telemetry_context
+        _session = telemetry_context.get()
+        if _session is not None:
+            _session.record_llm_tokens("waiting_period_validation", prompt_tok, completion_tok)
         
         try:
             assessment = SemanticAdjudicationPayload.model_validate_json(raw_response)
@@ -386,7 +427,7 @@ class SemanticExecutionAgent:
             # Accumulate confidence
             self.total_confidence += assessment.confidence_score
             
-            # Log structured agent reasoning
+            # Log structured agent reasoning (includes token counts)
             AgentReasoningLogger.log_llm_call(
                 claim_id=claim_id,
                 line_item_id=line_item_id,
@@ -398,7 +439,9 @@ class SemanticExecutionAgent:
                 raw_response=raw_response,
                 structured_output=assessment.model_dump(),
                 confidence=assessment.confidence_score,
-                requires_manual_review=requires_review
+                requires_manual_review=requires_review,
+                prompt_tokens=prompt_tok,
+                completion_tokens=completion_tok,
             )
             
             return SemanticResult(
@@ -421,7 +464,9 @@ class SemanticExecutionAgent:
                 raw_response=raw_response,
                 structured_output={"error": str(e)},
                 confidence=0.0,
-                requires_manual_review=True
+                requires_manual_review=True,
+                prompt_tokens=prompt_tok,
+                completion_tokens=completion_tok,
             )
             return SemanticResult(
                 passed=False,
@@ -482,6 +527,11 @@ class SemanticExecutionAgent:
                 temperature=0.0,  # Zero temperature for greedy decoding
                 seed=42
             )
+            
+            # Capture token counts from OpenAI usage metadata
+            if response.usage:
+                self._last_prompt_tokens = response.usage.prompt_tokens
+                self._last_completion_tokens = response.usage.completion_tokens
             
             return response.choices[0].message.content
         
@@ -548,6 +598,9 @@ class SemanticExecutionAgent:
                         # Ensure the JSON object is closed if truncated by grammar/stop tokens
                         if raw and not raw.endswith("}"):
                             raw += "}"
+                        # Capture token counts reported by llama.cpp /completion
+                        self._last_prompt_tokens = result.get("tokens_evaluated", 0)
+                        self._last_completion_tokens = result.get("tokens_predicted", 0)
                         return self._extract_json_from_response(raw)
                     raise ValueError("Invalid /completion response: no 'content' key")
                 except Exception as legacy_err:
@@ -575,6 +628,10 @@ class SemanticExecutionAgent:
             )
             result = json.loads(content)
             if "choices" in result and result["choices"]:
+                # Capture token counts from /v1/chat/completions usage field
+                usage = result.get("usage", {})
+                self._last_prompt_tokens = usage.get("prompt_tokens", 0)
+                self._last_completion_tokens = usage.get("completion_tokens", 0)
                 return self._extract_json_from_response(
                     result["choices"][0]["message"]["content"]
                 )

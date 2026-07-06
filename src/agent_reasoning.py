@@ -232,9 +232,11 @@ class AgentReasoningLogger:
         raw_response: str,
         structured_output: Optional[Dict[str, Any]] = None,
         confidence: float = 0.0,
-        requires_manual_review: bool = False
+        requires_manual_review: bool = False,
+        prompt_tokens: Optional[int] = None,
+        completion_tokens: Optional[int] = None,
     ) -> None:
-        """Logs a semantic reasoning LLM query, prompts, raw response, and confidence score."""
+        """Logs a semantic reasoning LLM query, prompts, raw response, confidence score, and token usage."""
         logger = cls.get_logger()
         log_payload = {
             "event": "LLM_INFERENCE",
@@ -249,10 +251,23 @@ class AgentReasoningLogger:
             "raw_response": raw_response,
             "structured_output": structured_output,
             "confidence": confidence,
-            "requires_manual_review": requires_manual_review
+            "requires_manual_review": requires_manual_review,
+            "token_usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": (
+                    (prompt_tokens + completion_tokens)
+                    if prompt_tokens is not None and completion_tokens is not None
+                    else None
+                ),
+            },
         }
-        logger.info(f"LLM | Claim: {claim_id} | Rule: {rule_id} | Provider: {provider} | Confidence: {confidence:.2f}\n"
-                    f"{json.dumps(log_payload, indent=2, default=cls._default_serializer)}")
+        logger.info(
+            f"LLM | Claim: {claim_id} | Rule: {rule_id} | Provider: {provider} "
+            f"| Confidence: {confidence:.2f} "
+            f"| Tokens: prompt={prompt_tokens} completion={completion_tokens}\n"
+            f"{json.dumps(log_payload, indent=2, default=cls._default_serializer)}"
+        )
 
     @classmethod
     def log_routing(

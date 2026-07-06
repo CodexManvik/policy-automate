@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useClaimContext } from './hooks/useClaimContext';
 import { useAdjudication } from './hooks/useAdjudication';
 import { getClaimSummary, extractDocument } from './services/adjudicationApi';
-import type { DocumentExtractionResult } from './types/claims';
+import type { DocumentExtractionResult, ClaimDecision, DecisionTrace } from './types/claims';
 
 // TRANSLATION DICTIONARY FOR TECHNICAL CODES
 const RULE_DEFINITIONS: Record<string, { title: string; description: string }> = {
@@ -123,8 +123,8 @@ export default function App() {
 
   // Simulated Scanning & Telemetry State
   const [scanning, setScanning] = useState<boolean>(false);
-  const [visibleTraces, setVisibleTraces] = useState<any[]>([]);
-  const scanIntervalRef = useRef<any>(null);
+  const [visibleTraces, setVisibleTraces] = useState<DecisionTrace[]>([]);
+  const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // -----------------------------------------------------------------------
   // Multi-document upload state
@@ -202,11 +202,12 @@ export default function App() {
         if (e.nursing_charges != null)       updateLineItem(0, 'nursing_charges', e.nursing_charges);
         if (e.medical_practitioner_fees != null) updateLineItem(0, 'medical_practitioner_fees', e.medical_practitioner_fees);
         if (e.ot_charges != null)            updateLineItem(0, 'ot_charges', e.ot_charges);
-      } catch (err: any) {
+      } catch (err) {
+        const error = err as Error;
         clearInterval(ticker);
         patchDoc(docId, {
           status: 'error', progress: 0,
-          error: err?.message ?? 'Extraction failed. Verify the backend LLM is running.',
+          error: error.message || 'Extraction failed. Verify the backend LLM is running.',
         });
       }
     }
@@ -222,35 +223,41 @@ export default function App() {
   }, [activePreviewId]);
 
   // Keep a local decision copy so we control the timing of when it displays (only after scanning completes)
-  const [localDecision, setLocalDecision] = useState<any>(null);
+  const [localDecision, setLocalDecision] = useState<ClaimDecision | null>(null);
 
 
   // Keep search ID in sync when changing presets
   useEffect(() => {
-    setMemberSearchId(context.member.member_id);
+    const tid = setTimeout(() => {
+      setMemberSearchId(context.member.member_id);
+    }, 0);
+    return () => clearTimeout(tid);
   }, [context.member.member_id]);
 
   // Set local decision and trigger background summary when the streaming adjudication completes
   useEffect(() => {
     if (decision) {
-      setScanning(false);
-      setLocalDecision(decision);
+      const tid = setTimeout(() => {
+        setScanning(false);
+        setLocalDecision(decision);
 
-      // Trigger background summary generation if partially approved or rejected
-      if (decision.claim_decision === 'REJECTED' || decision.claim_decision === 'PARTIALLY_APPROVED') {
-        setAiSummaryLoading(true);
-        getClaimSummary(decision)
-          .then((res) => {
-            setAiSummary(res.summary);
-          })
-          .catch((err) => {
-            console.error("AI summary error:", err);
-            setAiSummary("Failed to generate AI adjudication summary. Please verify that your local LLM is active.");
-          })
-          .finally(() => {
-            setAiSummaryLoading(false);
-          });
-      }
+        // Trigger background summary generation if partially approved or rejected
+        if (decision.claim_decision === 'REJECTED' || decision.claim_decision === 'PARTIALLY_APPROVED') {
+          setAiSummaryLoading(true);
+          getClaimSummary(decision)
+            .then((res) => {
+              setAiSummary(res.summary);
+            })
+            .catch((err) => {
+              console.error("AI summary error:", err);
+              setAiSummary("Failed to generate AI adjudication summary. Please verify that your local LLM is active.");
+            })
+            .finally(() => {
+              setAiSummaryLoading(false);
+            });
+        }
+      }, 0);
+      return () => clearTimeout(tid);
     }
   }, [decision]);
 
@@ -283,8 +290,9 @@ export default function App() {
 
   // Cleanup timers
   useEffect(() => {
+    const currentInterval = scanIntervalRef.current;
     return () => {
-      if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
+      if (currentInterval) clearInterval(currentInterval);
     };
   }, []);
 
@@ -999,7 +1007,7 @@ export default function App() {
                        {visibleTraces.map((trace, idx) => {
                         if (!trace || !trace.rule_id) return null;
                         const def = RULE_DEFINITIONS[trace.rule_id] || { title: trace.rule_name || trace.rule_id, description: trace.reason };
-                        const isSuccess = trace.evaluation === 'PASSED' || trace.evaluation === 'NOT_APPLICABLE' || trace.passed === true;
+                        const isSuccess = trace.evaluation === 'PASSED' || trace.evaluation === 'NOT_APPLICABLE';
                         
                         return (
                           <div 
@@ -1142,7 +1150,7 @@ export default function App() {
                     {aiSummaryLoading && (
                       <span className="text-[9px] text-primary/70 animate-pulse font-semibold">
                         Summarizing...
-                      </span>
+                       </span>
                     )}
                   </div>
 
@@ -1156,7 +1164,7 @@ export default function App() {
                   ) : (
                     <div className="text-xs text-on-surface-variant leading-relaxed space-y-2 prose prose-sm max-w-none text-left">
                       {aiSummary && aiSummary.split('\n').map((line, idx) => {
-                        let trimmed = line.trim();
+                        const trimmed = line.trim();
                         if (trimmed.length === 0) return <div key={idx} className="h-2" />;
                         if (trimmed.startsWith('###')) {
                           return <h4 key={idx} className="font-display text-xs font-bold text-on-surface mt-3 mb-1">{trimmed.replace('###', '').trim()}</h4>;
@@ -1184,6 +1192,27 @@ export default function App() {
                         }
                         return <p key={idx} className="mb-1">{formatBoldText(trimmed)}</p>;
                       })}
+                    </div>
+                  )}
+
+                  {/* View Detailed Trace link — only when graph was generated */}
+                  {!aiSummaryLoading && localDecision?.graph_filename && (
+                    <div className="pt-3 border-t border-outline-variant/30">
+                      <a
+                        href={`http://localhost:8000/graphs/${localDecision.graph_filename}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-primary hover:text-primary/80 transition-colors group"
+                      >
+                        <span className="material-symbols-outlined text-base group-hover:scale-110 transition-transform">
+                          account_tree
+                        </span>
+                        View Detailed Adjudication Trace
+                        <span className="material-symbols-outlined text-[11px] opacity-60">open_in_new</span>
+                      </a>
+                      <p className="text-[9px] text-on-surface-variant/60 mt-0.5 ml-6">
+                        Opens interactive DAG graph in a new tab
+                      </p>
                     </div>
                   )}
                 </div>
