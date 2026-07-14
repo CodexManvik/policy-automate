@@ -898,24 +898,33 @@ class ExecutionMixin:
         # Step 3: Execute layer by layer
         for depth in sorted_depths:
             layer_steps = layers[depth]
-            
-            # Execute all steps in the current layer concurrently
-            tasks = []
-            for step in layer_steps:
-                tasks.append(self._execute_step_async(step, line_item, context, state))
-                
+
+            # Wrap each step so on_trace fires the instant that step completes,
+            # rather than waiting for every step in the layer to finish.
+            # The wrapper returns the (passed, trace, deduction) tuple unchanged
+            # so _process_step_result can still run sequentially afterward.
+            async def _step_and_emit(
+                step=None,
+                _on_trace=on_trace,
+            ):
+                result = await self._execute_step_async(step, line_item, context, state)
+                _passed, _trace, _deduction = result
+                if _on_trace:
+                    _on_trace(_trace)
+                return result
+
+            tasks = [_step_and_emit(step=s) for s in layer_steps]
             results = await asyncio.gather(*tasks)
-            
-            # Process results for this layer (fixing scoping bug by using zip)
+
+            # Process results sequentially (admissible/payable are stateful)
             for step, (passed, trace, deduction) in zip(layer_steps, results):
                 admissible_amount, payable_amount, fail_decision = self._process_step_result(
                     step, passed, trace, deduction, claimed_amount, admissible_amount, payable_amount,
                     item_deductions, item_traces, step_confidences, context, line_item
                 )
-                if on_trace:
-                    on_trace(trace)
                 if fail_decision:
                     return fail_decision
+
                     
         return self._finalize_line_item_decision(
             claimed_amount, admissible_amount, payable_amount,

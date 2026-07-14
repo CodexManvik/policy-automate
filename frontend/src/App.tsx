@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useClaimContext } from './hooks/useClaimContext';
 import { useAdjudication } from './hooks/useAdjudication';
 import { getClaimSummary, extractDocument } from './services/adjudicationApi';
-import type { DocumentExtractionResult, ClaimDecision, DecisionTrace } from './types/claims';
+import type { DocumentExtractionResult, ClaimDecision } from './types/claims';
 
 // TRANSLATION DICTIONARY FOR TECHNICAL CODES
 const RULE_DEFINITIONS: Record<string, { title: string; description: string }> = {
@@ -84,6 +84,24 @@ const RULE_DEFINITIONS: Record<string, { title: string; description: string }> =
   }
 };
 
+// ── Time-aware greeting ────────────────────────────────────────────────
+const getGreeting = (): string => {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+};
+
+// ── Decision badge config per tier ──────────────────────────────────────
+const DECISION_CONFIG: Record<string, { label: string; icon: string; badgeClass: string; glowClass: string; iconColor: string }> = {
+  APPROVED:           { label: 'Claim Approved',        icon: 'check_circle',      badgeClass: 'badge-approved', glowClass: 'shadow-glow-success', iconColor: 'text-emerald-500' },
+  PARTIALLY_APPROVED: { label: 'Partially Approved',    icon: 'adjust',            badgeClass: 'badge-partial',  glowClass: 'shadow-glow',        iconColor: 'text-sky-500'     },
+  REJECTED:           { label: 'Claim Rejected',        icon: 'cancel',            badgeClass: 'badge-rejected', glowClass: 'shadow-glow-error',  iconColor: 'text-red-500'     },
+  ASSISTED_REVIEW:    { label: 'Assisted Review',       icon: 'manage_accounts',   badgeClass: 'badge-assisted', glowClass: 'shadow-glow-amber',  iconColor: 'text-amber-500'   },
+  MEDICAL_REVIEW:     { label: 'Medical Review',        icon: 'medical_services',  badgeClass: 'badge-medical',  glowClass: 'shadow-glow-amber',  iconColor: 'text-purple-600'  },
+  PENDING_REVIEW:     { label: 'Pending Senior Audit',  icon: 'pending_actions',   badgeClass: 'badge-pending',  glowClass: '',                   iconColor: 'text-slate-500'   },
+};
+
 const formatBoldText = (text: string) => {
   const parts = text.split(/(\*\*.*?\*\*)/g);
   return parts.map((part, index) => {
@@ -105,7 +123,7 @@ export default function App() {
     addEndorsement, removeEndorsement, syncFromDb,
   } = useClaimContext();
 
-  const { decision, loading: adjLoading, error: adjError, submitStream } = useAdjudication();
+  const { decision, liveTraces, loading: adjLoading, error: adjError, submitStream } = useAdjudication();
 
   // AI Summary State
   const [aiSummary, setAiSummary] = useState<string | null>(null);
@@ -123,7 +141,6 @@ export default function App() {
 
   // Simulated Scanning & Telemetry State
   const [scanning, setScanning] = useState<boolean>(false);
-  const [visibleTraces, setVisibleTraces] = useState<DecisionTrace[]>([]);
   const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // -----------------------------------------------------------------------
@@ -241,8 +258,9 @@ export default function App() {
         setScanning(false);
         setLocalDecision(decision);
 
-        // Trigger background summary generation if partially approved or rejected
-        if (decision.claim_decision === 'REJECTED' || decision.claim_decision === 'PARTIALLY_APPROVED') {
+        // Trigger background summary generation for any non-clean outcome
+        const wantsSummary = ['REJECTED', 'PARTIALLY_APPROVED', 'APPROVED', 'ASSISTED_REVIEW', 'MEDICAL_REVIEW', 'PENDING_REVIEW'];
+        if (wantsSummary.includes(decision.claim_decision)) {
           setAiSummaryLoading(true);
           getClaimSummary(decision)
             .then((res) => {
@@ -264,26 +282,21 @@ export default function App() {
 
   const handleInitiateAdjudication = () => {
     setLocalDecision(null);
-    setVisibleTraces([]);
     setScanning(true);
     setAiSummary(null);
     setAiSummaryLoading(false);
-    void submitStream(context, (newTrace) => {
-      setVisibleTraces((prev) => [...prev, newTrace]);
-    });
+    void submitStream(context);
   };
 
   // Clear local decision when initiating a new sync/preset change
   const handlePresetSelect = (name: string) => {
     setLocalDecision(null);
-    setVisibleTraces([]);
     setScanning(false);
     handlePresetChange(name);
   };
 
   const handleSyncSearch = () => {
     setLocalDecision(null);
-    setVisibleTraces([]);
     setScanning(false);
     void syncFromDb(memberSearchId);
   };
@@ -317,9 +330,9 @@ export default function App() {
   const copayPercent = Math.max(0, Math.min(100, (copayAmt / totalSegmentScale) * 100));
 
   return (
-    <div className="min-h-screen bg-surface-dim font-sans text-on-surface antialiased flex flex-col">
+    <div className="min-h-screen bg-surface-dim font-sans text-on-surface antialiased flex flex-col relative overflow-x-hidden">
       {/* Top Navigation */}
-      <header className="flex justify-between items-center w-full px-8 h-20 bg-white/70 backdrop-blur-xl border-b border-outline-variant/30 fixed top-0 z-50 shadow-soft">
+      <header className="flex justify-between items-center w-full px-8 h-20 glass-nav fixed top-0 z-50">
         <div className="flex items-center gap-4">
           <button 
             className="p-2 hover:bg-surface-container-high rounded-full transition-colors text-on-surface-variant cursor-pointer"
@@ -356,18 +369,24 @@ export default function App() {
         className={`flex flex-col h-screen py-6 bg-white/80 backdrop-blur-md border-r border-outline-variant/30 fixed left-0 top-20 z-40 shadow-soft transition-all duration-300 ${sidebarCollapsed ? 'w-20' : 'w-64'}`}
       >
         <nav className="flex-1 px-3 space-y-1 mt-2">
-          <button className="flex items-center w-full px-4 py-3 gap-4 bg-primary/5 text-primary font-semibold rounded-2xl transition-all cursor-pointer">
+          <button className="flex items-center w-full px-4 py-3 gap-4 bg-primary/8 text-primary font-semibold rounded-2xl transition-all cursor-pointer shadow-sm">
             <span className="material-symbols-outlined filled">dashboard</span>
             {!sidebarCollapsed && <span className="font-body-md whitespace-nowrap">Ingestion Hub</span>}
           </button>
-          <button className="flex items-center w-full px-4 py-3 gap-4 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-2xl transition-all cursor-pointer">
-            <span className="material-symbols-outlined">folder_shared</span>
-            {!sidebarCollapsed && <span className="font-body-md whitespace-nowrap">Claim History</span>}
-          </button>
-          <button className="flex items-center w-full px-4 py-3 gap-4 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-2xl transition-all cursor-pointer">
-            <span className="material-symbols-outlined">analytics</span>
-            {!sidebarCollapsed && <span className="font-body-md whitespace-nowrap">Performance</span>}
-          </button>
+          <div className="tooltip-wrap">
+            <button className="flex items-center w-full px-4 py-3 gap-4 text-on-surface-variant/50 rounded-2xl cursor-not-allowed">
+              <span className="material-symbols-outlined">folder_shared</span>
+              {!sidebarCollapsed && <span className="font-body-md whitespace-nowrap">Claim History</span>}
+            </button>
+            {!sidebarCollapsed && <span className="tooltip-text">Coming soon</span>}
+          </div>
+          <div className="tooltip-wrap">
+            <button className="flex items-center w-full px-4 py-3 gap-4 text-on-surface-variant/50 rounded-2xl cursor-not-allowed">
+              <span className="material-symbols-outlined">analytics</span>
+              {!sidebarCollapsed && <span className="font-body-md whitespace-nowrap">Performance</span>}
+            </button>
+            {!sidebarCollapsed && <span className="tooltip-text">Coming soon</span>}
+          </div>
         </nav>
         <div className="px-3 pb-32 space-y-1">
           <button className="flex items-center gap-4 w-full px-4 py-3 text-on-surface-variant hover:text-primary rounded-2xl hover:bg-surface-container-high transition-colors cursor-pointer">
@@ -389,8 +408,8 @@ export default function App() {
         <div className="max-w-[1400px] mx-auto">
           {/* Greeting Header */}
           <header className="mb-8">
-            <h1 className="font-display text-3xl font-bold tracking-tight">Good morning, Mr. Manvik</h1>
-            <p className="text-on-surface-variant text-sm mt-1">Ready to adjudicate today's claims?</p>
+            <h1 className="font-display text-3xl font-bold tracking-tight">{getGreeting()}, Adjudication Team</h1>
+            <p className="text-on-surface-variant text-sm mt-1">ReAssure 3.0 engine is live — {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
           </header>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -967,18 +986,25 @@ export default function App() {
 
             {/* RIGHT COLUMN: Telemetry Engine & Calculations */}
             <section className="lg:col-span-7 flex flex-col gap-6 h-full max-h-[1050px]">
-              
+
               {/* Telemetry Control Header */}
-              <div className="flex justify-between items-center bg-white p-6 rounded-2xl border border-outline-variant/30 shadow-card relative overflow-hidden">
-                <div className="absolute -right-20 -top-20 w-64 h-64 bg-primary/5 rounded-full blur-3xl pointer-events-none" />
+              <div className="flex justify-between items-center bg-white p-6 rounded-2xl border border-outline-variant/30 shadow-card relative overflow-hidden copilot-glow">
+                <div className="ambient-orb absolute -right-16 -top-16 w-56 h-56 bg-sky-100" />
+                <div className="ambient-orb absolute -left-10 -bottom-10 w-40 h-40 bg-blue-50" />
                 <div className="flex items-center gap-4 relative z-10">
-                  <div className="w-14 h-14 rounded-2xl bg-primary/5 flex items-center justify-center border border-primary/10 shadow-inner">
-                    <span className="material-symbols-outlined text-primary text-3xl">biotech</span>
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-primary flex items-center justify-center shadow-glow">
+                    <span className="material-symbols-outlined text-white text-3xl">biotech</span>
                   </div>
                   <div>
                     <h2 className="font-display text-on-surface text-lg font-bold">Live Scan Engine</h2>
-                    <p className="text-on-surface-variant text-xs mt-0.5">Continuous policy validation engine V3.0</p>
+                    <p className="text-on-surface-variant text-xs mt-0.5">ReAssure 3.0 · 7-gate adjudication pipeline</p>
                   </div>
+                </div>
+                <div className="flex items-center gap-2 relative z-10">
+                  <span className={`w-2 h-2 rounded-full ${scanning ? 'bg-amber-400 animate-ping' : localDecision ? 'bg-emerald-400' : 'bg-slate-300'}`} />
+                  <span className="text-[10px] font-semibold text-on-surface-variant uppercase tracking-wider">
+                    {scanning ? 'Processing' : localDecision ? 'Complete' : 'Idle'}
+                  </span>
                 </div>
               </div>
 
@@ -1002,29 +1028,33 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  {visibleTraces.length > 0 ? (
-                    <div className="space-y-3">
-                       {visibleTraces.map((trace, idx) => {
+                  {liveTraces.length > 0 ? (
+                    <div className="space-y-2">
+                       {liveTraces.map((trace, idx) => {
                         if (!trace || !trace.rule_id) return null;
                         const def = RULE_DEFINITIONS[trace.rule_id] || { title: trace.rule_name || trace.rule_id, description: trace.reason };
                         const isSuccess = trace.evaluation === 'PASSED' || trace.evaluation === 'NOT_APPLICABLE';
-                        
+                        const isReview = ['ASSISTED_REVIEW', 'MEDICAL_REVIEW', 'PENDING_REVIEW'].includes(trace.evaluation);
+                        const traceClass = isReview ? 'trace-review' : isSuccess ? 'trace-pass' : 'trace-fail';
+                        const iconColor = isReview ? 'text-amber-500' : isSuccess ? 'text-emerald-500' : 'text-red-500';
+                        const icon = isReview ? 'rate_review' : isSuccess ? 'check_circle' : 'cancel';
+                        const label = isReview ? 'REVIEW' : isSuccess ? 'PASS' : 'FAIL';
+                        const labelColor = isReview ? 'text-amber-600 bg-amber-50 border-amber-200' : isSuccess ? 'text-emerald-600 bg-emerald-50 border-emerald-200' : 'text-red-600 bg-red-50 border-red-200';
+
                         return (
-                          <div 
-                            key={idx} 
-                            className="scan-item active flex justify-between items-center p-4 bg-surface-container-low rounded-2xl border border-outline-variant/30 shadow-sm transition-all"
+                          <div
+                            key={idx}
+                            className={`scan-item active flex justify-between items-center p-3.5 rounded-2xl shadow-sm transition-all ${traceClass}`}
                           >
                             <div className="flex items-center gap-3">
-                              <span className={`material-symbols-outlined filled text-[22px] ${isSuccess ? 'text-primary' : 'text-error'}`}>
-                                {isSuccess ? 'check_circle' : 'cancel'}
-                              </span>
+                              <span className={`material-symbols-outlined filled text-[20px] ${iconColor}`}>{icon}</span>
                               <div>
                                 <span className="font-display text-sm font-semibold text-on-surface">{def.title}</span>
-                                <p className="text-[10px] text-on-surface-variant mt-0.5">{trace.reason}</p>
+                                <p className="text-[10px] text-on-surface-variant mt-0.5 max-w-[280px] truncate">{trace.reason}</p>
                               </div>
                             </div>
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border uppercase ${isSuccess ? 'text-primary bg-primary/5 border-primary/10' : 'text-error bg-error/5 border-error/10'}`}>
-                              {isSuccess ? 'VERIFIED' : 'FAILED'}
+                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase shrink-0 ${labelColor}`}>
+                              {label}
                             </span>
                           </div>
                         );
@@ -1038,48 +1068,48 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Final Decision Banner (Slides up once scanning completes and localDecision is ready) */}
-                {localDecision && !scanning && (
-                  <div className="mx-6 mb-6 p-5 bg-surface-container-high rounded-2xl flex flex-col items-center gap-3 decision-reveal border border-outline-variant/50">
-                    <div className="flex items-center gap-3">
-                      <span className={`material-symbols-outlined filled text-4xl ${localDecision.claim_decision === 'REJECTED' ? 'text-error' : 'text-primary'}`}>
-                        {localDecision.claim_decision === 'REJECTED' ? 'cancel' : 'verified'}
-                      </span>
-                      <h1 className="text-xl font-display font-bold tracking-tight">
-                        CLAIM {localDecision.claim_decision}
-                      </h1>
-                    </div>
-                    
-                    <div className="grid grid-cols-3 gap-3 w-full text-xs text-center mt-2">
-                      <div className="bg-white p-2.5 rounded-xl border border-outline-variant">
-                        <span className="block text-on-surface-variant text-[9px] font-bold uppercase tracking-wider mb-0.5">PAYOUT</span>
-                        <span className="font-bold text-on-surface">{formatCurrency(localDecision.total_payable)}</span>
+                {/* Final Decision Banner */}
+                {localDecision && !scanning && (() => {
+                  const cfg = DECISION_CONFIG[localDecision.claim_decision] ?? DECISION_CONFIG['PENDING_REVIEW'];
+                  return (
+                    <div className={`mx-6 mb-6 p-5 rounded-2xl flex flex-col items-center gap-3 decision-reveal ${cfg.badgeClass} ${cfg.glowClass}`}>
+                      <div className="flex items-center gap-3">
+                        <span className={`material-symbols-outlined filled text-4xl ${cfg.iconColor}`}>{cfg.icon}</span>
+                        <h1 className="text-xl font-display font-bold tracking-tight">{cfg.label}</h1>
                       </div>
-                      <div className="bg-white p-2.5 rounded-xl border border-outline-variant">
-                        <span className="block text-on-surface-variant text-[9px] font-bold uppercase tracking-wider mb-0.5">STATUS</span>
-                        <span className={`font-bold uppercase ${localDecision.manual_review_required ? 'text-amber-500' : 'text-primary'}`}>
-                          {localDecision.manual_review_required ? 'REFERRED' : 'AUTO_PAY'}
-                        </span>
-                      </div>
-                      <div className="bg-white p-2.5 rounded-xl border border-outline-variant">
-                        <span className="block text-on-surface-variant text-[9px] font-bold uppercase tracking-wider mb-0.5">LATENCY</span>
-                        <span className="font-bold text-on-surface">320ms</span>
-                      </div>
-                    </div>
 
-                    {/* Manual Review reasons */}
-                    {localDecision.manual_review_required && localDecision.review_reasons && localDecision.review_reasons.length > 0 && (
-                      <div className="w-full mt-2 p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl text-left">
-                        <p className="text-[10px] text-amber-500 font-bold uppercase mb-1">Human Intervention Flags:</p>
-                        <ul className="list-disc pl-4 text-[10px] text-on-surface-variant space-y-0.5">
-                          {localDecision.review_reasons.map((r: string, idx: number) => (
-                            <li key={idx}>{r}</li>
-                          ))}
-                        </ul>
+                      <div className="grid grid-cols-3 gap-3 w-full text-xs text-center mt-1">
+                        <div className="bg-white/70 backdrop-blur-sm p-3 rounded-xl border border-white/80 shadow-sm">
+                          <span className="block text-on-surface-variant text-[9px] font-bold uppercase tracking-wider mb-1">PAYOUT</span>
+                          <span className="font-bold text-on-surface text-sm">{formatCurrency(localDecision.total_payable)}</span>
+                        </div>
+                        <div className="bg-white/70 backdrop-blur-sm p-3 rounded-xl border border-white/80 shadow-sm">
+                          <span className="block text-on-surface-variant text-[9px] font-bold uppercase tracking-wider mb-1">ROUTING</span>
+                          <span className={`font-bold uppercase text-sm ${localDecision.manual_review_required ? 'text-amber-600' : 'text-emerald-600'}`}>
+                            {localDecision.manual_review_required ? 'REFERRAL' : 'AUTO-PAY'}
+                          </span>
+                        </div>
+                        <div className="bg-white/70 backdrop-blur-sm p-3 rounded-xl border border-white/80 shadow-sm">
+                          <span className="block text-on-surface-variant text-[9px] font-bold uppercase tracking-wider mb-1">CONFIDENCE</span>
+                          <span className="font-bold text-on-surface text-sm">
+                            {localDecision.confidence_score != null ? `${(localDecision.confidence_score * 100).toFixed(0)}%` : '—'}
+                          </span>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                )}
+
+                      {localDecision.manual_review_required && localDecision.review_reasons && localDecision.review_reasons.length > 0 && (
+                        <div className="w-full mt-1 p-3 bg-white/60 border border-amber-200/60 rounded-xl text-left">
+                          <p className="text-[10px] text-amber-600 font-bold uppercase mb-1">Human Intervention Flags:</p>
+                          <ul className="list-disc pl-4 text-[10px] text-on-surface-variant space-y-0.5">
+                            {localDecision.review_reasons.map((r: string, i: number) => (
+                              <li key={i}>{r}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
               </div>
 
