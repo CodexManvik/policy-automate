@@ -309,41 +309,54 @@ class PipelineHelpersMixin:
                     min_booster = min(booster_balances)
                     context.benefit_balance.booster_plus_remaining = round(min_booster, 4)
                     context.lifetime_state.booster_plus_accumulated = round(min_booster, 4)
+                    # Lock the Clock: eldest member's entry age
+                    entry_ages = [int(m.get("entry_age", m.get("age", 0))) for m in members if m.get("entry_age") is not None or m.get("age") is not None]
+                    if entry_ages:
+                        max_entry_age = max(entry_ages)
+                        context.lifetime_state.lock_the_clock_entry_age = max_entry_age
+                        context.lifetime_state.lock_the_clock_current_premium_age = max_entry_age
             elif etype == "FloaterSplit":
                 # Floater Split:
-                # Divide the accumulated booster_plus balance proportionally across the newly decoupled
-                # individual policies based on their new relative Sum Insured ratios.
+                # Carry forward the full accumulated booster_plus balance to each individual policy
+                # if the new base sum insured is not reduced relative to the original floater base SI.
+                # Scale down proportionally only if the new base SI is reduced.
                 current_member_id = context.member.member_id
                 accumulated_booster = context.benefit_balance.booster_plus_remaining
+                orig_base_si = context.policy.base_sum_insured
                 
-                ratio = None
+                ratio = 1.0
                 new_policies = details.get("new_policies", [])
                 if new_policies:
-                    total_si = sum(float(p.get("new_sum_insured", 0.0)) for p in new_policies)
-                    member_si = next((float(p.get("new_sum_insured", 0.0)) for p in new_policies if p.get("member_id") == current_member_id), None)
-                    if total_si > 0.0 and member_si is not None:
-                        ratio = member_si / total_si
-                
-                if ratio is None:
-                    ratios = details.get("new_sum_insured_ratios", {})
-                    if current_member_id in ratios:
-                        ratio = float(ratios[current_member_id])
-                
-                if ratio is None:
+                    member_policy = next((p for p in new_policies if p.get("member_id") == current_member_id), None)
+                    if member_policy:
+                        new_si = float(member_policy.get("new_sum_insured", 0.0))
+                        if new_si < orig_base_si and orig_base_si > 0.0:
+                            ratio = new_si / orig_base_si
+                else:
+                    # Fallback parameters
                     ratio = details.get("ratio")
                     if ratio is not None:
                         ratio = float(ratio)
-                        
-                if ratio is not None:
-                    new_booster = accumulated_booster * ratio
-                    context.benefit_balance.booster_plus_remaining = round(new_booster, 4)
-                    context.lifetime_state.booster_plus_accumulated = round(new_booster, 4)
+                    else:
+                        ratio = 1.0
+                
+                new_booster = accumulated_booster * ratio
+                context.benefit_balance.booster_plus_remaining = round(new_booster, 4)
+                context.lifetime_state.booster_plus_accumulated = round(new_booster, 4)
             elif etype == "MemberDeletion":
                 # MemberDeletion does not change booster but flags member as inactive (Fix 3)
                 deleted_member_id = details.get("member_id")
                 if (deleted_member_id and
                         context.member.member_id == deleted_member_id):
                     context.member.eligibility_active = False
+                # If eldest member removed from floater: recalculate Lock the Clock age from remaining members.
+                remaining_members = details.get("remaining_members", [])
+                if remaining_members:
+                    entry_ages = [int(m.get("entry_age", m.get("age", 0))) for m in remaining_members if m.get("entry_age") is not None or m.get("age") is not None]
+                    if entry_ages:
+                        max_entry_age = max(entry_ages)
+                        context.lifetime_state.lock_the_clock_entry_age = max_entry_age
+                        context.lifetime_state.lock_the_clock_current_premium_age = max_entry_age
 
     def _get_eligible_room_rent(
         self,
@@ -355,14 +368,41 @@ class PipelineHelpersMixin:
         Source of truth: context.policy.room_rent_limit (populated by Policy API
         or UI configuration).
         
-        DYNAMIC PARAMETER FALLBACKS:
-        If context.policy.room_rent_limit is missing or evaluates to None,
-        inject a default fallback value based on variant: 4000.0 if "Select", else 3000.0.
+        If room_rent_limit is None/null:
+        - If the claimed room category is within the policy's entitled room category,
+          no limit applies (returns infinity).
+        - If there is a category breach, falls back to the variant default.
         """
+        # Map room categories to hierarchy levels
+        categories = {
+            "general ward": 1,
+            "general": 1,
+            "ward": 1,
+            "shared accommodation": 2,
+            "shared": 2,
+            "single private room": 3,
+            "single private": 3,
+            "single room": 3,
+            "suite": 4,
+        }
+
+        entitled_cat = getattr(context.policy, "room_category_entitled", "") or ""
+        claimed_cat = getattr(line_item, "room_category_claimed", "") or ""
+        
+        ent_level = categories.get(entitled_cat.lower().strip(), 0)
+        clm_level = categories.get(claimed_cat.lower().strip(), 0)
+
         limit = getattr(context.policy, "room_rent_limit", None)
+        
+        # If no explicit limit is set
         if limit is None:
+            # If categories are known and no breach occurred, there is no limit
+            if ent_level > 0 and clm_level > 0 and clm_level <= ent_level:
+                return float("inf")
+            # If we don't know categories or if there is a breach, use default fallback
             variant = getattr(context.policy, "variant", None)
             limit = 4000.0 if variant == "Select" else 3000.0
+            
         return limit
 
     def _calculate_associated_medical_expenses(self, line_item, claimed_amount: float) -> Dict[str, float]:
@@ -673,6 +713,7 @@ class PipelineHelpersMixin:
                 "si_cap": deduction_breakdown.si_cap,
                 "sublimits": deduction_breakdown.sublimits,
                 "penalties": deduction_breakdown.penalties,
+                "lock_the_clock_premium_delta": deduction_breakdown.lock_the_clock_premium_delta,
             },
             "si_sourcing": {
                 "from_base_si": si_waterfall.amount_from_base_si,

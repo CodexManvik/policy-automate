@@ -306,6 +306,7 @@ class StateGateMixin:
                 context.benefit_balance.booster_plus_remaining = booster_result.booster_plus_new
                 context.lifetime_state.booster_plus_accumulated = booster_result.booster_plus_new
                 context.lifetime_state.booster_plus_last_updated = datetime.now(timezone.utc)
+                context.lifetime_state.booster_plus_claim_free_years += 1
                 _STEP_LOCAL.decision_traces.append(DecisionTrace(
                     step=_STEP_LOCAL.current_step,
                     rule_id="R3_SUM_004_BOOSTER_RENEWAL",
@@ -316,16 +317,21 @@ class StateGateMixin:
                         "prior_booster": booster_result.booster_plus_new - booster_result.growth_amount,
                         "growth_amount": booster_result.growth_amount,
                         "new_booster": booster_result.booster_plus_new,
-                        "variant": context.policy.variant
+                        "variant": context.policy.variant,
+                        "claim_free_years_count": context.lifetime_state.booster_plus_claim_free_years
                     },
                     evaluation="PASSED",
                     reason=(
                         f"Booster+ accumulated at claim-free renewal: "
                         f"INR {booster_result.growth_amount:.2f} added. "
-                        f"New balance: INR {booster_result.booster_plus_new:.2f}."
+                        f"New balance: INR {booster_result.booster_plus_new:.2f}. "
+                        f"Consecutive claim-free years: {context.lifetime_state.booster_plus_claim_free_years}."
                     ),
                     source_section="4.6, R3_SUM_004"
                 ))
+        elif is_renewal_simulation:
+            # Renewal event with claim paid in this year — reset consecutive count
+            context.lifetime_state.booster_plus_claim_free_years = 0
         # ================================================================
         # 7. ONE-TIME BENEFIT FLAGS — PERSIST AFTER PAID CLAIMS (Gap 7)
         #    Set convalescence_claimed and critical_illness_claimed only if
@@ -394,7 +400,8 @@ class StateGateMixin:
                 "deductible_ytd": context.benefit_balance.deductible_consumed_ytd,
                 "total_paid": total_paid,
                 "is_renewal_simulation": is_renewal_simulation,
-                "is_claim_free_renewal": is_claim_free_renewal
+                "is_claim_free_renewal": is_claim_free_renewal,
+                "booster_plus_claim_free_years": context.lifetime_state.booster_plus_claim_free_years
             },
             evaluation="PASSED",
             reason=f"State updated after paid claims totaling INR {total_paid:.2f}",

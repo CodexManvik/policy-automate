@@ -452,18 +452,43 @@ class FinancialsGateMixin:
         # ================================================================
         # STEP 5: Co-Payment (stacks all penalties)
         # ================================================================
-        if context.policy.co_payment_percent and context.policy.co_payment_percent > 0:
-            _STEP_LOCAL.current_step += 1
-            # Fix 6: Room category co-pay lookup via ProductMemory (R3_TBL_005 / Annexure V).
-            # Replaces the incomplete partial hardcode that missed several combinations.
-            room_copay_percent = 0.0
-            if line_item.room_category_claimed:
+        room_copay_percent = 0.0
+        if line_item.room_category_claimed:
+            categories_map = {
+                "general ward": 1,
+                "general": 1,
+                "ward": 1,
+                "shared accommodation": 2,
+                "shared": 2,
+                "single private room": 3,
+                "single private": 3,
+                "single room": 3,
+                "suite": 4,
+            }
+            entitled_cat = getattr(context.policy, "room_category_entitled", "") or ""
+            claimed_cat = getattr(line_item, "room_category_claimed", "") or ""
+            ent_level = categories_map.get(entitled_cat.lower().strip(), 0)
+            clm_level = categories_map.get(claimed_cat.lower().strip(), 0)
+            
+            # Category copay penalty only triggers if they stayed in a room above entitlement
+            if ent_level > 0 and clm_level > 0 and clm_level > ent_level:
                 room_copay_percent = self.product_memory.get_room_copay_percent(
                     variant=context.policy.variant,
                     room_category_claimed=line_item.room_category_claimed
-                )
+                ) or 0.0
+
+        has_copay = (
+            (context.policy.co_payment_percent is not None and context.policy.co_payment_percent > 0) or
+            state.heads_up_penalty_triggered or
+            state.tiered_network_penalty_triggered or
+            state.prolonged_hosp_penalty_triggered or
+            room_copay_percent > 0.0
+        )
+
+        if has_copay:
+            _STEP_LOCAL.current_step += 1
             # Defensive normalization: divide by 100.0 if percentage is > 1.0 (whole number)
-            co_payment_percent = context.policy.co_payment_percent
+            co_payment_percent = context.policy.co_payment_percent or 0.0
             if co_payment_percent > 1.0:
                 co_payment_percent /= 100.0
             copay_rule = self.product_memory.get_rule("R3_FIN_002")

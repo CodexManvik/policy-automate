@@ -460,12 +460,19 @@ class ValidationGatesMixin:
         condition_lower = line_item.condition_diagnosed.lower()
         critical_illness_flag = any(kw in condition_lower for kw in _CI_KEYWORDS)
         
+        # Calculate continuous coverage months precisely from inception date.
+        # Previously derived from integer claim_free_years * 12, which rounded down
+        # any partial year to zero, causing members with e.g. 11 months of coverage
+        # to incorrectly fail the 30-day initial wait check.
+        # Sum own-policy months + porting credit months from prior insurer.
+        own_policy_months = (admission_date - inception_date).days // 30
+        total_continuous_months = own_policy_months + (context.porting.prior_coverage_months or 0)
         # Call Tool 1
         result = self._execute_tool(
             context, line_item, "calculate_waiting_period", calculate_waiting_period,
             condition=line_item.condition_diagnosed,
             policy_inception_date=inception_date,
-            continuous_coverage_months=context.history.claim_free_years * 12,
+            continuous_coverage_months=total_continuous_months,
             portability_credit_months=context.porting.waiting_period_credit_months,
             # R3_EXCL_017: Personal waiting period (insurer-imposed, up to 48 months)
             personal_waiting_period_months=getattr(context.policy, "personal_waiting_period_months", 0) or 0,

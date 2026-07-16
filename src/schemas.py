@@ -152,6 +152,7 @@ class LifetimeStateData(BaseModel):
     # Booster+ state
     booster_plus_accumulated: float = 0.0
     booster_plus_last_updated: Optional[datetime] = None
+    booster_plus_claim_free_years: int = 0
     
     # One-time benefit flags
     convalescence_claimed: bool = False

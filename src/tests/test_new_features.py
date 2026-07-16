@@ -367,3 +367,185 @@ def test_claim_summary_endpoint():
         data = resp.json()
         assert "summary" in data
         assert data["summary"] == "The claim was partially approved due to a diagnostic exclusion."
+
+
+def test_member_deletion_ltc_recalculation():
+    """Verify that MemberDeletion endorsement recalculates Lock the Clock entry age when eldest is deleted."""
+    pipeline = ClaimsAdjudicationPipeline(use_ai=False)
+    policy = PolicyData(
+        policy_id="POL-1", product_code="R3", variant="Classic",
+        policy_start_date=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        policy_end_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        base_sum_insured=500000.0, room_category_entitled="Single Private Room",
+        status="Active", premium_paid=True
+    )
+    # Claiming member is MEM-2 (age 30, entry_age 30)
+    member = MemberData(member_id="MEM-2", policy_id="POL-1", name="John", age=30, entry_age=30, relationship="Spouse", date_of_addition=datetime(2025, 1, 1, tzinfo=timezone.utc), eligibility_active=True)
+    history = ClaimsHistoryData(policy_id="POL-1", member_id="MEM-2")
+    porting = PortingMigrationData(policy_id="POL-1")
+    network = NetworkData(provider_id="PROV-1", provider_name="Hospital", provider_type="Network")
+    balance = BenefitBalanceData(policy_id="POL-1", base_si_remaining=500000.0, booster_plus_remaining=50000.0, reassure_forever_pool=500000.0)
+    
+    # Originally, eldest member MEM-1 was entry_age 45.
+    lifetime = LifetimeStateData(policy_id="POL-1", lock_the_clock_entry_age=45, lock_the_clock_current_premium_age=45)
+    
+    # Eldest member MEM-1 is deleted, leaving remaining members with max entry_age 30
+    endorsement = EndorsementData(
+        endorsement_id="END-1",
+        policy_id="POL-1",
+        endorsement_type="MemberDeletion",
+        effective_date=datetime(2025, 6, 1, tzinfo=timezone.utc),
+        details={
+            "member_id": "MEM-1",
+            "remaining_members": [
+                {"member_id": "MEM-2", "entry_age": 30, "age": 30}
+            ]
+        }
+    )
+    
+    context = ClaimContext(
+        claim_id="CLM-1",
+        claim_received_at=datetime(2025, 7, 1, tzinfo=timezone.utc),
+        policy=policy,
+        member=member,
+        history=history,
+        porting=porting,
+        network=network,
+        benefit_balance=balance,
+        lifetime_state=lifetime,
+        endorsements=[endorsement],
+        line_items=[LineItemData(line_item_id="LI-1", description="Consultation", claimed_amount=2000.0, expense_date=datetime(2025, 7, 1, tzinfo=timezone.utc), benefit_bucket="Expenses during Hospitalization", condition_diagnosed="Flu")]
+    )
+    
+    pipeline._apply_endorsements(context, datetime(2025, 7, 1, tzinfo=timezone.utc).date())
+    
+    # Lock the Clock entry age should be recalculated to the remaining eldest member's entry age (30)
+    assert context.lifetime_state.lock_the_clock_entry_age == 30
+    assert context.lifetime_state.lock_the_clock_current_premium_age == 30
+
+
+def test_individual_to_floater_ltc():
+    """Verify that Individual-to-Floater endorsement sets Lock the Clock entry age to eldest member's entry age."""
+    pipeline = ClaimsAdjudicationPipeline(use_ai=False)
+    policy = PolicyData(
+        policy_id="POL-1", product_code="R3", variant="Classic",
+        policy_start_date=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        policy_end_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        base_sum_insured=500000.0, room_category_entitled="Single Private Room",
+        status="Active", premium_paid=True
+    )
+    member = MemberData(member_id="MEM-1", policy_id="POL-1", name="Jane", age=30, entry_age=30, relationship="Self", date_of_addition=datetime(2025, 1, 1, tzinfo=timezone.utc), eligibility_active=True)
+    history = ClaimsHistoryData(policy_id="POL-1", member_id="MEM-1")
+    porting = PortingMigrationData(policy_id="POL-1")
+    network = NetworkData(provider_id="PROV-1", provider_name="Hospital", provider_type="Network")
+    balance = BenefitBalanceData(policy_id="POL-1", base_si_remaining=500000.0, booster_plus_remaining=50000.0, reassure_forever_pool=500000.0)
+    
+    # Original entry age was 30
+    lifetime = LifetimeStateData(policy_id="POL-1", lock_the_clock_entry_age=30, lock_the_clock_current_premium_age=30)
+    
+    # Individual to Floater: added a member of age/entry_age 40
+    endorsement = EndorsementData(
+        endorsement_id="END-1",
+        policy_id="POL-1",
+        endorsement_type="IndividualToFloater",
+        effective_date=datetime(2025, 6, 1, tzinfo=timezone.utc),
+        details={
+            "members": [
+                {"member_id": "MEM-1", "entry_age": 30, "booster_plus": 40000.0},
+                {"member_id": "MEM-2", "entry_age": 40, "booster_plus": 30000.0}
+            ]
+        }
+    )
+    
+    context = ClaimContext(
+        claim_id="CLM-1",
+        claim_received_at=datetime(2025, 7, 1, tzinfo=timezone.utc),
+        policy=policy,
+        member=member,
+        history=history,
+        porting=porting,
+        network=network,
+        benefit_balance=balance,
+        lifetime_state=lifetime,
+        endorsements=[endorsement],
+        line_items=[LineItemData(line_item_id="LI-1", description="Consultation", claimed_amount=2000.0, expense_date=datetime(2025, 7, 1, tzinfo=timezone.utc), benefit_bucket="Expenses during Hospitalization", condition_diagnosed="Flu")]
+    )
+    
+    pipeline._apply_endorsements(context, datetime(2025, 7, 1, tzinfo=timezone.utc).date())
+    
+    # Lock the Clock entry age should be updated to the eldest member's entry age (40)
+    assert context.lifetime_state.lock_the_clock_entry_age == 40
+    assert context.lifetime_state.lock_the_clock_current_premium_age == 40
+
+
+def test_booster_plus_claim_free_years():
+    """Verify that booster_plus_claim_free_years is tracked correctly at renewal."""
+    pipeline = ClaimsAdjudicationPipeline(use_ai=False)
+    policy = PolicyData(
+        policy_id="POL-1", product_code="R3", variant="Classic",
+        policy_start_date=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        policy_end_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        base_sum_insured=500000.0, room_category_entitled="Single Private Room",
+        status="Active", premium_paid=True
+    )
+    
+    member = MemberData(member_id="MEM-1", policy_id="POL-1", name="Jane", age=30, entry_age=30, relationship="Self", date_of_addition=datetime(2025, 1, 1, tzinfo=timezone.utc), eligibility_active=True)
+    history = ClaimsHistoryData(policy_id="POL-1", member_id="MEM-1")
+    porting = PortingMigrationData(policy_id="POL-1")
+    network = NetworkData(provider_id="PROV-1", provider_name="Hospital", provider_type="Network")
+    balance = BenefitBalanceData(policy_id="POL-1", base_si_remaining=500000.0, booster_plus_remaining=50000.0, reassure_forever_pool=500000.0)
+    
+    lifetime = LifetimeStateData(
+        policy_id="POL-1", lock_the_clock_entry_age=30, lock_the_clock_current_premium_age=30,
+        booster_plus_claim_free_years=2
+    )
+    
+    context = ClaimContext(
+        claim_id="CLM-1",
+        claim_received_at=datetime(2025, 12, 15, tzinfo=timezone.utc),
+        policy=policy,
+        member=member,
+        history=history,
+        porting=porting,
+        network=network,
+        benefit_balance=balance,
+        lifetime_state=lifetime,
+        endorsements=[],
+        line_items=[LineItemData(line_item_id="LI-1", description="Consultation", claimed_amount=2000.0, expense_date=datetime(2025, 12, 15, tzinfo=timezone.utc), benefit_bucket="Expenses during Hospitalization", condition_diagnosed="Flu", hospitalization_hours=24.0)],
+        renewal_event_simulation=True
+    )
+    
+    # 1. Paid claim renewal: count should reset to 0
+    dec = pipeline.adjudicate_claim(context)
+    state_update_trace = next(t for t in dec.decision_trace if t.rule_id == "GATE_7_STATE_UPDATE")
+    assert state_update_trace.inputs["booster_plus_claim_free_years"] == 0
+
+    # 2. Claim-free renewal (rejected claim): count should increment by 1 (2 + 1 = 3)
+    context2 = ClaimContext(
+        claim_id="CLM-2",
+        claim_received_at=datetime(2025, 12, 15, tzinfo=timezone.utc),
+        policy=policy,
+        member=member,
+        history=history,
+        porting=porting,
+        network=network,
+        benefit_balance=balance,
+        lifetime_state=lifetime,
+        endorsements=[],
+        line_items=[
+            LineItemData(
+                line_item_id="LI-1", 
+                description="Routine dental scaling", 
+                claimed_amount=2000.0, 
+                expense_date=datetime(2025, 12, 15, tzinfo=timezone.utc), 
+                benefit_bucket="Expenses during Hospitalization", 
+                condition_diagnosed="Plaque",
+                accident_related=False
+            )
+        ],
+        renewal_event_simulation=True
+    )
+    dec2 = pipeline.adjudicate_claim(context2)
+    state_update_trace2 = next(t for t in dec2.decision_trace if t.rule_id == "GATE_7_STATE_UPDATE")
+    assert state_update_trace2.inputs["booster_plus_claim_free_years"] == 3
+
