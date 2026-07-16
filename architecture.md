@@ -1,151 +1,728 @@
-# Architecture Documentation: Health Claims Auto-Adjudication Engine
+﻿# Claims Auto-Adjudication Engine — System Architecture
 
-This document provides a technical specification of the Niva-Bupa auto-adjudication engine prototype (ReAssure 3.0). It details the structural design, orchestration flow, validation gates, dynamic rules mapping, and engineering decisions behind the prototype.
+**Product:** ReAssure 3.0 (R3) Claims Auto-Adjudication Engine
+**Team:** Nivabupa Policy Automation
+**Version:** 2.0.0
+**Document status:** Current as of 2026-07-02
+**Scope:** Covers every integrated subsystem, data flow, API surface, security model, and operational configuration as deployed.
 
 ---
 
-## 1. Architectural Overview
+## 1. Executive Summary
 
-The system is designed as a dynamic, pipeline-based rule execution graph. It decouples core insurance mathematics (deterministic calculators) from system state, policy wording, and table specifications. 
+This system automates the end-to-end adjudication of health insurance claims under the ReAssure 3.0 product, eliminating manual review for high-confidence decisions and routing borderline cases to human queues with complete audit trails. The architecture combines deterministic rule execution with a locally-deployed large language model (LLM) for clinical semantic reasoning. The entire pipeline runs within organizational infrastructure — no external AI API calls are mandatory for production operation.
 
-### Ingestion and Execution Flow
+**Key outcomes this architecture delivers:**
+
+| Outcome                                         | Mechanism                                               |
+| ----------------------------------------------- | ------------------------------------------------------- |
+| Full adjudication in under 10 seconds (typical) | Async FastAPI + thread-pooled LLM calls                 |
+| Zero event-loop blocking under concurrent load  | `asyncio.run_in_executor` for all LLM inference         |
+| Complete audit trail for every decision         | `AgentReasoningLogger` + JSONL telemetry                |
+| Confidence-gated auto vs. manual routing        | Four-tier threshold cascade                             |
+| Clinical document data extraction               | OCR + LLM extraction pipeline                           |
+| Real-time decision streaming to UI              | Server-Sent Events (SSE) on `/api/v2/adjudicate/stream` |
+
+---
+
+## 2. High-Level Architecture
+
+# Claims Auto-Adjudication System Architecture Diagram
+
+```mermaid
+graph TD
+    %% Styling
+    classDef frontend fill:#3b82f6,stroke:#1e3a8a,stroke-width:2px,color:#fff
+    classDef backend fill:#10b981,stroke:#065f46,stroke-width:2px,color:#fff
+    classDef llm fill:#8b5cf6,stroke:#4c1d95,stroke-width:2px,color:#fff
+    classDef db fill:#f59e0b,stroke:#b45309,stroke-width:2px,color:#fff
+    classDef integration fill:#64748b,stroke:#334155,stroke-width:2px,color:#fff
+    classDef pipeline fill:#ef4444,stroke:#991b1b,stroke-width:2px,color:#fff
+
+    %% Frontend Layer
+    subgraph Frontend [React / Vite SPA Frontend]
+        UI[User Interface]:::frontend
+        DocUpload[Document Upload Zone\nPDF / Images]:::frontend
+        LiveStream[Live Adjudication Stream]:::frontend
+
+        UI -->|JSON POST| API
+        DocUpload -->|multipart/form-data| DocExtAPI
+        LiveStream <---|SSE Real-time Traces| API
+    end
+
+    %% Backend API Layer
+    subgraph BackendAPI [FastAPI Backend - API Gateway]
+        API[/api/v2/adjudicate]:::backend
+        DocExtAPI[/api/v2/extract-document]:::backend
+        Auth[API Key Validation]:::backend
+
+        API --> Auth
+        DocExtAPI --> Auth
+    end
+
+    %% Document Pipeline
+    subgraph DocPipeline [Document Extraction Pipeline]
+        OCR[PyPDF / PyTesseract OCR]:::backend
+        ExtPrompt[Extraction Prompt Builder]:::backend
+
+        DocExtAPI --> OCR
+        OCR --> ExtPrompt
+        ExtPrompt --> SemanticAgent
+    end
+
+    %% Integration Layer
+    subgraph Integration [Context Builder & Integrations]
+        ContextBuilder[ClaimContext Builder]:::integration
+        MockGateways[External API Gateways]:::integration
+
+        API --> ContextBuilder
+        ContextBuilder -->|Async Fetch| MockGateways
+    end
+
+    %% Adjudication Engine
+    subgraph AdjudicationEngine [7-Gate Adjudication Pipeline]
+        Planner[AI Planner\nDAG Topo-Sort]:::pipeline
+
+        Gate1[Gate 1: Policy Validation]:::pipeline
+        Gate2[Gate 2: Member Validation]:::pipeline
+        Gate3[Gate 3: Coverage Validation]:::pipeline
+        Gate4[Gate 4: Waiting Period]:::pipeline
+        Gate5[Gate 5: Exclusion Validation]:::pipeline
+        Gate6[Gate 6: Financials]:::pipeline
+        Gate7[Gate 7: State Update]:::pipeline
+
+        ContextBuilder --> Planner
+        Planner --> Gate1
+        Gate1 --> Gate2
+        Gate2 --> Gate3
+        Gate3 --> Gate4
+        Gate4 --> Gate5
+        Gate5 --> Gate6
+        Gate6 --> Gate7
+    end
+
+    %% Intelligence Layer
+    subgraph Intelligence [Intelligence & Compute]
+        SemanticAgent[Semantic Agent]:::llm
+        LlamaCPP[Local LLaMA.cpp Server\nRunning Gemma-4]:::llm
+        DetCalc[Deterministic Calculators\nTools 1-8]:::backend
+
+        SemanticAgent -->|Thread Pooled HTTP| LlamaCPP
+        Gate3 --> SemanticAgent
+        Gate4 --> SemanticAgent
+        Gate5 --> SemanticAgent
+
+        Gate6 --> DetCalc
+        Gate7 --> DetCalc
+    end
+
+    %% Persistence & Logging
+    subgraph Persistence [Data & Observability]
+        DB[(PostgreSQL 16\nSQLAlchemy async)]:::db
+        Logger[Agent Reasoning Logger]:::integration
+        Telemetry[JSONL Telemetry]:::integration
+
+        Gate7 --> DB
+        SemanticAgent --> Logger
+        Gate7 --> Telemetry
+    end
+
+    %% Decision Output
+    Decision{Final Claim Decision}:::frontend
+    Gate7 --> Decision
+    Decision -->|Four-Tier Routing| UI
 ```
-[Claim XML/JSON Payload]
-          │
-          ▼
-    [ClaimContext] ────────────────────────┐
-          │                                │
-          ▼                                ▼
-[AI Planner (planner.py)] ──► [ProductMemoryStore (product_memory.py)]
-          │                                │ (Loads rules, tables, parameters)
-          ▼                                │
-[Dynamic execution DAG]                     │
-          │                                │
-          ▼                                │
-[Pipeline Orchestrator (pipeline.py)] ◄────┘
-          │
-          ├──► Gate 1: Policy Validation (Deterministic)
-          ├──► Gate 2: Member Validation (Deterministic)
-          ├──► Gate 3: Coverage Validation (Dynamic Filter)
-          ├──► Gate 4: Waiting Period Validation (Hybrid)
-          ├──► Gate 5: Exclusion Validation (Semantic/Hybrid)
-          │       └──► [Semantic Agent (semantic_agent.py)] (Mock LLM)
-          │
-          ├──► Gate 6: Financial Computation (Sequential Calculators)
-          │       ├──► Room Pro-rata
-          │       ├──► Prolonged Hosp Penalty
-          │       ├──► HeadsUp & Tiered Network Penalties
-          │       ├──► Annual Deductible
-          │       ├──► stacked Co-payment
-          │       └──► SI Waterfall
-          │
-          └──► Gate 7: State Update (State tracking)
+
+---
+
+## 3. API Endpoints (Complete Reference)
+
+All endpoints are served by FastAPI on `http://127.0.0.1:8000`.
+Interactive documentation: `/docs` (Swagger UI), `/redoc` (ReDoc).
+
+### 3.1 Observability
+
+| Method | Path         | Auth | Description                                                             |
+| ------ | ------------ | ---- | ----------------------------------------------------------------------- |
+| `GET`  | `/health`    | None | Liveness probe. Returns pipeline readiness flag, version, LLM provider. |
+| `GET`  | `/readiness` | None | Readiness probe. Returns 503 until pipeline is fully initialized.       |
+
+### 3.2 Adjudication
+
+| Method | Path                         | Auth             | Description                                                                                                                                                             |
+| ------ | ---------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST` | `/api/v1/adjudicate`         | Optional API Key | Synchronous full adjudication (v1 — deprecated alias). Returns `ClaimDecision`.                                                                                         |
+| `POST` | `/api/v2/adjudicate`         | Optional API Key | Synchronous full adjudication (v2 — current). Returns `ClaimDecision`.                                                                                                  |
+| `POST` | `/api/v2/adjudicate/stream`  | Optional API Key | Server-Sent Events streaming. Emits `DecisionTrace` events in real-time as each gate completes, followed by final `ClaimDecision`. Used by the Live Adjudication Panel. |
+| `POST` | `/api/v2/adjudicate/summary` | Optional API Key | Accepts a `ClaimDecision` payload. Generates markdown-formatted natural language explanation via LLM. Used for `REJECTED` and `PARTIALLY_APPROVED` cases.               |
+
+### 3.3 Document Processing
+
+| Method | Path                       | Auth             | Description                                                                                                                                                |
+| ------ | -------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST` | `/api/v2/extract-document` | Optional API Key | `multipart/form-data` file upload. Accepts PDF or image. Extracts raw text, sends to LLM for structured field parsing, returns `DocumentExtractionResult`. |
+
+### 3.4 Integration Mocks (Development Only)
+
+Registered via `integration/mock_routers.py`. Simulates all 8 external gateway APIs to eliminate real API dependencies during local development.
+
+---
+
+## 4. The 7-Gate Adjudication Pipeline
+
+Every claim passes through an ordered sequence of gates. The AI Planner constructs a Directed Acyclic Graph (DAG) from rule dependencies and topologically sorts it into a linear execution plan before the first gate fires.
+
+```
+ClaimContext
+     |
+     v
+GATE 1: Policy Validation         [Deterministic]
+  * GATE_1_POLICY_STATUS           Status=Active, premium paid,
+  * GATE_1_DATE_RANGE              grace period, claim date in range
+     | PASS
+     v
+GATE 2: Member Validation         [Deterministic]
+  * GATE_2_ELIGIBILITY             Member eligibility active,
+  * GATE_2_ADDITION_DATE           admission >= date of addition
+     | PASS
+     v
+GATE 3: Coverage Validation       [Hybrid: deterministic + semantic]
+  * GATE_3_VARIANT_FILTER          Variant eligibility for benefit
+  * GATE_3_RIDER_OPT_IN            Rider opt-in check
+  * R3_BEN_003_DURATION            Min 2h stay (24h alt treatment)
+  * R3_BEN_007_PRECON              Domiciliary 3-criteria check
+  * Semantic: coverage assessment  LLM validates clinical coverage
+     | PASS
+     v
+GATE 4: Waiting Period            [Hybrid]
+  * GATE_4_ACCIDENT_EXEMPT         Accident waives all wait periods
+  * GATE_4_INITIAL_WAIT            30-day initial wait
+  * GATE_4_SPECIFIED_DISEASE       24-month specified disease list
+  * GATE_4_PED_WAIT                36-month PED wait check
+  * GATE_4_PORTABILITY             Porting credit deduction
+     | PASS
+     v
+GATE 5: Exclusion Validation      [Semantic - LLM-driven]
+  * GATE_5_DETERMINISTIC_EXCL      Hard-coded exclusion list filter
+  * GATE_5_SEMANTIC_AGENT          LLM analyzes discharge_summary +
+                                   condition_diagnosed for cosmetic,
+                                   diagnostic-only, or OPD exclusions
+     | PASS
+     v
+GATE 6: Financial Computation     [Deterministic tools]
+  * GATE_6_ROOM_RENT               Tool 2: pro-rata deduction
+  * GATE_6_PROLONGED_HOSP          >168h co-payment penalty
+  * GATE_6_FINANCIAL_WATERFALL     Tool 5: Base SI -> Booster+ ->
+  * Tool 3: Co-payment             ReAssure Forever waterfall
+  * Tool 4: Deductible             Tool 3 + Tool 4 applied
+     |
+     v
+GATE 7: State Update              [Deterministic]
+  * GATE_7_STATE_PERSISTENCE       ReAssure Forever state machine
+  * Tool 6: Lock the Clock         Age premium locking
+  * Tool 7: Booster accumulation   Booster+ pool update
+  * Tool 8: HDC + PA benefit       Hospital Daily Cash, PA payout
+     |
+     v
+ClaimDecision
 ```
 
-The system operates on three distinct layers:
-1. **Schema Layer (`schemas.py`)**: Defines input and output Pydantic v2 validation models.
-2. **Knowledge and Rules Layer (`product_memory.py`, `planner.py`)**: Dynamically resolves rules, tables (e.g. room category co-payments schedule, specified disease lists), and constructs the dependency-ordered execution graph (DAG).
-3. **Execution Layer (`pipeline.py`, `calculators.py`, `semantic_agent.py`)**: Runs validation logic, routes non-structured logic to the semantic agent, runs pure mathematical calculators, and updates policy/member lifetime state.
+**Early-exit behaviour:** Any gate returning `FAILED` or `EXCLUSION_ACTIVE` terminates the pipeline immediately and returns the decision with the failing rule in the audit trace.
 
 ---
 
-## 2. Core Architectural Components
+## 5. Confidence-Based Routing (Four-Tier)
 
-### 2.1 Dynamic Rules Engine (`product_memory.py`)
-Rather than hardcoding rules and parameters within code, the engine is version-aware and driven by a static rules extraction file (`Product and Policy Rules Extraction.txt`).
-- **`RuleBlueprint`**: A dataclass mapping each rule's metadata (ID, Gate, variant applicability, depends_on, benefit bucket filters, preconditions, tool mapping, and rule-level exemptions).
-- **`ProductMemoryStore`**: Ingests, caches, and indexes rules. It supports:
-  - **Dynamic Table Resolving**: Stores tables like `R3_TBL_005` (Annexure V Room Co-payments) and `R3_TBL_007` (Specified Disease lists).
-  - **Version-based Caching**: Keeps separate instances of rule sets cached by version string (`R3_v2.1_2025-01-15`) allowing cross-version claims handling.
-  - **Longest-Match String Resolution**: Dynamically maps rooms (e.g., "Semi-Private Room") to co-payment schedules using longest-match keywords to prevent false positives (e.g., "private" incorrectly matching "semi-private").
+Every LLM call returns a `confidence_score` (0.0–1.0). The system maps this to one of four adjudication outcomes:
 
-### 2.2 Dependency-Ordered Planner (`planner.py`)
-The `AIPlanner` reads rule preconditions and `depends_on` lists from `ProductMemoryStore` to dynamically compile an `ExecutionPlan`. 
-- **Topological Sorting**: Builds a Directed Acyclic Graph (DAG) of execution steps. This ensures that rules like waiting period validation execute before coverage validation, and coverage validation executes before financial calculators.
-- **Dynamic Routing**: Restructures the execution graph per variant, opting-in optional rules (e.g., HeadsUp, Tiered Network, Borderless) only if selected in the policy payload.
+| Confidence Range | Outcome                                        | Routing                              |
+| ---------------- | ---------------------------------------------- | ------------------------------------ |
+| `>= 0.90`        | `APPROVED` / `PARTIALLY_APPROVED` / `REJECTED` | Fully automated — no human review    |
+| `[0.70, 0.90)`   | `ASSISTED_REVIEW`                              | Operations queue — review within SLA |
+| `[0.50, 0.70)`   | `MEDICAL_REVIEW`                               | Clinical expert queue                |
+| `< 0.50`         | `PENDING_REVIEW`                               | Senior auditor queue                 |
 
-### 2.3 Pure Mathematical Calculators (`calculators.py`)
-All calculators are written as stateless Python functions. They take explicit inputs (including custom rules tables/lists retrieved from product memory) and return structured dataclass outputs. This ensures calculators are decoupled, side-effect-free, and easy to unit test.
-- **Tool 1 (`calculate_waiting_period`)**: Calculates elapsed time since inception, applying continuous coverage and portability credits. Supports accident day-1 coverage, 30-day initial waiting periods, 24-month specified disease wait lists, 36-month pre-existing disease (PED) waits, and capped 48-month insurer-imposed personal waiting periods.
-- **Tool 2 (`calculate_room_pro_rata`)**: Calculates the pro-rata ratio if room limits are breached, applying deductions on associated medical expenses (room charges, nursing charges, practitioner fees, and operation theatre charges).
-- **Tool 3 (`calculate_copayment`)**: Stacks base co-payments with optional penalties: HeadsUp breach (+20%), Tiered Network breach (+20%), prolonged hospitalization (+10%), and room category co-payment. It enforces benefit-level co-pay exemptions.
-- **Tool 4 (`calculate_deductible`)**: Applies annual aggregate deductibles, tracking year-to-date (YTD) utilization across specified benefit buckets.
-- **Tool 5 (`calculate_si_waterfall`)**: Sequentially draws from Base SI, Booster+ SI, and the ReAssure Forever pool.
-- **Tool 6 (`calculate_lock_the_clock`)**: Locks premium age. For multi-tenure policies, if a claim is paid, it returns premium delta metrics and triggers downstream logic to flag the claim for manual premium adjustment calculations.
-- **Tool 7 (`calculate_booster_accumulation`)**: Increases Booster+ SI by the unused Base SI at renewal (capped at a multiplier) or proportionally reduces it if the Base SI is downgraded.
-- **Tool 8 (`validate_pre_post_hosp_window`)**: Validates pre-hospitalization (60 days) and post-hospitalization (180 days) windows and ensures condition-relation checks pass.
-
-### 2.4 Hybrid & Semantic Reasoning Agent (`semantic_agent.py`)
-Rules are categorized as:
-- **DETERMINISTIC**: Processed solely via mathematical or strict logical calculators.
-- **SEMANTIC**: Handled via natural language processing (e.g., verifying if a treatment was cosmetic or diagnostics-only).
-- **HYBRID**: First evaluated deterministically. If the confidence is below a defined threshold, the request falls back to the semantic agent.
+Thresholds are runtime-configurable via `.env` (no code change required to adjust sensitivity).
 
 ---
 
-## 3. Policy and Claim Validation Mechanisms
+## 6. AI Planner — DAG Construction
 
-### 3.1 Gate 1: Policy Validation
-Policy validation is the first gate in the execution pipeline. It checks fundamental policy properties:
-- **Status Validation**: The system verifies that `context.policy.status` is exactly `"Active"`. If the status is "Lapsed", "Suspended", or "Void", the claim is rejected.
-- **Premium Check**: Verifies `context.policy.premium_paid` is `True`. If `False`, it checks `context.policy.grace_period_active`. If both are `False`, the gate fails.
-- **Date Check**: The system validates that the claim's admission/expense date falls within the `policy_start_date` and `policy_end_date` bounds.
+**File:** `src/planner.py`
 
-### 3.2 Gate 2: Member Validation
-Validates the claimant's identity and contract status:
-- **Eligibility Check**: Checks `context.member.eligibility_active` is `True`.
-- **Addition Date Check**: Ensures the line item date is equal to or after `context.member.date_of_addition`. If an endorsement of type `"MemberAddition"` is present, the pipeline sets continuous coverage parameters for the member to zero relative to the endorsement date, re-initiating the 30-day initial waiting period for that member.
+Before executing any gate, the `AIPlanner` class:
 
-### 3.3 Gate 3: Coverage Validation
-This gate checks if the claimed benefit category is covered:
-- **Variant Coverage**: Filters rules in product memory by the active variant (`Classic`, `Select`, or `Elite`) and checks if the benefit category is supported.
-- **Preconditions**: Enforces preconditions. For example, "Home Care / Domiciliary Treatment" requires three positive flags: doctor-advised, continuous line of treatment, and daily monitoring chart signed by the doctor. If any are missing, the line item is rejected.
-- **Optional Opt-In**: Verifies if optional benefits (e.g., Hospital Daily Cash, Personal Accident) are active in the claim context before granting eligibility.
+1. Loads all applicable `RuleBlueprint` objects from `ProductMemoryStore` filtered by policy variant (Classic / Select / Elite) and benefit bucket.
+2. Constructs a `DAGBuilder` graph where each rule node's `depends_on` list forms directed edges.
+3. Runs Kahn's algorithm topological sort to produce a linearized `ExecutionPlan`.
+4. Each `ExecutionStep` carries: rule ID, gate classification, priority, execution type (`DETERMINISTIC` / `SEMANTIC` / `HYBRID`), optional tool name, and the pre-rendered semantic prompt with claim data injected.
 
-### 3.4 Gate 4: Waiting Period Validation
-Ensures the claim does not fall inside active waiting periods:
-- **Accident Day-1 Exemption**: If `accident_flag` is True, it bypasses all waiting periods.
-- **Initial 30-Day Period**: Evaluated for non-accident claims if continuous coverage is less than 12 months.
-- **Specified Disease List (24 Months)**: Checked using the dynamic list from `R3_TBL_007`. An overlap matcher checks whether condition strings (e.g., `"Cataract Surgery"`) match keywords or phrases in the table.
-- **Pre-Existing Disease (PED) (36 Months)**: Evaluated if the claimant has declared PEDs in `context.member.ped_declarations`.
-- **Insurer-Imposed Personal Waiting Period**: Checked against `context.policy.personal_waiting_period_months` (capped at 48 months).
-
-### 3.5 Gate 5: Exclusion Validation
-Ensures the claimed treatment is not subject to general policy exclusions:
-- **Deterministic Exclusions**: Excludes specific treatments deterministically, such as dental treatments (`R3_EXCL_020`) unless caused by an accident.
-- **Semantic Exclusions**: Leverages the Semantic Agent to analyze doctor notes and summaries for exclusions like cosmetic surgery (`R3_EXCL_007`) or diagnostics-only admissions (`R3_EXCL_004`).
-
-### 3.6 Gate 6: Financial Computation
-This gate applies financial calculations to eligible claims in a strict order:
-
-$$\text{Claimed Amount} \xrightarrow{\text{Step 1: Room Rent Pro-rata}} \text{Admissible Amount} \xrightarrow{\text{Step 2: Penalties}} \text{Amount Post-Penalties} \xrightarrow{\text{Step 3: Deductible}} \text{Amount Post-Deductible} \xrightarrow{\text{Step 4: Co-payment}} \text{Amount Post-Copay} \xrightarrow{\text{Step 5: SI Waterfall}} \text{Payable Payout}$$
-
-1. **Room Pro-Rata**: If the claimed room rent exceeds the variant's room rent limit, a pro-rata ratio is calculated:
-   $$\text{Ratio} = \frac{\text{Eligible Room Rent}}{\text{Actual Room Rent}}$$
-   The ratio is applied to all associated medical expenses (room charges, nursing, practitioner fees, OT charges).
-2. **Prolonged Hospitalization Penalty**: If hospitalization exceeds 7 days (168 hours), a prolonged hospitalization flag is set, which adds a 10% co-payment penalty during the co-payment step.
-3. **HeadsUp & Tiered Network Penalties**: Checks if intimation was sent within time windows or if a non-recommended network provider was used. If breached, respective 20% co-payment penalties are flagged.
-4. **Aggregate Deductible**: If an annual aggregate deductible is defined, it reduces the admissible amount by the remaining deductible balance and updates the YTD consumed balance. Deductible checks are bypassed for exempt benefits like health check-ups.
-5. **Stacked Co-payment**: Accumulates all applicable co-payment fractions:
-   $$\text{Total Co-pay \%} = \text{Base Co-pay \%} + \text{HeadsUp Penalty (20\%)} + \text{Tiered Network Penalty (20\%)} + \text{Prolonged Hosp Penalty (10\%)} + \text{Room Category Co-pay \%}$$
-   Applying the stacked co-payment:
-   $$\text{Co-pay Amount} = \text{Admissible Amount} \times \text{Total Co-pay \%}$$
-   $$\text{Payable Amount} = \text{Admissible Amount} - \text{Co-pay Amount}$$
-   Exempt benefits are bypassed.
-6. **Sum Insured Waterfall**: Resolves the payable amount against available pools: Base Sum Insured -> Booster+ Sum Insured -> ReAssure Forever pool (up to the original base sum insured limit per claim).
+The planner is called once per line item per claim. Its output is a reproducible `ExecutionPlan` that can be logged and re-played for audit purposes.
 
 ---
 
-## 4. Key Engineering Decisions
+## 7. Semantic Agent — LLM Integration
 
-### 4.1 Decoupled Stateless Calculators
-**Decision**: Calculators are designed as pure Python functions, accepting configuration parameters (like specified disease lists or exempt benefits) directly through their function signatures.
-**Rationale**: This keeps mathematical logic separate from database access or rule-parsing components, making the codebase easier to debug, test, and adapt to changing specifications.
+**File:** `src/semantic_agent.py`
 
-### 4.2 Timezone Coercion and Normalization
-**Decision**: The system enforces datetime validation by coercing naive and aware timestamps into timezone-aware UTC objects at execution boundaries.
-**Rationale**: Mixing offset-naive and offset-aware datetimes in Python causes runtime `TypeErrors`. Handling this at the pipeline boundary ensures calculations in the core engine remain robust.
+The `SemanticExecutionAgent` is a singleton initialized at startup. It supports three LLM providers selected at runtime via `LLM_PROVIDER` in `.env`:
 
-### 4.3 Room Rent Co-pay Keywords Matcher
-**Decision**: Implemented a longest-match keyword resolution strategy for variant-specific room co-payments.
-**Rationale**: A basic substring check would flag "semi-private" as "private", leading to incorrect co-payments. Checking the longest match ensures the correct room category co-payment is applied.
+### 7.1 Provider: `local` (default and production target)
+
+Connects to a locally-deployed `llama.cpp` server (default `http://127.0.0.1:8080`).
+
+**Dual-path strategy:**
+
+- **Path 1 (`/completion`):** Uses the Gemma-4 E4B QAT reasoning chat template. Supports chain-of-thought `<think>…</think>` blocks before the final JSON output. GBNF grammar applied when `REASONING_ON=false` to force valid JSON.
+- **Path 2 (`/v1/chat/completions`):** OpenAI-compatible fallback, used automatically if `/completion` is not detected on startup probe.
+
+**No mmproj required.** The LLM receives only text. Document images are converted to text server-side before any LLM call.
+
+### 7.2 Provider: `openai`
+
+Calls `gpt-4o-mini` via the OpenAI Python SDK. Requires `OPENAI_API_KEY` in `.env`. Uses `response_format={"type": "json_object"}` with `temperature=0.0` for deterministic outputs.
+
+### 7.3 Provider: `mock` / `default`
+
+Used in test suites only. Returns pre-defined structured responses without making network calls.
+
+### 7.4 LLM Call Types
+
+| Call Purpose                | Trigger                           | Output Schema                  |
+| --------------------------- | --------------------------------- | ------------------------------ |
+| Exclusion assessment        | Gate 5 semantic rules             | `SemanticAdjudicationPayload`  |
+| Coverage validation         | Gate 3 semantic rules             | `SemanticAdjudicationPayload`  |
+| Waiting period assessment   | Gate 4 semantic rules             | `SemanticAdjudicationPayload`  |
+| Decision summary generation | `POST /api/v2/adjudicate/summary` | `DecisionSummaryPayload`       |
+| Document field extraction   | `POST /api/v2/extract-document`   | `DocumentExtractionLLMPayload` |
+
+All LLM calls are wrapped in `asyncio.run_in_executor` (thread pool) so the uvicorn event loop is never blocked.
+
+**Caching:** Results are keyed as `{rule_id}:{rule_type}:{hash(prompt[:500])}` and cached in-memory per pipeline instance to avoid duplicate LLM calls for identical prompts within the same request.
+
+**Timeouts:** Connect = 60s, Read = 300s (configurable via `LLM_CONNECT_TIMEOUT_S` / `LLM_READ_TIMEOUT_S`).
+
+---
+
+## 8. Deterministic Calculators (Tools 1–8)
+
+**File:** `src/calculators.py`
+
+All calculators are pure Python functions with no AI inference. They receive typed inputs and return structured dataclasses.
+
+| Tool    | Function                              | Purpose                                                                                                                                         |
+| ------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tool 1  | `calculate_waiting_period`            | Computes remaining wait days for initial, specified-disease, and PED periods. Applies porting credit. Accident-related claims bypass all waits. |
+| Tool 2  | `calculate_room_pro_rata`             | Applies room rent cap deduction proportionally across all associated medical expenses (nursing, doctor, OT fees).                               |
+| Tool 3  | `calculate_copayment`                 | Applies co-payment percentage (policy-level + network + age-based) to admissible amount.                                                        |
+| Tool 4  | `calculate_deductible`                | Applies annual aggregate deductible, tracks YTD consumption across claims.                                                                      |
+| Tool 5  | `calculate_si_waterfall`              | Sequentially draws from Base SI → Booster+ → ReAssure Forever pool. Returns per-pool amounts and shortfall.                                     |
+| Tool 6  | `calculate_lock_the_clock`            | Pins premium calculation age to entry age for eligible members.                                                                                 |
+| Tool 7  | `calculate_booster_accumulation`      | Accumulates Booster+ points based on claim-free years.                                                                                          |
+| Tool 8a | `calculate_hospital_daily_cash`       | Computes HDC benefit based on hospitalization duration and daily rate.                                                                          |
+| Tool 8b | `calculate_personal_accident_benefit` | Computes PA payout based on injury type and PA sum insured.                                                                                     |
+
+---
+
+## 9. Document Extraction Pipeline
+
+**File:** `src/document_extractor.py`
+**Endpoint:** `POST /api/v2/extract-document`
+
+```
+Browser file input (PDF / PNG / JPG / TIFF / multiple files supported)
+          |
+          v
+   FastAPI UploadFile (multipart/form-data)
+          |
+          v
+   route_extraction(filename, bytes)
+     |                         |
+     v                         v
+  .pdf extension          .png/.jpg/.tiff
+     |                         |
+  pypdf.PdfReader          Pillow + pytesseract
+  (native text)            (OCR engine)
+     |                         |
+     +----------+--------------+
+                v
+           raw_text (str)
+           [truncated to 4000 chars for LLM context safety]
+                |
+                v
+   build_extraction_prompt()
+   -> system_prompt + user_prompt
+                |
+                v
+   SemanticAgent._call_llm()
+   -> DocumentExtractionLLMPayload (JSON)
+                |
+                v
+   DocumentExtractionResult
+   {filename, raw_text_length, extracted{...}}
+                |
+                v
+   Frontend auto-fills LineItem fields
+```
+
+**Extracted fields** (all `Optional`, `null` when not found in document):
+
+| Field                       | Type      | Description                         |
+| --------------------------- | --------- | ----------------------------------- |
+| `discharge_summary`         | str       | 2-5 sentence clinical narrative     |
+| `condition_diagnosed`       | str       | Primary diagnosis / ICD description |
+| `admission_date`            | ISO 8601  | Hospital admission date             |
+| `discharge_date`            | ISO 8601  | Hospital discharge date             |
+| `hospitalization_hours`     | float     | Duration of stay in hours           |
+| `claimed_amount`            | float INR | Total bill amount                   |
+| `room_charges`              | float INR | Room rent charges                   |
+| `nursing_charges`           | float INR | Nursing charges                     |
+| `medical_practitioner_fees` | float INR | Doctor / specialist fees            |
+| `ot_charges`                | float INR | Operation theatre charges           |
+
+**Scanned PDF fallback:** If `pypdf` returns empty text, the extractor reads inline image XObjects from the PDF and OCR's them individually via `pytesseract`.
+
+**System dependency:** `pytesseract` requires the Tesseract binary (`winget install UB-Mannheim.TesseractOCR` on Windows). Native-text PDFs work without it.
+
+**Multi-file support:** The frontend accepts multiple files simultaneously. Each file is independently extracted and tracked with its own status, progress bar, extracted result, and inline detail drawer. The last successfully extracted document's fields overwrite the claim line item form.
+
+---
+
+## 10. Product Memory Layer
+
+**File:** `src/product_memory.py`
+**Source:** `docs/Product and Policy Rules Extraction.json` (version `R3_v2.1_2025-01-15`)
+
+Each rule is a `RuleBlueprint`:
+
+| Field                      | Type                 | Description                                               |
+| -------------------------- | -------------------- | --------------------------------------------------------- |
+| `rule_id`                  | str                  | Unique identifier (e.g., `R3_EXCL_017`)                   |
+| `rule_name`                | str                  | Human-readable name                                       |
+| `gate`                     | `RuleGate` enum      | Which of the 7 gates this rule belongs to                 |
+| `execution_type`           | `ExecutionType` enum | `DETERMINISTIC` / `SEMANTIC` / `HYBRID`                   |
+| `variant_applicability`    | `List[str]`          | Classic / Select / Elite                                  |
+| `depends_on`               | `List[str]`          | DAG dependency list (other rule IDs)                      |
+| `semantic_prompt_template` | str                  | LLM prompt with `{{placeholder}}` variables               |
+| `tool_required`            | str                  | Maps to a calculator function                             |
+| `priority`                 | int                  | Gate-relative ordering (lower = earlier)                  |
+| `confidence_weight`        | float                | Contribution to composite confidence score                |
+| `auto_adjudicable`         | bool                 | `False` = mandatory human review regardless of confidence |
+
+The `ProductMemoryStore` is loaded once at startup and held in memory. Product version is logged on every adjudication call for full traceability.
+
+---
+
+## 11. Data Models (Schema Layer)
+
+**File:** `src/schemas.py` — Pydantic v2, strict typing throughout.
+
+### 11.1 Input: ClaimContext
+
+```
+ClaimContext
+├── claim_id (str)
+├── claim_received_at (datetime)
+├── product_json_version (str)
+├── fraud_flagged (bool)
+├── policy (PolicyData)
+│   ├── policy_id, variant, status, dates, base_sum_insured
+│   ├── Riders: borderless_opted, heads_up_opted, modern_treatments_plus_opted, etc.
+│   └── Financial: room_rent_limit, co_payment_percent, annual_aggregate_deductible
+├── member (MemberData)
+│   ├── member_id, age, entry_age, relationship
+│   └── ped_declarations (list of declared pre-existing conditions)
+├── history (ClaimsHistoryData)
+│   └── prior_claims_count, total_utilized_si, claim_free_years
+├── porting (PortingMigrationData)
+│   └── prior_coverage_months, waiting_period_credit_months
+├── network (NetworkData)
+│   └── provider_type: Network / Non-Network / Excluded
+├── benefit_balance (BenefitBalanceData)
+│   └── base_si_remaining, booster_plus_remaining, reassure_forever_pool
+├── lifetime_state (LifetimeStateData)
+│   ├── reassure_forever_state: NOT_TRIGGERED | TRIGGERED | ACTIVE | LAPSED
+│   └── lock_the_clock_age_locked, booster_plus_accumulated
+├── endorsements (List[EndorsementData])
+└── line_items (List[LineItemData])
+    ├── line_item_id, description, claimed_amount, benefit_bucket
+    ├── admission_date, discharge_date, hospitalization_hours
+    ├── discharge_summary (clinical text — feeds Gate 5 LLM)
+    ├── condition_diagnosed, treatment_type, accident_related
+    └── room_charges, nursing_charges, medical_practitioner_fees, ot_charges
+```
+
+### 11.2 Output: ClaimDecision
+
+```
+ClaimDecision
+├── claim_id
+├── claim_decision
+│     APPROVED | PARTIALLY_APPROVED | REJECTED |
+│     ASSISTED_REVIEW | MEDICAL_REVIEW | PENDING_REVIEW
+├── confidence_score (0.0–1.0 composite)
+├── total_claimed, total_admissible, total_payable, total_deductions
+├── deduction_breakdown
+│   ├── room_pro_rata, co_payment, deductible
+│   ├── non_payable_items, si_cap, sublimit
+│   └── prolonged_hosp_penalty, heads_up_penalty, tiered_network_penalty
+├── si_waterfall_breakdown
+│   └── base_si_used, booster_plus_used, forever_pool_used
+├── line_item_decisions (List[LineItemDecision])
+│   └── per-line item: payable, deductions, rule evaluations
+└── decision_trace (List[DecisionTrace])
+    └── step, rule_id, gate, evaluation, reason, confidence, timestamp
+```
+
+---
+
+## 12. Database Layer
+
+**Files:** `src/db/` — SQLAlchemy 2.0 async ORM + Alembic migrations
+**Engine:** PostgreSQL 16 (Docker Compose)
+
+| Table               | Maps To                | Notes                                                                  |
+| ------------------- | ---------------------- | ---------------------------------------------------------------------- |
+| `policies`          | `PolicyData`           | `NUMERIC(18,2)` for all monetary fields. `JSONB` for riders list.      |
+| `members`           | `MemberData`           | FK to `policies`. `JSONB` for PED declarations.                        |
+| `claims_history`    | `ClaimsHistoryData`    | Tracks SI utilization per policy/member.                               |
+| `porting_records`   | `PortingMigrationData` | Waiting period credit history.                                         |
+| `network_providers` | `NetworkData`          | Provider classification.                                               |
+| `benefit_balances`  | `BenefitBalanceData`   | Mutable — row-level locked on write to prevent concurrent SI overdraw. |
+| `lifetime_states`   | `LifetimeStateData`    | Mutable — ReAssure Forever state machine persisted here.               |
+| `endorsements`      | `EndorsementData`      | Mid-term endorsement records.                                          |
+
+**Async driver:** `asyncpg` via `postgresql+asyncpg://` connection string.
+**Docker Compose:** PostgreSQL 16-alpine with health-check + pgAdmin4 on port 5050.
+
+---
+
+## 13. Context Builder — External API Integration
+
+**File:** `src/integration/context_builder.py`
+
+Assembles `ClaimContext` by calling 8 external gateways concurrently via `httpx` async client:
+
+| Gateway              | Data Pulled                                             |
+| -------------------- | ------------------------------------------------------- |
+| Policy API           | Policy status, variant, SI, riders, co-pay config       |
+| Member API           | Member eligibility, age, relationship, PED declarations |
+| Claims History API   | Prior utilization, claim-free years                     |
+| Porting API          | Prior coverage months, waiting period credits           |
+| Network Provider API | Hospital network classification                         |
+| Benefit Balance API  | Remaining SI, Booster+, ReAssure Forever pool           |
+| Lifetime State API   | Forever state machine, Lock the Clock status            |
+| Endorsements API     | Active mid-term endorsements                            |
+
+Each gateway call is individually timed and logged. The assembled `ClaimContext` is dumped to `logs/claims/<claim_id>_ctx_<timestamp>.json` before adjudication begins.
+
+---
+
+## 14. Frontend Application
+
+**Stack:** React 18 + TypeScript + Vite
+**Runtime URL:** `http://localhost:5173`
+
+### 14.1 Component Architecture
+
+```
+App.tsx (single-page application)
+├── State Layer
+│   ├── useClaimContext()    complete ClaimContext assembly and field mutations
+│   └── useAdjudication()   streaming adjudication submission + state
+├── Left Column: Claim Data Entry
+│   ├── Preset selector (Classic HC, Select HC, Elite HC, Floater scenarios)
+│   ├── Member DB sync (live fetch from mock gateways by member ID)
+│   ├── Policy Data accordion
+│   ├── Member Data accordion
+│   ├── Endorsements accordion
+│   ├── Claim Line Items accordion (all bill fields, discharge summary textarea)
+│   └── Document Upload Zone (multi-file, PDF/image, drag+drop)
+│       ├── Per-file progress bar during LLM extraction
+│       ├── File list with VIEW/REMOVE controls per file
+│       └── Inline detail drawer: extracted fields + image thumbnail
+└── Right Column: Live Engine
+    ├── Telemetry Control Header
+    ├── Live Scan Engine (SSE trace panel — real-time gate results)
+    └── Decision Results Panel
+        ├── Decision badge (APPROVED / PARTIAL / REJECTED / REVIEW tier)
+        ├── Financial breakdown grid (claimed / admissible / payable / deductions)
+        ├── SI Waterfall visualization
+        ├── AI-generated decision summary (markdown, auto-triggered for non-approval)
+        └── Per-line-item decision cards
+```
+
+### 14.2 Service Layer
+
+**File:** `frontend/src/services/adjudicationApi.ts`
+
+| Function                              | HTTP Call                         | Purpose                       |
+| ------------------------------------- | --------------------------------- | ----------------------------- |
+| `adjudicateClaim(context)`            | `POST /api/v2/adjudicate`         | Synchronous adjudication      |
+| `adjudicateClaimStream(context, ...)` | `POST /api/v2/adjudicate/stream`  | SSE streaming adjudication    |
+| `getClaimSummary(decision)`           | `POST /api/v2/adjudicate/summary` | AI narrative summary          |
+| `extractDocument(file)`               | `POST /api/v2/extract-document`   | Document OCR + LLM extraction |
+
+### 14.3 End-to-End Data Flow: Document Upload → Adjudication
+
+```
+1.  User drops file(s) onto upload zone (PDF or image, multiple supported)
+2.  Each file immediately registered in uploadedDocs[] with status=uploading
+3.  extractDocument(file) POSTs to /api/v2/extract-document
+4.  Backend: pypdf/pytesseract -> raw text -> LLM prompt -> DocumentExtractionResult
+5.  Frontend: non-null fields auto-applied to line_items[0] via updateLineItem()
+6.  User reviews pre-filled form, edits if needed
+7.  User clicks "Initiate Adjudication"
+8.  adjudicateClaimStream() opens SSE connection to /api/v2/adjudicate/stream
+9.  Each DecisionTrace event streams in real-time -> Live Scan Panel updates
+10. Final ClaimDecision received -> Decision Results Panel renders
+11. If REJECTED/PARTIAL: getClaimSummary() fires asynchronously -> AI summary appears
+```
+
+---
+
+## 15. Observability and Audit
+
+### 15.1 Agent Reasoning Logger
+
+**File:** `src/agent_reasoning.py`
+
+Every LLM call produces a structured log entry written to `logs/agent_reasoning.log`:
+
+- `claim_id`, `line_item_id`, `rule_id`
+- LLM provider + URL used
+- Full `system_prompt` and `user_prompt` sent
+- Raw LLM response string
+- Parsed `structured_output`
+- `confidence_score`
+- `requires_manual_review` flag
+- `token_usage` (prompt, completion, and total tokens consumed)
+
+Per-claim context snapshots written to `logs/claims/<claim_id>_ctx_<ts>.json`.
+
+### 15.2 Telemetry Metrics Engine
+
+**File:** `src/metrics.py`
+
+`PipelineMetricsEngine` records every adjudication run to `metrics_telemetry.jsonl` (append-only, thread-safe file lock). Each record:
+
+- Claim ID, final decision, confidence score
+- Per-gate latencies (ms)
+- Per-tool latencies (ms)
+- `llm_token_usage` (accumulated prompt, completion, total tokens, and a per-gate breakdown of usage)
+- PAS reconciliation delta (simulated 92% concordance baseline)
+- ISO 8601 timestamp
+
+### 15.3 HTTP Request Tracing
+
+Every HTTP response carries:
+
+- `X-Request-ID` — echoed from request header or auto-generated UUID
+- `X-Processing-Time-Ms` — total request duration in milliseconds
+
+### 15.4 Structured JSON Logging
+
+`_JsonFormatter` writes every log record as a single-line JSON object to stdout, compatible with Datadog, Splunk, CloudWatch, and equivalent log aggregators.
+
+---
+
+## 16. Security Model
+
+| Control                | Implementation                                                                                                                                                        |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API Authentication     | `APIKeyHeader` with `secrets.compare_digest()` (constant-time comparison, timing-attack resistant). Disabled when `ADJUDICATION_API_KEY` is unset (development only). |
+| CORS Policy            | Restricted to `CORS_ORIGINS` from `.env`. Default: `localhost:5173` and `127.0.0.1:5173` only.                                                                        |
+| Secret Management      | All secrets (`OPENAI_API_KEY`, `DATABASE_URL`, `ADJUDICATION_API_KEY`, DB credentials) loaded exclusively from `.env` via `pydantic-settings`. Nothing hardcoded.     |
+| Internal Error Masking | Unhandled exceptions return a generic 500 message. Full stack trace is logged internally only — never exposed in the API response body.                               |
+| Input Validation       | All API request bodies validated by Pydantic v2 before touching business logic. Invalid payloads return structured `422` errors with field-level detail.              |
+| DB Monetary Precision  | All INR columns are `NUMERIC(18,2)` — no float drift on financial calculations.                                                                                       |
+| Concurrent SI Writes   | PostgreSQL row-level locks on `benefit_balances` and `lifetime_states` tables to prevent concurrent sum insured overdraw.                                             |
+
+---
+
+## 17. Configuration Reference (`.env`)
+
+| Variable                    | Default                        | Description                                        |
+| --------------------------- | ------------------------------ | -------------------------------------------------- |
+| `LLM_PROVIDER`              | `local`                        | `local` / `openai` / `mock`                        |
+| `LLM_URL`                   | `http://127.0.0.1:8080`        | llama.cpp server base URL                          |
+| `OPENAI_API_KEY`            | (blank)                        | Required for `openai` provider only                |
+| `REASONING_ON`              | `true`                         | Enable chain-of-thought thinking in local LLM      |
+| `CONFIDENCE_THRESHOLD`      | `0.90`                         | Minimum confidence for auto-adjudication           |
+| `AUTO_APPROVE_THRESHOLD`    | `0.90`                         | Confidence >= this → automatic approval            |
+| `ASSISTED_REVIEW_THRESHOLD` | `0.70`                         | Confidence in [0.70, 0.90) → ops review queue      |
+| `MEDICAL_REVIEW_THRESHOLD`  | `0.50`                         | Confidence in [0.50, 0.70) → clinical review queue |
+| `CORS_ORIGINS`              | `localhost:5173,...`           | Comma-separated allowed frontend origins           |
+| `DATABASE_URL`              | `postgresql+asyncpg://...`     | Async PostgreSQL connection string                 |
+| `ADJUDICATION_API_KEY`      | (blank)                        | API key for endpoint auth (omit to disable in dev) |
+| `TELEMETRY_FILE`            | `logs/metrics_telemetry.jsonl` | Telemetry output path                              |
+| `LOG_LEVEL`                 | `INFO`                         | Python logging level                               |
+| `LLM_CONNECT_TIMEOUT_S`     | `60`                           | Connect timeout for local LLM (seconds)            |
+| `LLM_READ_TIMEOUT_S`        | `300`                          | Read timeout for local LLM (seconds)               |
+
+---
+
+## 18. Deployment Topology
+
+### Current: Development
+
+```
+Developer Machine
+├── PostgreSQL 16     docker-compose up -d                (port 5432)
+├── pgAdmin 4         docker-compose up -d                (port 5050)
+├── llama.cpp server  ./server -m model.gguf              (port 8080)
+├── FastAPI backend   uvicorn src.main:app --reload       (port 8000)
+└── Vite dev server   pnpm run dev                        (port 5173)
+```
+
+### Production Path (not yet deployed)
+
+- Backend containerized, deployed behind an internal load balancer
+- PostgreSQL replaced by a managed RDS instance
+- LLM inference moved to GPU instance or internal inference cluster
+- `ADJUDICATION_API_KEY` rotated via secrets manager
+- CORS locked to production frontend domain only
+- Structured logs forwarded to central aggregator (Datadog / Splunk)
+
+---
+
+## 19. Test Coverage
+
+**Framework:** pytest 7+, pytest-asyncio, httpx TestClient
+
+**Current status: 67 tests, 0 failures (as of 2026-07-02)**
+
+| Test File                      | Scope                                                                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `test_phase2_integration.py`   | End-to-end pipeline smoke tests, rule filtering, DAG construction, semantic agent mocking, confidence routing tiers |
+| `test_integration_plumbing.py` | HTTP endpoint integration tests via TestClient, SSE stream plumbing                                                 |
+| `test_new_features.py`         | AI summary endpoint, document extraction schema, newer gate logic                                                   |
+
+**Run command:**
+
+```bash
+$env:PYTHONPATH="src"; .venv\Scripts\python.exe -m pytest src/tests/ -x -q --tb=short
+```
+
+---
+
+## 20. Technology Stack Summary
+
+| Component                | Technology           | Version             |
+| ------------------------ | -------------------- | ------------------- |
+| Backend framework        | FastAPI              | >= 0.111            |
+| Language                 | Python               | 3.11+               |
+| Data validation          | Pydantic v2          | >= 2.5              |
+| Async ORM                | SQLAlchemy           | >= 2.0.30           |
+| Async DB driver          | asyncpg              | >= 0.29             |
+| Schema migrations        | Alembic              | >= 1.13             |
+| LLM inference (local)    | llama.cpp            | Current             |
+| LLM SDK (cloud fallback) | openai               | >= 1.30             |
+| PDF text extraction      | pypdf                | >= 4.2              |
+| Image OCR                | pytesseract + Pillow | >= 0.3.13 / >= 10.3 |
+| File upload parsing      | python-multipart     | >= 0.0.9            |
+| Frontend framework       | React + TypeScript   | 18 / 5              |
+| Frontend build tool      | Vite                 | 8                   |
+| Database                 | PostgreSQL           | 16                  |
+| Container runtime        | Docker Compose       | 3.9                 |
+| HTTP client (frontend)   | Native fetch + SSE   | —                   |

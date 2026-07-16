@@ -10,9 +10,12 @@ from dataclasses import dataclass
 import http.client
 import json
 import os
+import re
 import socket
 import urllib.error
 from urllib.parse import urlparse
+
+from agent_reasoning import AgentReasoningLogger
 
 
 # ============================================================================
@@ -96,24 +99,71 @@ class SemanticExecutionAgent:
 
     def __init__(
         self,
-        llm_provider: str = "mock",  # Issue 19: default to mock for local dev
+        llm_provider: str = "local",
         confidence_threshold: float = 0.90,
-        local_llm_url: str = "http://localhost:8080"
+        local_llm_url: str = "http://127.0.0.1:8080",
+        reasoning_on: Optional[bool] = None
     ):
         self.llm_provider = llm_provider
         self.confidence_threshold = confidence_threshold
         self.local_llm_url = local_llm_url
-        self.api_key = os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+        from config import settings
+        self.api_key = settings.openai_api_key or os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+
+        if reasoning_on is not None:
+            self.reasoning_on = reasoning_on
+        else:
+            self.reasoning_on = os.getenv("REASONING_ON", "true").lower() in ("true", "1", "yes")
 
         # Issue 20: split connect vs read timeouts for llama.cpp
-        self.connect_timeout_s: int = 5    # fast fail if server is not up
-        self.read_timeout_s: int = 120     # allow model to finish generating
+        from config import settings
+        self.connect_timeout_s: int = settings.llm_connect_timeout_s
+        self.read_timeout_s: int = settings.llm_read_timeout_s
+
+        import threading
+        self._local_llm_lock = threading.Lock()
 
         # Track semantic calls for observability
         self.call_count = 0
         self.total_confidence = 0.0
+        self._result_cache: Dict[str, SemanticResult] = {}
+        # Carry token counts from _call_* up to _assess_* — reset before each LLM call
+        self._last_prompt_tokens: int = 0
+        self._last_completion_tokens: int = 0
 
-        print(f"[AGENT] Semantic Agent initialized with {llm_provider} provider")
+        # Fast probe to check if legacy raw /completion endpoint is supported and active
+        self.use_legacy_completion = False
+        if llm_provider == "local":
+            try:
+                parsed = urlparse(local_llm_url)
+                h = parsed.hostname or "127.0.0.1"
+                p = parsed.port or 8080
+                use_tls = parsed.scheme == "https"
+                
+                probe_payload = {
+                    "prompt": "health",
+                    "n_predict": 1,
+                    "stream": False
+                }
+                body = json.dumps(probe_payload).encode("utf-8")
+                conn_cls = http.client.HTTPSConnection if use_tls else http.client.HTTPConnection
+                conn = conn_cls(h, p, timeout=1.0)
+                try:
+                    conn.connect()
+                    conn.sock.settimeout(1.0)
+                    conn.request("POST", "/completion", body=body, headers={
+                        "Content-Type": "application/json",
+                        "Content-Length": str(len(body))
+                    })
+                    resp = conn.getresponse()
+                    if resp.status == 200:
+                        self.use_legacy_completion = True
+                finally:
+                    conn.close()
+            except Exception:
+                self.use_legacy_completion = False
+
+        print(f"[AGENT] Semantic Agent initialized with {llm_provider} provider (reasoning_on={self.reasoning_on}, legacy_completion={self.use_legacy_completion})")
         if llm_provider == "local":
             print(f"   Local LLM URL: {local_llm_url}")
     
@@ -121,7 +171,9 @@ class SemanticExecutionAgent:
         self,
         rule_id: str,
         prompt: str,
-        rule_type: Literal["exclusion", "coverage", "waiting_period"]
+        rule_type: Literal["exclusion", "coverage", "waiting_period"],
+        claim_id: str = "UNKNOWN_CLAIM",
+        line_item_id: Optional[str] = None
     ) -> SemanticResult:
         """
         Execute semantic reasoning for a rule
@@ -130,39 +182,62 @@ class SemanticExecutionAgent:
             rule_id: Rule identifier
             prompt: Prepared semantic prompt
             rule_type: Type of rule (exclusion, coverage, waiting_period)
+            claim_id: Claim ID for logging
+            line_item_id: Line Item ID for logging
         
         Returns:
             SemanticResult with structured decision
         """
+        cache_key = f"{rule_id}:{rule_type}:{hash(prompt[:500])}"
+        if cache_key in self._result_cache:
+            return self._result_cache[cache_key]
+
         self.call_count += 1
         
         # Route to appropriate handler based on rule type
         if rule_type == "exclusion":
-            return self._assess_exclusion(rule_id, prompt)
+            res = self._assess_exclusion(rule_id, prompt, claim_id, line_item_id)
         elif rule_type == "coverage":
-            return self._assess_coverage(rule_id, prompt)
+            res = self._assess_coverage(rule_id, prompt, claim_id, line_item_id)
         elif rule_type == "waiting_period":
-            return self._assess_waiting_period(rule_id, prompt)
+            res = self._assess_waiting_period(rule_id, prompt, claim_id, line_item_id)
         else:
             raise ValueError(f"Unknown rule type: {rule_type}")
-    
-    def _assess_exclusion(self, rule_id: str, prompt: str) -> SemanticResult:
+
+        self._result_cache[cache_key] = res
+        return res
+
+    def _assess_exclusion(self, rule_id: str, prompt: str, claim_id: str, line_item_id: Optional[str]) -> SemanticResult:
         """
         Assess if an exclusion applies
         Uses structured output for reliable extraction
         """
-        # Issue 18: compressed to <80 tokens
         system_prompt = (
-            "You are an expert health insurance adjudicator. Evaluate the context against exclusion clauses. "
-            "You MUST respond with a valid JSON object matching this exact schema:\n"
-            '{"evaluation_status": "PASSED" or "EXCLUSION_ACTIVE" or "FAILED", '
-            '"reasoning_trace": "string", "confidence_score": float}\n'
-            "CRITICAL TOKEN DEFINITIONS:\n"
-            "- Set 'evaluation_status' to 'PASSED' ONLY if the exclusion is NOT active (the claim is covered/allowed).\n"
-            "- Set 'evaluation_status' to 'EXCLUSION_ACTIVE' if the exclusion applies (the claim must be rejected).\n"
-            "- Set 'evaluation_status' to 'FAILED' ONLY if there is a system processing error or critical missing data."
+            "You are an expert health insurance adjudicator specializing in policy exclusion assessment.\n\n"
+            "RESPONSE FORMAT CONTRACT:\n"
+            "If reasoning/thinking is enabled, you may output your thinking process first (using standard thinking tags like <think>...</think> or <|think|>...</|think|>).\n"
+            "The final part of your response MUST contain a single raw JSON object. "
+            "Do NOT write any other text, explanation, preamble, or markdown outside the JSON (except the thinking tags/blocks if reasoning is enabled).\n"
+            "Required schema:\n"
+            '{"evaluation_status": "PASSED", "reasoning_trace": "step-by-step analysis", "confidence_score": 0.95}\n\n'
+            "evaluation_status token definitions:\n"
+            "  PASSED           — exclusion does NOT apply; the claim is allowed through this gate\n"
+            "  EXCLUSION_ACTIVE — exclusion applies; the claim must be blocked at this gate\n"
+            "  FAILED           — use ONLY when critical data is entirely absent preventing evaluation\n\n"
+            "Correct response example (output EXACTLY this structure, with your own content):\n"
+            '{"evaluation_status": "PASSED", "reasoning_trace": "The treatment is an appendectomy (active surgery), not a diagnostic-only admission. Exclusion R3_EXCL_004 does not apply.", "confidence_score": 0.96}'
         )
+        self._last_prompt_tokens = 0
+        self._last_completion_tokens = 0
         raw_response = self._call_llm(system_prompt, prompt, SemanticAdjudicationPayload)
+        prompt_tok = self._last_prompt_tokens
+        completion_tok = self._last_completion_tokens
+
+        # Record token usage into the context-local telemetry session
+        from metrics import telemetry_context
+        _session = telemetry_context.get()
+        if _session is not None:
+            _session.record_llm_tokens("exclusion_validation", prompt_tok, completion_tok)
         
         try:
             assessment = SemanticAdjudicationPayload.model_validate_json(raw_response)
@@ -174,6 +249,23 @@ class SemanticExecutionAgent:
             # Accumulate confidence for tracking
             self.total_confidence += assessment.confidence_score
             
+            # Log structured agent reasoning (includes token counts)
+            AgentReasoningLogger.log_llm_call(
+                claim_id=claim_id,
+                line_item_id=line_item_id,
+                rule_id=rule_id,
+                provider=self.llm_provider,
+                url=self.local_llm_url if self.llm_provider == "local" else None,
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                raw_response=raw_response,
+                structured_output=assessment.model_dump(),
+                confidence=assessment.confidence_score,
+                requires_manual_review=requires_review,
+                prompt_tokens=prompt_tok,
+                completion_tokens=completion_tok,
+            )
+            
             return SemanticResult(
                 passed=passed,
                 confidence=assessment.confidence_score,
@@ -183,6 +275,21 @@ class SemanticExecutionAgent:
                 requires_manual_review=requires_review
             )
         except Exception as e:
+            AgentReasoningLogger.log_llm_call(
+                claim_id=claim_id,
+                line_item_id=line_item_id,
+                rule_id=rule_id,
+                provider=self.llm_provider,
+                url=self.local_llm_url if self.llm_provider == "local" else None,
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                raw_response=raw_response,
+                structured_output={"error": str(e)},
+                confidence=0.0,
+                requires_manual_review=True,
+                prompt_tokens=prompt_tok,
+                completion_tokens=completion_tok,
+            )
             return SemanticResult(
                 passed=False,
                 confidence=0.0,
@@ -192,20 +299,34 @@ class SemanticExecutionAgent:
                 requires_manual_review=True
             )
 
-    def _assess_coverage(self, rule_id: str, prompt: str) -> SemanticResult:
+    def _assess_coverage(self, rule_id: str, prompt: str, claim_id: str, line_item_id: Optional[str]) -> SemanticResult:
         """Assess if treatment is covered"""
-        # Issue 18: compressed to <80 tokens
         system_prompt = (
-            "You are an expert health insurance adjudicator. Evaluate the context against coverage clauses. "
-            "You MUST respond with a valid JSON object matching this exact schema:\n"
-            '{"evaluation_status": "PASSED" or "EXCLUSION_ACTIVE" or "FAILED", '
-            '"reasoning_trace": "string", "confidence_score": float}\n'
-            "CRITICAL TOKEN DEFINITIONS:\n"
-            "- Set 'evaluation_status' to 'PASSED' if the treatment satisfies coverage criteria (allowed).\n"
-            "- Set 'evaluation_status' to 'EXCLUSION_ACTIVE' if it fails coverage sublimits or parameters (not allowed).\n"
-            "- Set 'evaluation_status' to 'FAILED' if data is missing or unparseable."
+            "You are an expert health insurance adjudicator specializing in coverage validation.\n\n"
+            "RESPONSE FORMAT CONTRACT:\n"
+            "If reasoning/thinking is enabled, you may output your thinking process first (using standard thinking tags like <think>...</think> or <|think|>...</|think|>).\n"
+            "The final part of your response MUST contain a single raw JSON object. "
+            "Do NOT write any other text, explanation, preamble, or markdown outside the JSON (except the thinking tags/blocks if reasoning is enabled).\n"
+            "Required schema:\n"
+            '{"evaluation_status": "PASSED", "reasoning_trace": "step-by-step analysis", "confidence_score": 0.95}\n\n'
+            "evaluation_status token definitions:\n"
+            "  PASSED           — treatment satisfies coverage criteria; claim passes this gate\n"
+            "  EXCLUSION_ACTIVE — treatment fails coverage sublimits or parameters; claim must be blocked\n"
+            "  FAILED           — use ONLY when critical data is entirely absent preventing evaluation\n\n"
+            "Correct response example (output EXACTLY this structure, with your own content):\n"
+            '{"evaluation_status": "PASSED", "reasoning_trace": "Hospitalization exceeds 24 hours and is for active surgical treatment. Coverage criteria are met.", "confidence_score": 0.97}'
         )
+        self._last_prompt_tokens = 0
+        self._last_completion_tokens = 0
         raw_response = self._call_llm(system_prompt, prompt, SemanticAdjudicationPayload)
+        prompt_tok = self._last_prompt_tokens
+        completion_tok = self._last_completion_tokens
+
+        # Record token usage into the context-local telemetry session
+        from metrics import telemetry_context
+        _session = telemetry_context.get()
+        if _session is not None:
+            _session.record_llm_tokens("coverage_validation", prompt_tok, completion_tok)
         
         try:
             assessment = SemanticAdjudicationPayload.model_validate_json(raw_response)
@@ -217,6 +338,23 @@ class SemanticExecutionAgent:
             # Accumulate confidence
             self.total_confidence += assessment.confidence_score
             
+            # Log structured agent reasoning (includes token counts)
+            AgentReasoningLogger.log_llm_call(
+                claim_id=claim_id,
+                line_item_id=line_item_id,
+                rule_id=rule_id,
+                provider=self.llm_provider,
+                url=self.local_llm_url if self.llm_provider == "local" else None,
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                raw_response=raw_response,
+                structured_output=assessment.model_dump(),
+                confidence=assessment.confidence_score,
+                requires_manual_review=requires_review,
+                prompt_tokens=prompt_tok,
+                completion_tokens=completion_tok,
+            )
+            
             return SemanticResult(
                 passed=passed,
                 confidence=assessment.confidence_score,
@@ -226,6 +364,21 @@ class SemanticExecutionAgent:
                 requires_manual_review=requires_review
             )
         except Exception as e:
+            AgentReasoningLogger.log_llm_call(
+                claim_id=claim_id,
+                line_item_id=line_item_id,
+                rule_id=rule_id,
+                provider=self.llm_provider,
+                url=self.local_llm_url if self.llm_provider == "local" else None,
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                raw_response=raw_response,
+                structured_output={"error": str(e)},
+                confidence=0.0,
+                requires_manual_review=True,
+                prompt_tokens=prompt_tok,
+                completion_tokens=completion_tok,
+            )
             return SemanticResult(
                 passed=False,
                 confidence=0.0,
@@ -235,20 +388,34 @@ class SemanticExecutionAgent:
                 requires_manual_review=True
             )
 
-    def _assess_waiting_period(self, rule_id: str, prompt: str) -> SemanticResult:
+    def _assess_waiting_period(self, rule_id: str, prompt: str, claim_id: str, line_item_id: Optional[str]) -> SemanticResult:
         """Assess waiting period applicability"""
-        # Issue 18: compressed to <80 tokens
         system_prompt = (
-            "You are an expert health insurance adjudicator. Evaluate the context against waiting periods. "
-            "You MUST respond with a valid JSON object matching this exact schema:\n"
-            '{"evaluation_status": "PASSED" or "EXCLUSION_ACTIVE" or "FAILED", '
-            '"reasoning_trace": "string", "confidence_score": float}\n'
-            "CRITICAL TOKEN DEFINITIONS:\n"
-            "- Set 'evaluation_status' to 'PASSED' if the waiting period is successfully cleared or exempted.\n"
-            "- Set 'evaluation_status' to 'EXCLUSION_ACTIVE' if the waiting period is still actively running (excluded).\n"
-            "- Set 'evaluation_status' to 'FAILED' if timelines cannot be verified."
+            "You are an expert health insurance adjudicator specializing in waiting period assessment.\n\n"
+            "RESPONSE FORMAT CONTRACT:\n"
+            "If reasoning/thinking is enabled, you may output your thinking process first (using standard thinking tags like <think>...</think> or <|think|>...</|think|>).\n"
+            "The final part of your response MUST contain a single raw JSON object. "
+            "Do NOT write any other text, explanation, preamble, or markdown outside the JSON (except the thinking tags/blocks if reasoning is enabled).\n"
+            "Required schema:\n"
+            '{"evaluation_status": "PASSED", "reasoning_trace": "step-by-step analysis", "confidence_score": 0.95}\n\n'
+            "evaluation_status token definitions:\n"
+            "  PASSED           — waiting period has been served or is not applicable; claim passes this gate\n"
+            "  EXCLUSION_ACTIVE — waiting period is still actively running; claim must be blocked\n"
+            "  FAILED           — use ONLY when timeline data is entirely absent preventing evaluation\n\n"
+            "Correct response example (output EXACTLY this structure, with your own content):\n"
+            '{"evaluation_status": "PASSED", "reasoning_trace": "Policy inception was 2022-01-01. Claim date is 2025-06-01. The 36-month PED waiting period has been fully served.", "confidence_score": 0.98}'
         )
+        self._last_prompt_tokens = 0
+        self._last_completion_tokens = 0
         raw_response = self._call_llm(system_prompt, prompt, SemanticAdjudicationPayload)
+        prompt_tok = self._last_prompt_tokens
+        completion_tok = self._last_completion_tokens
+
+        # Record token usage into the context-local telemetry session
+        from metrics import telemetry_context
+        _session = telemetry_context.get()
+        if _session is not None:
+            _session.record_llm_tokens("waiting_period_validation", prompt_tok, completion_tok)
         
         try:
             assessment = SemanticAdjudicationPayload.model_validate_json(raw_response)
@@ -260,6 +427,23 @@ class SemanticExecutionAgent:
             # Accumulate confidence
             self.total_confidence += assessment.confidence_score
             
+            # Log structured agent reasoning (includes token counts)
+            AgentReasoningLogger.log_llm_call(
+                claim_id=claim_id,
+                line_item_id=line_item_id,
+                rule_id=rule_id,
+                provider=self.llm_provider,
+                url=self.local_llm_url if self.llm_provider == "local" else None,
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                raw_response=raw_response,
+                structured_output=assessment.model_dump(),
+                confidence=assessment.confidence_score,
+                requires_manual_review=requires_review,
+                prompt_tokens=prompt_tok,
+                completion_tokens=completion_tok,
+            )
+            
             return SemanticResult(
                 passed=passed,
                 confidence=assessment.confidence_score,
@@ -269,6 +453,21 @@ class SemanticExecutionAgent:
                 requires_manual_review=requires_review
             )
         except Exception as e:
+            AgentReasoningLogger.log_llm_call(
+                claim_id=claim_id,
+                line_item_id=line_item_id,
+                rule_id=rule_id,
+                provider=self.llm_provider,
+                url=self.local_llm_url if self.llm_provider == "local" else None,
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                raw_response=raw_response,
+                structured_output={"error": str(e)},
+                confidence=0.0,
+                requires_manual_review=True,
+                prompt_tokens=prompt_tok,
+                completion_tokens=completion_tok,
+            )
             return SemanticResult(
                 passed=False,
                 confidence=0.0,
@@ -290,25 +489,18 @@ class SemanticExecutionAgent:
         Routes to appropriate provider:
         - local: llama.cpp server on localhost:8080
         - openai: OpenAI GPT-4 Turbo
-        - mock: Testing fallback
         """
-        # Simulation override for Safety Guardrail demo
-        prompt_lower = user_prompt.lower()
-        if "lifestyle assessment" in prompt_lower or "routine body optimization" in prompt_lower:
-            return self._mock_llm_response(user_prompt, response_model)
-            
         if self.llm_provider == "local":
-            try:
-                return self._call_local_llm(system_prompt, user_prompt, response_model)
-            except Exception as e:
-                print(f"[WARN] Local LLM call failed: {e}. Falling back to mock.")
-                return self._mock_llm_response(user_prompt, response_model)
+            return self._call_local_llm(system_prompt, user_prompt, response_model)
         
         elif self.llm_provider == "openai" and self.api_key:
             return self._call_openai_structured(system_prompt, user_prompt, response_model)
         
         else:
-            return self._mock_llm_response(user_prompt, response_model)
+            raise ValueError(
+                f"Unsupported or unconfigured LLM provider: {self.llm_provider}. "
+                f"Ensure appropriate API keys or servers are active."
+            )
     
     def _call_openai_structured(
         self,
@@ -326,20 +518,26 @@ class SemanticExecutionAgent:
             client = openai.OpenAI(api_key=self.api_key)
             
             response = client.chat.completions.create(
-                model="gpt-4-turbo-preview",
+                model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
                 response_format={"type": "json_object"},
-                temperature=0.1  # Low temperature for consistency
+                temperature=0.0,  # Zero temperature for greedy decoding
+                seed=42
             )
+            
+            # Capture token counts from OpenAI usage metadata
+            if response.usage:
+                self._last_prompt_tokens = response.usage.prompt_tokens
+                self._last_completion_tokens = response.usage.completion_tokens
             
             return response.choices[0].message.content
         
         except Exception as e:
-            print(f"[WARN] OpenAI API call failed: {e}. Falling back to mock.")
-            return self._mock_llm_response(user_prompt, response_model)
+            print(f"[ERROR] OpenAI API call failed: {e}")
+            raise RuntimeError(f"OpenAI API call failed: {e}") from e
     
     def _call_local_llm(
         self,
@@ -348,81 +546,96 @@ class SemanticExecutionAgent:
         response_model: type[BaseModel],
     ) -> str:
         """
-        Call local llama.cpp server (optimised for Gemma4/quantized 7-13B models).
+        Call local llama.cpp server.
 
-        Strategy (Issue 18, 20):
-        1. Try /v1/chat/completions with response_format=json_object (preferred for
-           instruction-tuned models — Gemma4 supports this).
-        2. On failure fall back to /completion with GBNF grammar to hard-constrain
-           output to the exact JSON schema (eliminates hallucinated fields).
+        Strategy:
+        1. Try /completion (raw text endpoint) using the custom gemma4-e4b-qat
+           reasoning chat template format to preserve byte-level prompt constraints
+           and enable reasoning-by-default capabilities.
+        2. On failure, fall back to /v1/chat/completions (OpenAI-compatible chat
+           endpoint) as a robust secondary path.
 
-        Timeouts (Issue 20): 5s connect, 120s read via http.client.
-        n_predict=512 (Issue 18): enough for the short JSON response.
-        stop=["}"] on legacy endpoint so generation halts after closing brace.
+        Timeouts: 5s connect, 120s read via http.client.
+        n_predict=512: enough for the short JSON response.
         """
-        parsed = urlparse(self.local_llm_url)
-        host = parsed.hostname or "localhost"
-        port = parsed.port or 8080
-        use_tls = parsed.scheme == "https"
+        with self._local_llm_lock:
+            parsed = urlparse(self.local_llm_url)
+            host = parsed.hostname or "localhost"
+            port = parsed.port or 8080
+            use_tls = parsed.scheme == "https"
 
-        # ------------------------------------------------------------------ #
-        # Path 1: /v1/chat/completions  (OpenAI-compatible, preferred)        #
-        # ------------------------------------------------------------------ #
-        chat_payload = {
-            "model": "local",
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "response_format": {"type": "json_object"},  # Issue 18: force JSON mode
-            "temperature": 0.1,
-            "max_tokens": 512,   # Issue 18: was 1024; JSON response is short
-            "stream": False,
-        }
-        try:
+            if self.use_legacy_completion:
+                # ------------------------------------------------------------------ #
+                # Path 1: /completion (gemma4-e4b-qat reasoning chat template)        #
+                # ------------------------------------------------------------------ #
+                gemma_prompt = (
+                    f"<|turn>system\n"
+                    f"<|think|>\n"
+                    f"{system_prompt}<turn|>\n"
+                    f"<|turn>user\n"
+                    f"{user_prompt}<turn|>\n"
+                    f"<|turn>model\n"
+                )
+                legacy_payload = {
+                    "prompt": gemma_prompt,
+                    "temperature": 0.0,
+                    "seed": 42,
+                    "top_p": 0.9,
+                    "n_predict": 8196,
+                    "stop": ["</s>", "<end_of_turn>", "<|eot_id|>", "<turn|>"],
+                    "stream": False,
+                }
+                if not self.reasoning_on:
+                    legacy_payload["grammar"] = self._ADJUDICATION_GRAMMAR  # GBNF forces valid schema
+
+                try:
+                    content = self._http_post(
+                        host, port, use_tls, "/completion", legacy_payload
+                    )
+                    result = json.loads(content)
+                    if "content" in result:
+                        raw = result["content"].strip()
+                        # Ensure the JSON object is closed if truncated by grammar/stop tokens
+                        if raw and not raw.endswith("}"):
+                            raw += "}"
+                        # Capture token counts reported by llama.cpp /completion
+                        self._last_prompt_tokens = result.get("tokens_evaluated", 0)
+                        self._last_completion_tokens = result.get("tokens_predicted", 0)
+                        return self._extract_json_from_response(raw)
+                    raise ValueError("Invalid /completion response: no 'content' key")
+                except Exception as legacy_err:
+                    print(f"[WARN] /completion path failed: {legacy_err}. Trying /v1/chat/completions...")
+
+            # ------------------------------------------------------------------ #
+            # Path 2: /v1/chat/completions (OpenAI-compatible fallback)          #
+            # ------------------------------------------------------------------ #
+            chat_payload = {
+                "model": "local",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "temperature": 0.0,
+                "seed": 42,
+                "max_tokens": 8196,
+                "stream": False,
+            }
+            if not self.reasoning_on:
+                chat_payload["response_format"] = {"type": "json_object"}
+
             content = self._http_post(
                 host, port, use_tls, "/v1/chat/completions", chat_payload
             )
             result = json.loads(content)
             if "choices" in result and result["choices"]:
+                # Capture token counts from /v1/chat/completions usage field
+                usage = result.get("usage", {})
+                self._last_prompt_tokens = usage.get("prompt_tokens", 0)
+                self._last_completion_tokens = usage.get("completion_tokens", 0)
                 return self._extract_json_from_response(
                     result["choices"][0]["message"]["content"]
                 )
             raise ValueError("Unexpected /v1/chat/completions response shape")
-
-        except Exception as chat_err:
-            print(f"[WARN] /v1/chat/completions failed: {chat_err}. Trying /completion...")
-
-        # ------------------------------------------------------------------ #
-        # Path 2: /completion  (legacy, GBNF grammar for hard JSON constraint) #
-        # ------------------------------------------------------------------ #
-        # Compact prompt: system instruction folded into a single user turn so
-        # quantized models that ignore the system role still obey it.
-        compact_prompt = (
-            f"{system_prompt}\n\nClaim details:\n{user_prompt}\n\nJSON response:"
-        )
-        legacy_payload = {
-            "prompt": compact_prompt,
-            "grammar": self._ADJUDICATION_GRAMMAR,  # Issue 18: GBNF forces valid schema
-            "temperature": 0.1,
-            "top_p": 0.9,
-            "n_predict": 512,               # Issue 18: was 1024
-            "stop": ["</s>", "<end_of_turn>", "<|eot_id|>"],
-            "stream": False,
-        }
-        content = self._http_post(
-            host, port, use_tls, "/completion", legacy_payload
-        )
-        result = json.loads(content)
-        if "content" in result:
-            raw = result["content"]
-            # GBNF may produce a truncated string without closing brace;
-            # ensure the JSON object is closed before parsing.
-            raw = raw.strip()
-            if raw and not raw.endswith("}"):
-                raw += "}"
-            return self._extract_json_from_response(raw)
-        raise ValueError("Invalid /completion response: no 'content' key")
 
     def _http_post(
         self,
@@ -480,6 +693,40 @@ class SemanticExecutionAgent:
         """
         text = text.strip()
         
+        # Strip thinking process blocks first if present (helpful for reasoning models)
+        import re
+        text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+        text = re.sub(r'<\|think\|>.*?</\|think\|>', '', text, flags=re.DOTALL)
+        text = re.sub(r'<\|think\|>.*?<\|turn\|>', '<|turn|>', text, flags=re.DOTALL)
+        text = re.sub(r'<\|think\|>.*?<turn\|>', '<turn|>', text, flags=re.DOTALL)
+        text = re.sub(r'<\|?channel\|?>thought.*?</?\|?channel\|?>', '', text, flags=re.DOTALL)
+        
+        # Clean up unclosed thinking blocks if they exist at the start
+        if '<think>' in text and '</think>' not in text:
+            first_brace = text.find("{")
+            first_think = text.find("<think>")
+            if first_brace > first_think:
+                text = text[first_brace:]
+        if '<|think|>' in text and '</|think|>' not in text:
+            first_brace = text.find("{")
+            first_think = text.find("<|think|>")
+            if first_brace > first_think:
+                text = text[first_brace:]
+        if '<|channel>thought' in text and '<channel|>' not in text:
+            first_brace = text.find("{")
+            first_think = text.find("<|channel>thought")
+            if first_brace > first_think:
+                text = text[first_brace:]
+        
+        # Strip any leading thinking tags or unclosed thinking blocks before the JSON object
+        first_brace = text.find("{")
+        if first_brace > 0:
+            pre_text = text[:first_brace]
+            if any(marker in pre_text for marker in ['think', 'thought', 'channel', '<', '>', '|']):
+                text = text[first_brace:]
+
+        text = text.strip()
+        
         # Remove markdown code blocks if present
         if text.startswith("```json"):
             text = text[7:]
@@ -508,192 +755,7 @@ class SemanticExecutionAgent:
             raise ValueError(f"Invalid JSON in response: {e}")
     
     
-    def _mock_llm_response(self, prompt: str, response_model: type[BaseModel]) -> str:
-        """
-        Mock LLM response for testing Phase 2
-        Generates realistic responses based on prompt content
-        """
-        prompt_lower = prompt.lower()
-        print(f"[MOCK_LLM] prompt_lower='{prompt_lower[:100]}'")
-        print(f"[MOCK_LLM] response_model={response_model.__name__}")
-        
-        # New strict payload model matching user requirements
-        if response_model == SemanticAdjudicationPayload:
-            if "lifestyle assessment" in prompt_lower or "routine body optimization" in prompt_lower:
-                response = json.dumps({
-                    "evaluation_status": "PASSED",
-                    "reasoning_trace": "Claim details contain highly ambiguous clinical terms (lifestyle assessment, routine body optimization). Unable to determine medical necessity with certainty.",
-                    "confidence_score": 0.75
-                })
-                print(f"[MOCK_LLM] Ambiguous clinical jargon low confidence -> {response}")
-                return response
-                
-            if "cosmetic" in prompt_lower or "plastic surgery" in prompt_lower or "rhinoplasty" in prompt_lower:
-                if "accident" in prompt_lower or "burn" in prompt_lower or "cancer" in prompt_lower or "reconstruction" in prompt_lower:
-                    response = json.dumps({
-                        "evaluation_status": "PASSED",
-                        "reasoning_trace": "Reconstruction after accident/burns/cancer is covered under policy section 5.1.7.",
-                        "confidence_score": 0.92
-                    })
-                    print(f"[MOCK_LLM] Cosmetic reconstruction -> {response}")
-                    return response
-                else:
-                    response = json.dumps({
-                        "evaluation_status": "EXCLUSION_ACTIVE",
-                        "reasoning_trace": "Treatment is cosmetic or plastic surgery which is strictly excluded under section 5.1.7.",
-                        "confidence_score": 0.95
-                    })
-                    print(f"[MOCK_LLM] Cosmetic excluded -> {response}")
-                    return response
-            
-            if ("maternity" in prompt_lower or "childbirth" in prompt_lower or "pregnancy" in prompt_lower 
-                or "delivery" in prompt_lower or "caesarean" in prompt_lower or "c-section" in prompt_lower):
-                if "ectopic" in prompt_lower:
-                    response = json.dumps({
-                        "evaluation_status": "PASSED",
-                        "reasoning_trace": "Ectopic pregnancy is covered as an exception to maternity exclusion under section 5.1.16.",
-                        "confidence_score": 0.98
-                    })
-                    print(f"[MOCK_LLM] Ectopic covered -> {response}")
-                    return response
-                else:
-                    response = json.dumps({
-                        "evaluation_status": "EXCLUSION_ACTIVE",
-                        "reasoning_trace": "Maternity expenses (childbirth, pregnancy) are excluded except ectopic pregnancy under section 5.1.16.",
-                        "confidence_score": 0.96
-                    })
-                    print(f"[MOCK_LLM] Maternity excluded -> {response}")
-                    return response
-            
-            if "investigation" in prompt_lower or "diagnostic" in prompt_lower or "mri" in prompt_lower or "scan" in prompt_lower:
-                if "treatment" in prompt_lower and "performed" in prompt_lower:
-                    response = json.dumps({
-                        "evaluation_status": "PASSED",
-                        "reasoning_trace": "Diagnostics were part of active treatment protocol under section 5.1.4.",
-                        "confidence_score": 0.90
-                    })
-                    print(f"[MOCK_LLM] Investigation with treatment -> {response}")
-                    return response
-                else:
-                    response = json.dumps({
-                        "evaluation_status": "EXCLUSION_ACTIVE",
-                        "reasoning_trace": "Admission primarily for diagnostic tests and evaluation without active treatment under section 5.1.4.",
-                        "confidence_score": 0.88
-                    })
-                    print(f"[MOCK_LLM] Investigation only excluded -> {response}")
-                    return response
-                    
-            if "appendicitis" in prompt_lower or "appendectomy" in prompt_lower:
-                response = json.dumps({
-                    "evaluation_status": "PASSED",
-                    "reasoning_trace": "Hospitalization for appendectomy is covered under inpatient hospitalization benefits.",
-                    "confidence_score": 0.93
-                })
-                print(f"[MOCK_LLM] Appendectomy covered -> {response}")
-                return response
-                
-            # Default response
-            response = json.dumps({
-                "evaluation_status": "PASSED",
-                "reasoning_trace": "No active exclusion or waiting period satisfy criteria.",
-                "confidence_score": 0.94
-            })
-            print(f"[MOCK_LLM] Default SemanticAdjudicationPayload -> {response}")
-            return response
-            
-        # Backward compatibility for old schemas
-        if response_model == ExclusionAssessment:
-            if "cosmetic" in prompt_lower or "plastic surgery" in prompt_lower or "rhinoplasty" in prompt_lower:
-                if "accident" in prompt_lower or "burn" in prompt_lower or "cancer" in prompt_lower or "reconstruction" in prompt_lower:
-                    response = json.dumps({
-                        "is_excluded": False,
-                        "exclusion_type": None,
-                        "confidence": 0.92,
-                        "reason": "Reconstruction after accident/burns/cancer is covered",
-                        "policy_section_ref": "5.1.7"
-                    })
-                    return response
-                else:
-                    response = json.dumps({
-                        "is_excluded": True,
-                        "exclusion_type": "Cosmetic Surgery",
-                        "confidence": 0.95,
-                        "reason": "Treatment appears cosmetic with no medical necessity",
-                        "policy_section_ref": "5.1.7"
-                    })
-                    return response
-            
-            if ("maternity" in prompt_lower or "childbirth" in prompt_lower or "pregnancy" in prompt_lower 
-                or "delivery" in prompt_lower or "caesarean" in prompt_lower or "c-section" in prompt_lower):
-                if "ectopic" in prompt_lower:
-                    response = json.dumps({
-                        "is_excluded": False,
-                        "exclusion_type": None,
-                        "confidence": 0.98,
-                        "reason": "Ectopic pregnancy is covered under policy",
-                        "policy_section_ref": "5.1.16"
-                    })
-                    return response
-                else:
-                    response = json.dumps({
-                        "is_excluded": True,
-                        "exclusion_type": "Maternity",
-                        "confidence": 0.96,
-                        "reason": "Maternity expenses excluded except ectopic pregnancy",
-                        "policy_section_ref": "5.1.16"
-                    })
-                    return response
-            
-            if "investigation" in prompt_lower or "diagnostic" in prompt_lower:
-                if "treatment" in prompt_lower and "performed" in prompt_lower:
-                    response = json.dumps({
-                        "is_excluded": False,
-                        "exclusion_type": None,
-                        "confidence": 0.90,
-                        "reason": "Diagnostics were part of active treatment protocol",
-                        "policy_section_ref": "5.1.4"
-                    })
-                    return response
-                else:
-                    response = json.dumps({
-                        "is_excluded": True,
-                        "exclusion_type": "Investigation Only",
-                        "confidence": 0.88,
-                        "reason": "Admission primarily for diagnostic tests without treatment",
-                        "policy_section_ref": "5.1.4"
-                    })
-                    return response
-        
-        elif response_model == CoverageAssessment:
-            response = json.dumps({
-                "is_covered": True,
-                "coverage_type": "Expenses during Hospitalization",
-                "confidence": 0.93,
-                "reason": "Treatment meets hospitalization eligibility criteria",
-                "requires_verification": False
-            })
-            return response
-        
-        elif response_model == SemanticDecision:
-            response = json.dumps({
-                "decision": "APPROVED",
-                "confidence": 0.91,
-                "reason": "No waiting period restrictions apply",
-                "evidence": {"analysis": "Condition assessment complete"},
-                "requires_manual_review": False
-            })
-            return response
-        
-        # Default safe response
-        response = json.dumps({
-            "decision": "UNCERTAIN",
-            "confidence": 0.70,
-            "reason": "Unable to determine with high confidence",
-            "evidence": {},
-            "requires_manual_review": True
-        })
-        print(f"[MOCK_LLM] Default uncertain -> {response}")
-        return response
+
     
     def get_average_confidence(self) -> float:
         """Get average confidence across all semantic calls"""

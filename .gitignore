@@ -1,6 +1,12 @@
 .pytest_cache/
 .venv/
-docs/
 src/__pycache__/
 frontend/node_modules/
 frontend/dist/
+*.log
+.hypothesis/
+*/*/__pycache__
+graphs/
+logs/
+.agents/
+.vscode/

@@ -4,6 +4,8 @@ Parses and stores rule blueprints from Product JSON
 Provides structured metadata for AI Planner
 """
 
+import logging
+from datetime import date, datetime
 from typing import List, Dict, Any, Optional, Set, Tuple
 from dataclasses import dataclass
 from enum import Enum
@@ -11,11 +13,13 @@ from pathlib import Path
 import json
 import re
 
+_logger = logging.getLogger("product_memory")
+
 # Resolve docs directory relative to this source file so the module works
 # regardless of the working directory from which Python is invoked.
 _MODULE_DIR = Path(__file__).parent          # …/src/
 _DOCS_DIR   = _MODULE_DIR.parent / "docs"   # …/project_root/docs/
-_DEFAULT_EXTRACTION_FILE = _DOCS_DIR / "Product and Policy Rules Extraction.txt"
+_DEFAULT_EXTRACTION_FILE = _DOCS_DIR / "Product and Policy Rules Extraction.json"
 
 
 class RuleGate(str, Enum):
@@ -116,6 +120,19 @@ class ProductMemoryStore:
 
         # Tables - loaded from extraction file
         self.tables: Dict[str, Dict[str, Any]] = {}
+
+        # R3_TBL_RATE_TABLES: Mock rate matrix mapping age to baseline premium
+        self.R3_TBL_RATE_TABLES: Dict[int, float] = {}
+        for age in range(0, 120):
+            if age <= 25:
+                self.R3_TBL_RATE_TABLES[age] = float(5000 + (age * 200))
+            elif age <= 35:
+                self.R3_TBL_RATE_TABLES[age] = float(10000 + ((age - 25) * 500))
+            elif age <= 45:
+                self.R3_TBL_RATE_TABLES[age] = float(15000 + ((age - 35) * 700))
+            else:
+                self.R3_TBL_RATE_TABLES[age] = float(22000 + ((age - 45) * 1000))
+        
         
         # Ingest rules from standard extraction file or fallback to embedded
         import os
@@ -130,9 +147,9 @@ class ProductMemoryStore:
         else:
             paths_to_try = [
                 str(_DEFAULT_EXTRACTION_FILE),                                       # portable (primary)
-                "docs/Product and Policy Rules Extraction.txt",                      # CWD-relative (legacy)
-                "../docs/Product and Policy Rules Extraction.txt",                   # one level up (legacy)
-                "C:\\Project\\nivabupa\\policy automate\\docs\\Product and Policy Rules Extraction.txt"  # absolute (last resort)
+                "docs/Product and Policy Rules Extraction.json",                     # CWD-relative (legacy)
+                "../docs/Product and Policy Rules Extraction.json",                  # one level up (legacy)
+                "C:\\Project\\nivabupa\\policy automate\\docs\\Product and Policy Rules Extraction.json"  # absolute (last resort)
             ]
             
         for path in paths_to_try:
@@ -193,44 +210,126 @@ class ProductMemoryStore:
             preconditions = r_data.get('preconditions', [])
             not_applicable_to = r_data.get('not_applicable_to', [])
             
-            # Set semantic prompt template for semantic rules if they don't have one
+            # Set semantic prompt template for semantic rules if they don't have one.
+            # CRITICAL: All templates MUST instruct the model to return the canonical
+            # SemanticAdjudicationPayload schema:
+            #   {"evaluation_status": "PASSED"|"EXCLUSION_ACTIVE"|"FAILED",
+            #    "reasoning_trace": "...", "confidence_score": 0.0-1.0}
+            # Do NOT define alternative return schemas in templates — the agent parser
+            # only accepts this exact shape. Prior templates with {"investigation_only": bool}
+            # etc. caused schema mismatch failures (Issue: "Extra data" parsing errors).
             semantic_prompt_template = None
             if exec_type == ExecutionType.SEMANTIC or exec_type == ExecutionType.HYBRID:
+                _SCHEMA_BLOCK = (
+                    "\n\n"
+                    "OUTPUT REQUIREMENT:\n"
+                    "If your model has reasoning/thinking enabled, you may output your thinking/reasoning process first (e.g., inside <think>...</think> or <|think|>...</|think|> tags).\n"
+                    "However, the final response part MUST be a single raw JSON object matching the schema below. "
+                    "Do NOT write any other text, explanation, or markdown outside the JSON object (except for the thinking tags/blocks if reasoning is enabled):\n"
+                    '{"evaluation_status": "PASSED", "reasoning_trace": "your analysis", "confidence_score": 0.95}\n\n'
+                    "evaluation_status token definitions:\n"
+                    "  PASSED           = exclusion does NOT apply; the claim passes this gate\n"
+                    "  EXCLUSION_ACTIVE = exclusion applies; the claim must be blocked at this gate\n"
+                    "  FAILED           = use ONLY when critical data is entirely absent preventing evaluation\n"
+                )
                 embedded_templates = {
-                    "R3_EXCL_007": """Analyze if this treatment is cosmetic/plastic surgery:
-Treatment: {treatment_description}
-Diagnosis: {diagnosis}
-Doctor Notes: {doctor_notes}
-
-EXCLUDE if cosmetic.
-ALLOW if: reconstruction after Accident/Burns/Cancer OR medically necessary to remove immediate health risk (certified by physician).
-
-Return: {"is_cosmetic": bool, "reason": str, "confidence": float}""",
-                    "R3_EXCL_004": """Assess if admission was primarily for diagnostics only:
-Admission Reason: {admission_reason}
-Procedures Performed: {procedures}
-Treatment Given: {treatment_description}
-Discharge Summary: {discharge_summary}
-
-EXCLUDE if: admission solely for tests (MRI, CT, Endoscopy, Colonoscopy) with no treatment.
-ALLOW if: tests were part of active treatment protocol.
-
-Return: {"investigation_only": bool, "reason": str, "confidence": float}""",
-                    "R3_EXCL_016": """Check if claim involves maternity:
-Diagnosis: {diagnosis}
-Procedures: {procedures}
-ICD Codes: {icd_codes}
-
-EXCLUDE: Childbirth (normal/complicated/caesarean), Miscarriage (except due to Accident), Lawful medical termination.
-ALLOW: Ectopic pregnancy.
-
-Return: {"is_maternity": bool, "is_ectopic": bool, "reason": str, "confidence": float}""",
-                    "R3_EXCL_002": "Analyze if condition '{condition}' matches any specified disease in list: {disease_list}",
-                    "R3_EXCL_001": "Assess if condition '{condition}' could be pre-existing based on: {medical_history}"
+                    "R3_EXCL_007": (
+                        "EXCLUSION RULE R3_EXCL_007 — Cosmetic / Plastic Surgery (Policy Section 5.1.7)\n"
+                        "Policy rule: Exclude expenses for cosmetic or plastic surgery. "
+                        "EXCEPTION — allow if: (a) reconstruction after Accident, Burns, or Cancer, OR "
+                        "(b) medically necessary to remove an immediate health risk certified by a physician.\n\n"
+                        "Claim details:\n"
+                        "  Diagnosis          : {diagnosis}\n"
+                        "  Treatment/Procedure: {treatment_description}\n"
+                        "  Doctor notes       : {doctor_notes}\n\n"
+                        "Evaluate step-by-step: Is the treatment cosmetic? Does an exception apply?"
+                        + _SCHEMA_BLOCK
+                    ),
+                    "R3_EXCL_004": (
+                        "EXCLUSION RULE R3_EXCL_004 — Admission Solely for Diagnostics (Policy Section 5.1.4)\n"
+                        "Policy rule: Exclude if admission was SOLELY for diagnostic tests "
+                        "(MRI, CT, Endoscopy, Colonoscopy, etc.) with NO active treatment performed. "
+                        "ALLOW if tests were integral to an active treatment protocol "
+                        "(surgery, procedure, medication administered).\n\n"
+                        "Claim details:\n"
+                        "  Admission reason            : {admission_reason}\n"
+                        "  Procedures / treatments done: {procedures}\n"
+                        "  Treatment description        : {treatment_description}\n"
+                        "  Discharge summary            : {discharge_summary}\n\n"
+                        "Evaluate step-by-step: Was active treatment performed? Or was this purely diagnostic?"
+                        + _SCHEMA_BLOCK
+                    ),
+                    "R3_EXCL_016": (
+                        "EXCLUSION RULE R3_EXCL_016 — Maternity Expenses (Policy Section 5.1.16)\n"
+                        "Policy rule: Exclude expenses for Childbirth (normal, complicated, caesarean), "
+                        "Miscarriage (except due to Accident), or lawful medical termination of pregnancy. "
+                        "EXCEPTION — Ectopic pregnancy is always covered.\n\n"
+                        "Claim details:\n"
+                        "  Diagnosis : {diagnosis}\n"
+                        "  Procedures: {procedures}\n"
+                        "  ICD codes : {icd_codes}\n\n"
+                        "Evaluate step-by-step: Is this maternity-related? Is it ectopic pregnancy (exception)?"
+                        + _SCHEMA_BLOCK
+                    ),
+                    "R3_EXCL_002": (
+                        "EXCLUSION RULE R3_EXCL_002 — Specified Disease Waiting Period (Policy Section 5.2.1)\n"
+                        "Policy rule: Exclude if the condition is in the specified disease list AND the "
+                        "waiting period has not been served. Specified diseases: {disease_list}.\n\n"
+                        "Claim details:\n"
+                        "  Condition/Diagnosis: {condition}\n"
+                        "  Medical history    : {medical_history}\n\n"
+                        "Evaluate: Does the condition match the specified disease list? Has the waiting period elapsed?"
+                        + _SCHEMA_BLOCK
+                    ),
+                    "R3_EXCL_001": (
+                        "EXCLUSION RULE R3_EXCL_001 — Pre-Existing Disease (PED) Waiting Period (Policy Section 4.1)\n"
+                        "Policy rule: Exclude if the condition is a declared Pre-Existing Disease (PED) "
+                        "and the 36-month waiting period has NOT been completed.\n\n"
+                        "Claim details:\n"
+                        "  Condition/Diagnosis       : {condition}\n"
+                        "  Declared PED history      : {medical_history}\n\n"
+                        "Evaluate: Is this a PED? Have 36 months elapsed since policy inception?"
+                        + _SCHEMA_BLOCK
+                    ),
                 }
                 semantic_prompt_template = r_data.get('semantic_prompt_template') or embedded_templates.get(rule_id)
                 if not semantic_prompt_template:
-                    semantic_prompt_template = f"Verify coverage and exclusion terms for {rule_name} (ID: {rule_id}) given condition '{{condition}}' and treatment '{{treatment_description}}'."
+                    # Fallback for any rule without a bespoke template.
+                    # Inject the formula text so the model knows the actual exclusion criteria.
+                    formula_str = r_data.get('formula') or r_data.get('description') or ""
+                    _fallback_schema = (
+                        "\n\n"
+                        "OUTPUT REQUIREMENT:\n"
+                        "If your model has reasoning/thinking enabled, you may output your thinking/reasoning process first (e.g., inside <think>...</think> or <|think|>...</|think|> tags).\n"
+                        "However, the final response part MUST be a single raw JSON object matching the schema below. "
+                        "Do NOT write any other text, explanation, or markdown outside the JSON object (except for the thinking tags/blocks if reasoning is enabled):\n"
+                        '{"evaluation_status": "PASSED", "reasoning_trace": "your analysis", "confidence_score": 0.95}\n\n'
+                        "evaluation_status token definitions:\n"
+                        "  PASSED           = exclusion does NOT apply; the claim passes this gate\n"
+                        "  EXCLUSION_ACTIVE = exclusion applies; the claim must be blocked at this gate\n"
+                        "  FAILED           = use ONLY when critical data is entirely absent preventing evaluation\n"
+                    )
+                    if formula_str:
+                        semantic_prompt_template = (
+                            f"EXCLUSION/COVERAGE RULE {rule_id} — {rule_name} (Policy Section {section_ref})\n"
+                            f"Policy rule text: {formula_str}\n\n"
+                            f"Claim details:\n"
+                            f"  Condition/Diagnosis : {{condition}}\n"
+                            f"  Treatment/Procedure : {{treatment_description}}\n\n"
+                            f"Evaluate whether the claim falls under this rule criteria. "
+                            f"Set EXCLUSION_ACTIVE if the exclusion applies, PASSED if it does not."
+                            + _fallback_schema
+                        )
+                    else:
+                        semantic_prompt_template = (
+                            f"EXCLUSION/COVERAGE RULE {rule_id} — {rule_name} (Policy Section {section_ref})\n"
+                            f"Claim details:\n"
+                            f"  Condition/Diagnosis : {{condition}}\n"
+                            f"  Treatment/Procedure : {{treatment_description}}\n\n"
+                            f"Evaluate whether this exclusion/coverage rule applies to the claim. "
+                            f"Set EXCLUSION_ACTIVE if exclusion applies, PASSED if it does not."
+                            + _fallback_schema
+                        )
             
             # Map tools
             tool_required = r_data.get('tool_required')
@@ -317,7 +416,7 @@ Return: {"is_maternity": bool, "is_ectopic": bool, "reason": str, "confidence": 
         rule_id_upper = rule_id.upper()
         
         # 1. Waiting Periods
-        if rule_id_upper in ["R3_EXCL_001", "R3_EXCL_002", "R3_EXCL_003"] or rule_id_upper.startswith("R3_WT"):
+        if rule_id_upper in ["R3_EXCL_001", "R3_EXCL_002", "R3_EXCL_003", "R3_EXCL_017"] or rule_id_upper.startswith("R3_WT"):
             gate = RuleGate.WAITING_PERIOD_VALIDATION
             if rule_id_upper == "R3_EXCL_003":
                 priority = 10
@@ -328,6 +427,9 @@ Return: {"is_maternity": bool, "is_ectopic": bool, "reason": str, "confidence": 
             elif rule_id_upper == "R3_EXCL_001":
                 priority = 30
                 exec_type = ExecutionType.HYBRID
+            elif rule_id_upper == "R3_EXCL_017":
+                priority = 32
+                exec_type = ExecutionType.DETERMINISTIC
             else:
                 priority = 35
                 exec_type = ExecutionType.DETERMINISTIC
@@ -335,14 +437,17 @@ Return: {"is_maternity": bool, "is_ectopic": bool, "reason": str, "confidence": 
         # 2. Exclusions
         elif rule_id_upper.startswith("R3_EXCL"):
             gate = RuleGate.EXCLUSION_VALIDATION
-            if rule_id_upper in ["R3_EXCL_010", "R3_EXCL_020", "R3_EXCL_021"]:
+            if rule_id_upper in [
+                "R3_EXCL_004", "R3_EXCL_010", "R3_EXCL_011", "R3_EXCL_012",
+                "R3_EXCL_013", "R3_EXCL_015", "R3_EXCL_020", "R3_EXCL_021"
+            ]:
                 exec_type = ExecutionType.DETERMINISTIC
                 priority = 38
-            else:
-                exec_type = ExecutionType.SEMANTIC
                 if rule_id_upper == "R3_EXCL_004":
                     priority = 40
-                elif rule_id_upper == "R3_EXCL_016":
+            else:
+                exec_type = ExecutionType.SEMANTIC
+                if rule_id_upper == "R3_EXCL_016":
                     priority = 45
                 elif rule_id_upper == "R3_EXCL_007":
                     priority = 50
@@ -423,7 +528,9 @@ Return: {"is_maternity": bool, "is_ectopic": bool, "reason": str, "confidence": 
             source_page=data.get('source_page'),
             preconditions=data.get('preconditions', []),
             notes=data.get('notes', []),
-            not_applicable_to=data.get('not_applicable_to', [])
+            not_applicable_to=data.get('not_applicable_to', []),
+            auto_adjudicable=data.get('auto_adjudicable', True),
+            confidence_weight=data.get('confidence_weight', 1.0)
         )
     
     def add_rule(self, rule: RuleBlueprint):
@@ -636,26 +743,88 @@ Return: {"is_maternity": bool, "is_ectopic": bool, "reason": str, "confidence": 
 # the extensibility hook for when version-specific files are introduced.
 _product_memory_cache: Dict[str, ProductMemoryStore] = {}
 
-# Default version string — MUST match ClaimContext.product_json_version default (Fix 9).
+# Default version string - MUST match ClaimContext.product_json_version default (Fix 9).
 # Keeping these identical ensures all calls without an explicit version resolve to
 # the same cache entry and the singleton pattern stays effective.
 _DEFAULT_VERSION = "R3_v2.1_2025-01-15"
 
+def _load_registry() -> List[Dict[str, Any]]:
+    # Resolve file path
+    reg_path = Path(__file__).parent / "data" / "product_version_registry.json"
+    if not reg_path.exists():
+        reg_path = Path("C:/Project/nivabupa/policy automate/src/data/product_version_registry.json")
+    if reg_path.exists():
+        try:
+            import json
+            with open(reg_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            _logger.error(f"Error loading product version registry: {e}")
+    return []
+
+def resolve_version_by_id(version_id: str) -> Optional[Dict[str, Any]]:
+    registry = _load_registry()
+    for entry in registry:
+        if entry.get("version_id") == version_id:
+            return entry
+    return None
+
+def resolve_product_version(
+    product_id: str,
+    variant: str,
+    effective_date: date
+) -> Optional[Dict[str, Any]]:
+    """
+    Look up the correct version registry entry by (product_id, variant, effective_date).
+    Finds the latest APPROVED version with effective_date <= requested date.
+    """
+    registry = _load_registry()
+    best_match = None
+    
+    for entry in registry:
+        if entry.get("status") != "APPROVED":
+            continue
+        if entry.get("product_id") != product_id:
+            continue
+        
+        # Variant match (entry variant 'all' matches any variant)
+        entry_variant = entry.get("variant", "all")
+        if entry_variant != "all" and entry_variant != variant:
+            continue
+            
+        try:
+            entry_eff_date = date.fromisoformat(entry.get("effective_date"))
+        except Exception:
+            continue
+            
+        if entry_eff_date <= effective_date:
+            if best_match is None:
+                best_match = (entry_eff_date, entry)
+            else:
+                if entry_eff_date > best_match[0]:
+                    best_match = (entry_eff_date, entry)
+                    
+    return best_match[1] if best_match else None
+
 def _version_to_path(version: str) -> Optional[str]:
     """
     Map a product_json_version string to the extraction file path.
-
-    Convention: place versioned files as
-        docs/Product and Policy Rules Extraction_<version>.txt
-    If no version-specific file is found, fall back to the canonical file
-    (all current R3 versions share the same rule text).
+    Loads product_version_registry.json to find a match, otherwise falls back.
     """
+    # Look up version in registry
+    entry = resolve_version_by_id(version)
+    if entry:
+        json_path = entry.get("json_path")
+        if json_path:
+            full_path = _DOCS_DIR / json_path
+            if full_path.exists():
+                return str(full_path)
+            
+    # Fallback to older convention
     versioned = _DOCS_DIR / f"Product and Policy Rules Extraction_{version}.txt"
     if versioned.exists():
         return str(versioned)
-    # Fall back to the single canonical extraction file
-    return None   # ProductMemoryStore.__init__ will use its own fallback list
-
+    return None
 
 def get_product_memory(version: str = _DEFAULT_VERSION) -> "ProductMemoryStore":
     """

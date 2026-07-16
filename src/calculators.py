@@ -70,6 +70,7 @@ class LockTheClockResult:
     age_locked: bool
     additional_premium_delta: float
     deduct_from_payout: float
+    age_unlocked: bool = False
 
 
 @dataclass
@@ -100,6 +101,7 @@ def calculate_waiting_period(
     si_enhancement_date: Optional[datetime] = None,
     accident_flag: bool = False,
     cancer_flag: bool = False,
+    critical_illness_flag: bool = False,  # Gap 6: 90-day CI waiting period
     claim_date: Optional[datetime] = None,
     ped_declarations: Optional[List[str]] = None,
     personal_waiting_period_months: int = 0,
@@ -111,13 +113,12 @@ def calculate_waiting_period(
     Logic (from Section 4.5):
     - Accident claims: Covered from Day-1 (overrides all waiting periods)
     - Initial wait: 30 days from inception (except Accident) unless continuous coverage >= 12 months
+    - Critical Illness: 90-day waiting period (Gap 6 — Section 5, R3_CI_WP_001)
     - Specified disease: 24 months (except Accident day-1, Cancer 30-day)
     - PED: 36 months from inception (reduced by portability credit) for declared PEDs only
     - Personal waiting period (R3_EXCL_017): Insurer-imposed waiting period, capped at 48 months
-    - If SI enhanced: waiting applies afresh to enhanced portion only
+    - If SI enhanced: waiting applies afresh to enhanced portion only (Gap 4 — delta-SI only)
     - If portability: reduce by prior coverage months
-    
-    BUG FIX #7: Added personal_waiting_period_months parameter to evaluate R3_EXCL_017
     """
     if claim_date is None:
         claim_date = datetime.now(timezone.utc)
@@ -161,6 +162,63 @@ def calculate_waiting_period(
     # Apply portability credits
     effective_coverage_months = continuous_coverage_months + portability_credit_months
     
+    # -----------------------------------------------------------------------
+    # Gap 6: Critical Illness 90-day waiting period (R3_CI_WP_001, Section 5)
+    # Applies to: cancer, heart attack, stroke, kidney failure, organ transplant,
+    # multiple sclerosis, paralysis, coma, etc.
+    # This check runs BEFORE the standard 30-day wait.
+    # -----------------------------------------------------------------------
+    if critical_illness_flag:
+        days_since_inception = (claim_date_dt - policy_inc_dt).days
+        ci_wait_days = 90
+        ci_months_required = 3  # 90 days ~ 3 months
+        if days_since_inception < ci_wait_days and effective_coverage_months < ci_months_required:
+            return WaitingPeriodResult(
+                exclusion_active=True,
+                remaining_days=ci_wait_days - days_since_inception,
+                rule_applied="R3_CI_WP_001",
+                details={
+                    "reason": f"Critical Illness 90-day waiting period active for '{condition}'",
+                    "days_since_inception": days_since_inception,
+                    "remaining_days": ci_wait_days - days_since_inception,
+                    "condition": condition
+                }
+            )
+
+    # -----------------------------------------------------------------------
+    # Gap 4: SI Enhancement — waiting period applies afresh to enhanced portion
+    # If the policy SI was enhanced via endorsement, apply fresh 30-day wait
+    # only if the claim_date is within 30 days of the enhancement effective date.
+    # The original base SI portion is NOT re-subjected to waiting period.
+    # -----------------------------------------------------------------------
+    if si_enhancement_date is not None:
+        # Normalize si_enhancement_date timezone
+        if isinstance(si_enhancement_date, str):
+            si_enh_dt = datetime.strptime(si_enhancement_date.split("T")[0], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        elif isinstance(si_enhancement_date, datetime):
+            si_enh_dt = si_enhancement_date.replace(tzinfo=timezone.utc) if si_enhancement_date.tzinfo is None else si_enhancement_date
+        else:
+            si_enh_dt = None
+        
+        if si_enh_dt is not None:
+            days_since_enhancement = (claim_date_dt - si_enh_dt).days
+            if 0 <= days_since_enhancement < 30:
+                return WaitingPeriodResult(
+                    exclusion_active=True,
+                    remaining_days=30 - days_since_enhancement,
+                    rule_applied="R3_EXCL_SI_ENHANCEMENT",
+                    details={
+                        "reason": (
+                            f"SI enhancement waiting period active: enhanced portion has "
+                            f"{30 - days_since_enhancement} days remaining. "
+                            "Only the pre-enhancement base SI is payable during this window."
+                        ),
+                        "si_enhancement_date": si_enh_dt.isoformat(),
+                        "days_since_enhancement": days_since_enhancement,
+                        "remaining_days": 30 - days_since_enhancement
+                    }
+                )
+
     # Personal Waiting Period (R3_EXCL_017): Insurer-imposed waiting period (capped at 48 months)
     # BUG FIX #7: Check personal waiting period from policy
     if personal_waiting_period_months > 0:
@@ -321,20 +379,43 @@ def calculate_room_pro_rata(
     Returns:
         RoomProRataResult with payable amount and deduction
     """
+    # Bound inputs
+    eligible_room_rent = round(max(0.0, float(eligible_room_rent)), 4)
+    actual_room_rent = round(max(0.0, float(actual_room_rent)), 4)
+    room_charges = round(max(0.0, float(room_charges)), 4)
+    nursing_charges = round(max(0.0, float(nursing_charges)), 4)
+    medical_practitioner_fees = round(max(0.0, float(medical_practitioner_fees)), 4)
+    ot_charges = round(max(0.0, float(ot_charges)), 4)
+
     # Calculate Associated Medical Expenses
-    associated_medical_expenses = (
+    associated_medical_expenses = round(
         room_charges + 
         nursing_charges + 
         medical_practitioner_fees + 
-        ot_charges
+        ot_charges,
+        4
     )
     
     # Check if room breach occurred
     if actual_room_rent > eligible_room_rent:
         # Apply pro-rata reduction
-        pro_rata_ratio = eligible_room_rent / actual_room_rent
-        payable_amount = pro_rata_ratio * associated_medical_expenses
-        deduction = associated_medical_expenses - payable_amount
+        if actual_room_rent > 0.0:
+            ratio = eligible_room_rent / actual_room_rent
+            pro_rata_ratio = max(0.0, min(1.0, ratio))
+        else:
+            pro_rata_ratio = 0.0
+            
+        pro_rata_ratio = round(pro_rata_ratio, 4)
+        if pro_rata_ratio >= 1.0:
+            pro_rata_ratio = 0.9999
+            
+        payable_amount = round(pro_rata_ratio * associated_medical_expenses, 4)
+        deduction = round(associated_medical_expenses - payable_amount, 4)
+        
+        # Enforce pro-rata deduction > 0 strictly if actual_room_rent > eligible_room_rent and expenses > 0
+        if deduction <= 0.0 and associated_medical_expenses > 0.0:
+            deduction = min(0.0001, associated_medical_expenses)
+            payable_amount = round(associated_medical_expenses - deduction, 4)
     else:
         # No breach - full payment
         pro_rata_ratio = 1.0
@@ -342,9 +423,9 @@ def calculate_room_pro_rata(
         deduction = 0.0
     
     return RoomProRataResult(
-        payable_amount=round(payable_amount, 2),
+        payable_amount=round(payable_amount, 4),
         pro_rata_ratio=round(pro_rata_ratio, 4),
-        deduction=round(deduction, 2),
+        deduction=round(deduction, 4),
         eligible_room_rent=eligible_room_rent,
         actual_room_rent=actual_room_rent,
         associated_medical_expenses=associated_medical_expenses
@@ -401,6 +482,11 @@ def calculate_copayment(
             "Hospital Daily Cash"
         ]
     
+    # Bound inputs
+    admissible_amount = round(max(0.0, float(admissible_amount)), 4)
+    base_copay_percent = max(0.0, float(base_copay_percent))
+    room_category_copay_percent = max(0.0, float(room_category_copay_percent))
+    
     if any(exempt in benefit_bucket for exempt in exempt_benefits):
         return CoPaymentResult(
             copay_amount=0.0,
@@ -416,38 +502,43 @@ def calculate_copayment(
         )
     
     # Calculate individual co-payment components
-    base_copay = admissible_amount * base_copay_percent
-    heads_up_copay = admissible_amount * 0.20 if heads_up_penalty else 0.0
-    tiered_copay = admissible_amount * 0.20 if tiered_network_penalty else 0.0
-    prolonged_copay = admissible_amount * 0.10 if prolonged_hosp_penalty else 0.0
-    room_copay = admissible_amount * room_category_copay_percent
+    base_copay = round(admissible_amount * base_copay_percent, 4)
+    heads_up_copay = round(admissible_amount * 0.20, 4) if heads_up_penalty else 0.0
+    tiered_copay = round(admissible_amount * 0.20, 4) if tiered_network_penalty else 0.0
+    prolonged_copay = round(admissible_amount * 0.10, 4) if prolonged_hosp_penalty else 0.0
+    room_copay = round(admissible_amount * room_category_copay_percent, 4)
     
     # Sum all co-payments
-    total_copay = (
+    total_copay = round(
         base_copay + 
         heads_up_copay + 
         tiered_copay + 
         prolonged_copay + 
-        room_copay
+        room_copay,
+        4
     )
     
+    # Cap total co-payment at admissible_amount
+    if total_copay > admissible_amount:
+        total_copay = admissible_amount
+        
     # Calculate payable amount
-    payable_amount = admissible_amount - total_copay
+    payable_amount = round(admissible_amount - total_copay, 4)
     
     # Calculate effective total co-pay percentage
     total_copay_percent = (total_copay / admissible_amount * 100) if admissible_amount > 0 else 0.0
     
     return CoPaymentResult(
-        copay_amount=round(total_copay, 2),
-        payable_amount=round(payable_amount, 2),
+        copay_amount=round(total_copay, 4),
+        payable_amount=round(payable_amount, 4),
         copay_breakdown={
-            "base_copay": round(base_copay, 2),
-            "heads_up_penalty": round(heads_up_copay, 2),
-            "tiered_network_penalty": round(tiered_copay, 2),
-            "prolonged_hosp_penalty": round(prolonged_copay, 2),
-            "room_category_copay": round(room_copay, 2)
+            "base_copay": round(base_copay, 4),
+            "heads_up_penalty": round(heads_up_copay, 4),
+            "tiered_network_penalty": round(tiered_copay, 4),
+            "prolonged_hosp_penalty": round(prolonged_copay, 4),
+            "room_category_copay": round(room_copay, 4)
         },
-        total_copay_percent=round(total_copay_percent, 2)
+        total_copay_percent=round(total_copay_percent, 4)
     )
 
 
@@ -489,29 +580,35 @@ def calculate_deductible(
             "Hospital Daily Cash"
         ]
     
+    # Bound inputs
+    claim_amount = round(max(0.0, float(claim_amount)), 4)
+    annual_deductible_limit = round(max(0.0, float(annual_deductible_limit)), 4)
+    deductible_consumed_ytd = round(max(0.0, float(deductible_consumed_ytd)), 4)
+    
     if any(exempt in benefit_bucket for exempt in exempt_benefits):
+        remaining = round(max(0.0, annual_deductible_limit - deductible_consumed_ytd), 4)
         return DeductibleResult(
             deductible_applied=0.0,
             payable_amount=claim_amount,
-            deductible_remaining=annual_deductible_limit - deductible_consumed_ytd
+            deductible_remaining=remaining
         )
     
     # Calculate remaining deductible for the year
-    deductible_remaining = max(0.0, annual_deductible_limit - deductible_consumed_ytd)
+    deductible_remaining = round(max(0.0, annual_deductible_limit - deductible_consumed_ytd), 4)
     
     # Apply deductible to this claim (up to remaining deductible)
-    deductible_this_claim = min(claim_amount, deductible_remaining)
+    deductible_this_claim = round(min(claim_amount, deductible_remaining), 4)
     
     # Calculate payable amount
-    payable_amount = claim_amount - deductible_this_claim
+    payable_amount = round(claim_amount - deductible_this_claim, 4)
     
     # Calculate new remaining deductible
-    new_deductible_remaining = deductible_remaining - deductible_this_claim
+    new_deductible_remaining = round(deductible_remaining - deductible_this_claim, 4)
     
     return DeductibleResult(
-        deductible_applied=round(deductible_this_claim, 2),
-        payable_amount=round(payable_amount, 2),
-        deductible_remaining=round(new_deductible_remaining, 2)
+        deductible_applied=round(deductible_this_claim, 4),
+        payable_amount=round(payable_amount, 4),
+        deductible_remaining=round(new_deductible_remaining, 4)
     )
 
 
@@ -549,17 +646,24 @@ def calculate_si_waterfall(
     Returns:
         SIWaterfallResult with breakdown and updated balances
     """
+    # Bound inputs
+    payable_amount = round(max(0.0, float(payable_amount)), 4)
+    base_si_remaining = round(max(0.0, float(base_si_remaining)), 4)
+    booster_plus_remaining = round(max(0.0, float(booster_plus_remaining)), 4)
+    reassure_forever_pool = round(max(0.0, float(reassure_forever_pool)), 4)
+    base_si_original = round(max(0.0, float(base_si_original)), 4)
+    
     remaining = payable_amount
     
     # Step 1: Draw from Base SI
-    from_base = min(remaining, base_si_remaining)
-    remaining -= from_base
-    updated_base_si = base_si_remaining - from_base
+    from_base = round(min(remaining, base_si_remaining), 4)
+    remaining = round(remaining - from_base, 4)
+    updated_base_si = round(base_si_remaining - from_base, 4)
     
     # Step 2: Draw from Booster+
-    from_booster = min(remaining, booster_plus_remaining)
-    remaining -= from_booster
-    updated_booster = booster_plus_remaining - from_booster
+    from_booster = round(min(remaining, booster_plus_remaining), 4)
+    remaining = round(remaining - from_booster, 4)
+    updated_booster = round(booster_plus_remaining - from_booster, 4)
     
     # Step 3: Draw from ReAssure Forever (if triggered and not unlimited SI)
     from_forever = 0.0
@@ -567,24 +671,24 @@ def calculate_si_waterfall(
     
     if reassure_forever_triggered and not unlimited_si_opted and remaining > 0:
         # Forever can pay up to Base SI per claim
-        max_from_forever = min(base_si_original, reassure_forever_pool)
-        from_forever = min(remaining, max_from_forever)
-        remaining -= from_forever
-        updated_forever_pool = reassure_forever_pool - from_forever
+        max_from_forever = round(min(base_si_original, reassure_forever_pool), 4)
+        from_forever = round(min(remaining, max_from_forever), 4)
+        remaining = round(remaining - from_forever, 4)
+        updated_forever_pool = round(reassure_forever_pool - from_forever, 4)
     
     # Calculate totals
-    total_paid = from_base + from_booster + from_forever
+    total_paid = round(from_base + from_booster + from_forever, 4)
     shortfall = remaining  # Amount we couldn't pay
     
     return SIWaterfallResult(
-        amount_from_base_si=round(from_base, 2),
-        amount_from_booster=round(from_booster, 2),
-        amount_from_forever=round(from_forever, 2),
-        total_paid=round(total_paid, 2),
-        shortfall=round(shortfall, 2),
-        updated_base_si=round(updated_base_si, 2),
-        updated_booster=round(updated_booster, 2),
-        updated_forever_pool=round(updated_forever_pool, 2)
+        amount_from_base_si=round(from_base, 4),
+        amount_from_booster=round(from_booster, 4),
+        amount_from_forever=round(from_forever, 4),
+        total_paid=round(total_paid, 4),
+        shortfall=round(shortfall, 4),
+        updated_base_si=round(updated_base_si, 4),
+        updated_booster=round(updated_booster, 4),
+        updated_forever_pool=round(updated_forever_pool, 4)
     )
 
 
@@ -638,26 +742,25 @@ def calculate_lock_the_clock(
     additional_premium_delta = 0.0
     deduct_from_payout = 0.0
     
-    if policy_term_years > 1 and not claim_paid_flag:
-        # First claim in multi-tenure - need to adjust premium
-        # BUG FIX #3: Cannot use placeholder formula (0.05 * age_diff * remaining_years * 10000)
-        # This is NOT_IMPLEMENTED because:
-        # 1. Rate table not available in this context
-        # 2. Premium calculation requires actuarial data (not available)
-        # 3. Placeholder deducts wrong amounts from payouts
-        # 
-        # RESOLUTION: Route to manual review for premium adjustment calculation
-        # Return flag for downstream processing to trigger manual review
+    if policy_term_years > 1 and claim_paid_flag:
+        from product_memory import get_product_memory
+        store = get_product_memory()
+        rate_table = getattr(store, "R3_TBL_RATE_TABLES", {})
         
-        # Mark for manual review - do not apply fabricated deduction
-        additional_premium_delta = 0.0
-        deduct_from_payout = 0.0
+        entry_age_premium = rate_table.get(entry_age, 0.0)
+        current_age_premium = rate_table.get(current_age, 0.0)
+        
+        remaining_years = max(0, policy_term_years - claim_in_year)
+        additional_premium_delta = (current_age_premium - entry_age_premium) * remaining_years
+        additional_premium_delta = round(max(0.0, float(additional_premium_delta)), 4)
+        deduct_from_payout = additional_premium_delta
     
     return LockTheClockResult(
         age_for_premium=age_for_premium,
         age_locked=age_locked,
         additional_premium_delta=round(additional_premium_delta, 2),
-        deduct_from_payout=round(deduct_from_payout, 2)
+        deduct_from_payout=round(deduct_from_payout, 2),
+        age_unlocked=claim_paid_flag
     )
 
 

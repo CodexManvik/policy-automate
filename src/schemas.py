@@ -25,6 +25,9 @@ class PolicyData(BaseModel):
     status: Literal["Active", "Lapsed", "Cancelled"]
     premium_paid: bool
     grace_period_active: bool = False
+    policy_type: Literal["individual", "floater"] = "individual"
+    policy_term_years: int = 1
+    fraud_flagged: bool = False
     
     # Optional benefits configuration
     co_payment_percent: Optional[float] = None
@@ -114,14 +117,31 @@ class BenefitBalanceData(BaseModel):
     deductible_consumed_ytd: float = 0.0
 
 
+class LiveHealthyData(BaseModel):
+    """Wellness points accumulation tracking"""
+    current_points: int = 0
+    points_snapshot_date: Optional[datetime] = None
+
+
+class CashBagPlusData(BaseModel):
+    """Cash-Bag+ accumulated wallet balance"""
+    balance: float = 0.0
+    last_credited: Optional[datetime] = None
+
+
 class LifetimeStateData(BaseModel):
     """Lifetime state flags from Lifetime State API"""
     policy_id: str
     
-    # ReAssure Forever state
+    # ReAssure Forever state — full 4-state machine (spec Section 4.6 / Gap 2)
+    # NOT_TRIGGERED → TRIGGERED (first paid claim) → ACTIVE (claim-free renewal) → LAPSED (break-in)
     reassure_forever_triggered: bool = False
     reassure_forever_triggered_date: Optional[datetime] = None
     reassure_forever_triggered_claim_id: Optional[str] = None
+    reassure_forever_state: Literal["NOT_TRIGGERED", "TRIGGERED", "ACTIVE", "LAPSED"] = "NOT_TRIGGERED"
+    reassure_forever_lapsed_date: Optional[datetime] = None
+    reassure_forever_last_renewal_date: Optional[datetime] = None
+    break_in_policy_detected: bool = False
     
     # Lock the Clock state
     lock_the_clock_age_locked: bool = True
@@ -132,11 +152,17 @@ class LifetimeStateData(BaseModel):
     # Booster+ state
     booster_plus_accumulated: float = 0.0
     booster_plus_last_updated: Optional[datetime] = None
+    booster_plus_claim_free_years: int = 0
     
     # One-time benefit flags
     convalescence_claimed: bool = False
     critical_illness_claimed: bool = False
     critical_illness_type: Optional[str] = None
+
+    # Wellness and wallet balances
+    live_healthy: LiveHealthyData = Field(default_factory=LiveHealthyData)
+    cash_bag_plus: CashBagPlusData = Field(default_factory=CashBagPlusData)
+
 
 
 class EndorsementData(BaseModel):
@@ -175,6 +201,7 @@ class LineItemData(BaseModel):
     admission_date: Optional[datetime] = None
     discharge_date: Optional[datetime] = None
     hospitalization_hours: Optional[float] = None
+    discharge_summary: Optional[str] = None
     
     # Room rent details (if applicable)
     actual_room_rent: Optional[float] = None
@@ -207,25 +234,29 @@ class ClaimContext(BaseModel):
     Complete claim context assembled by Context Builder (Section 4.1)
     Single source of truth for adjudication decision
     """
-    claim_id: str
-    claim_received_at: datetime
+    claim_id: str = Field(..., description="Unique identifier for the claim transaction.")
+    claim_received_at: datetime = Field(..., description="Timestamp when the claim request was received upstream.")
     
     # Assembled data from external APIs
-    policy: PolicyData
-    member: MemberData
-    history: ClaimsHistoryData
-    porting: PortingMigrationData
-    network: NetworkData
-    benefit_balance: BenefitBalanceData
-    lifetime_state: LifetimeStateData
-    endorsements: List[EndorsementData] = Field(default_factory=list)
+    policy: PolicyData = Field(..., description="Policy-level attributes and configuration details.")
+    member: MemberData = Field(..., description="Details of the specific policy member claiming benefits.")
+    history: ClaimsHistoryData = Field(..., description="Prior claims utilization history for this policy/member.")
+    porting: PortingMigrationData = Field(..., description="Porting or policy migration credit information.")
+    network: NetworkData = Field(..., description="Healthcare provider network and status details.")
+    benefit_balance: BenefitBalanceData = Field(..., description="Active benefit balances, limits, and deductible tracking.")
+    lifetime_state: LifetimeStateData = Field(..., description="Lifetime state flags, age locking, and benefit trigger history.")
+    endorsements: List[EndorsementData] = Field(default_factory=list, description="List of mid-term endorsements effective on the policy.")
     
     # Line items to adjudicate
-    line_items: List[LineItemData]
+    line_items: List[LineItemData] = Field(..., description="Individual claim bill line items to undergo adjudication.")
     
     # Metadata
-    product_json_version: str = "R3_v2.1_2025-01-15"
-    context_assembled_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    product_json_version: str = Field("R3_v2.1_2025-01-15", description="Version string of the policy rules product JSON to apply.")
+    context_assembled_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Timestamp of claim context generation.")
+    renewal_event_simulation: Optional[bool] = Field(None, description="Simulate a renewal event to trigger Cash-Bag+ wellness conversions.")
+    fraud_flagged: bool = False
+
+
 
 
 # ============================================================================
@@ -260,12 +291,25 @@ class DecisionTrace(BaseModel):
     evaluation: Literal[
         "PASSED", "FAILED", "NOT_APPLICABLE",
         "EXCLUSION_ACTIVE", "DEDUCTION_APPLIED",
-        "PENDING_REVIEW", "ASSISTED_REVIEW"    # Issue 23: these are emitted by pipeline routing
+        "PENDING_REVIEW", "ASSISTED_REVIEW", "MEDICAL_REVIEW"  # Gap 8: added MEDICAL_REVIEW tier
     ]
     reason: str
     confidence: float = 1.0
     source_section: Optional[str] = None
     source_page: Optional[int] = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # Full raw LLM response text for semantic gate nodes, including any <think>...</think>
+    # reasoning chain. None for deterministic (non-LLM) gate evaluations.
+    raw_llm_response: Optional[str] = None
+
+
+class ToolCallTrace(BaseModel):
+    """Audit record for a single deterministic calculator/tool invocation within a gate."""
+    tool_name: str = Field(..., description="Name of the calculator function invoked (e.g. 'calculate_room_pro_rata')")
+    arguments: Dict[str, Any] = Field(default_factory=dict, description="Key-value inputs passed to the calculator")
+    result_summary: str = Field("", description="Human-readable summary of the computation result (e.g. 'payable=45000, deduction=5000')")
+    success: bool = Field(True, description="True if the calculator completed without exception")
+    error_message: Optional[str] = Field(None, description="Exception message if success=False")
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -277,14 +321,19 @@ class LineItemDecision(BaseModel):
     admissible_amount: float
     payable_amount: float
     
-    decision: Literal["APPROVED", "PARTIALLY_APPROVED", "REJECTED", "ASSISTED_REVIEW", "PENDING_REVIEW"]
+    decision: Literal[
+        "APPROVED", "PARTIALLY_APPROVED", "REJECTED",
+        "ASSISTED_REVIEW", "PENDING_REVIEW", "MEDICAL_REVIEW"  # Gap 8: MEDICAL_REVIEW tier
+    ]
     
     deductions: List[DeductionDetail] = Field(default_factory=list)
     decision_trace: List[DecisionTrace] = Field(default_factory=list)
+    tool_calls: List[ToolCallTrace] = Field(default_factory=list, description="Per-calculator invocation traces with pass/fail status")
     
     confidence_score: float = 1.0
     manual_review_required: bool = False
     review_reason: Optional[str] = None
+
 
 
 class SIWaterfallBreakdown(BaseModel):
@@ -310,6 +359,7 @@ class DeductionBreakdown(BaseModel):
     sublimits: float = 0.0
     penalties: float = 0.0
     si_cap: float = 0.0
+    lock_the_clock_premium_delta: float = 0.0
 
 
 class ClaimDecision(BaseModel):
@@ -318,7 +368,10 @@ class ClaimDecision(BaseModel):
     Produced by Decision Composer after all gates execute
     """
     claim_id: str
-    claim_decision: Literal["APPROVED", "PARTIALLY_APPROVED", "REJECTED", "ASSISTED_REVIEW", "PENDING_REVIEW"]
+    claim_decision: Literal[
+        "APPROVED", "PARTIALLY_APPROVED", "REJECTED",
+        "ASSISTED_REVIEW", "PENDING_REVIEW", "MEDICAL_REVIEW"  # Gap 8: MEDICAL_REVIEW
+    ]
     
     # Financial summary
     total_claimed: float
@@ -347,6 +400,9 @@ class ClaimDecision(BaseModel):
     # Metadata
     decision_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     processing_duration_ms: Optional[float] = None
+    # Filename (not path) of the interactive HTML adjudication trace graph.
+    # Served by FastAPI at /graphs/{graph_filename}. None when graph generation fails.
+    graph_filename: Optional[str] = None
 
 
 # ============================================================================
@@ -377,6 +433,7 @@ class PerClaimState(BaseModel):
     room_pro_rata_ratio: float = 1.0
     copay_percent_total: float = 0.0
     deductible_applied_this_claim: float = 0.0
+    cash_bag_copay_offset: float = 0.0
     
     # Flags for penalties and special conditions
     prolonged_hosp_penalty_triggered: bool = False
@@ -392,3 +449,99 @@ class PerClaimState(BaseModel):
     amount_from_base_si: float = 0.0
     amount_from_booster: float = 0.0
     amount_from_forever: float = 0.0
+    
+    # State update transitions
+    lock_the_clock_age_unlocked: bool = False
+    lock_the_clock_premium_delta: float = 0.0
+
+
+class ManualReviewExceptionPayload(BaseModel):
+    """
+    Deliverable 12: Manual Review Exception Payload Contract
+    Represents the payload routed to a human adjudicator when auto-adjudication confidence falls below threshold.
+    """
+    claim_id: str = Field(
+        ...,
+        description="Unique identifier for the claim undergoing adjudication."
+    )
+    assigned_queue: Literal["ASSISTED_REVIEW", "PENDING_REVIEW", "MEDICAL_REVIEW"] = Field(
+        ...,
+        description="The target operational queue. MEDICAL_REVIEW = low-confidence exclusion. ASSISTED_REVIEW = medium confidence. PENDING_REVIEW = low confidence."
+    )
+    suggested_decision: ClaimDecision = Field(
+        ...,
+        description="The suggested claim decision generated by the AI agent, including admissible amounts and draft deductions."
+    )
+    low_confidence_reasons: List[str] = Field(
+        default_factory=list,
+        description="List of specific reasons, semantic gate failures, or rules that triggered this review."
+    )
+    audit_trail_snapshot: List[DecisionTrace] = Field(
+        default_factory=list,
+        description="Audit trail and decision trace of all rules processed up to the exception point."
+    )
+
+
+# ============================================================================
+# PAS RECONCILIATION MODELS (Gap 9 — Section 11)
+# ============================================================================
+
+class PASMismatch(BaseModel):
+    """A single field-level discrepancy between engine decision and PAS output"""
+    field: str = Field(..., description="Field name that differs (e.g. 'total_payable', 'line_item[0].decision')")
+    engine_value: Any = Field(..., description="Value produced by the adjudication engine")
+    pas_value: Any = Field(..., description="Value recorded in the PAS system")
+    delta: Optional[float] = Field(None, description="Numeric delta (engine - pas) for financial fields; None for categorical")
+    category: Literal[
+        "RULE_EXTRACTION", "CALCULATION", "STATEFUL_ACCUMULATION", "ROUTING"
+    ] = Field(..., description="Root-cause category for mismatch triage")
+    tolerance_applied: bool = Field(False, description="True if delta <= TOLERANCE_INR and still flagged")
+
+
+class PASReconciliationResult(BaseModel):
+    """Result of comparing one engine ClaimDecision against its PAS counterpart"""
+    claim_id: str
+    concordant: bool = Field(..., description="True if engine and PAS agree within tolerance on all fields")
+    mismatches: List[PASMismatch] = Field(default_factory=list)
+    mismatch_categories: List[str] = Field(default_factory=list, description="Unique category set from all mismatches")
+    engine_total_payable: float
+    pas_total_payable: Optional[float] = None
+    checked_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    check_duration_ms: Optional[float] = None
+
+
+class DecisionSummaryPayload(BaseModel):
+    """Payload for structured LLM decision summary generation"""
+    summary: str = Field(..., description="Detailed markdown formatted explanation of the decision, why rules were triggered or rejected, and the financial breakdown.")
+
+
+class ClaimSummaryResponse(BaseModel):
+    """Response payload returning the AI-generated claim decision summary"""
+    summary: str
+
+
+class DocumentExtractionLLMPayload(BaseModel):
+    """Structured payload the LLM returns when parsing a clinical document."""
+    discharge_summary: Optional[str] = None
+    condition_diagnosed: Optional[str] = None
+    admission_date: Optional[str] = None
+    discharge_date: Optional[str] = None
+    hospitalization_hours: Optional[float] = None
+    claimed_amount: Optional[float] = None
+    room_charges: Optional[float] = None
+    nursing_charges: Optional[float] = None
+    medical_practitioner_fees: Optional[float] = None
+    ot_charges: Optional[float] = None
+
+
+class DocumentExtractionResult(BaseModel):
+    """
+    Response returned by POST /api/v2/extract-document.
+
+    All fields are Optional — the caller (frontend) renders only non-null
+    fields for confirmation before auto-filling the claim form.
+    """
+    filename: str
+    raw_text_length: int = Field(description="Character count of text extracted before LLM processing.")
+    extracted: DocumentExtractionLLMPayload
+

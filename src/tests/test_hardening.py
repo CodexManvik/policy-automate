@@ -20,7 +20,7 @@ def create_base_test_context() -> ClaimContext:
         product_code="R3",
         variant="Select",
         policy_start_date=datetime(2025, 1, 1),
-        policy_end_date=datetime(2026, 1, 1),
+        policy_end_date=datetime(2030, 1, 1),
         base_sum_insured=500000.0,
         status="Active",
         premium_paid=True,
@@ -88,7 +88,7 @@ def create_base_test_context() -> ClaimContext:
 
 def test_copayment_percent_normalization():
     """Test 1: Co-payment percent normalization if provided as a whole number (> 1.0)"""
-    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
     
     # CASE A: co_payment_percent = 10.0 (whole number)
     context = create_base_test_context()
@@ -108,7 +108,7 @@ def test_copayment_percent_normalization():
 
 def test_room_rent_limit_fallback():
     """Test 2: Room rent limit fallback values (Select -> 4000.0, others -> 3000.0) when missing/None"""
-    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
     
     # Case A: Variant == Select, room_rent_limit = None
     context = create_base_test_context()
@@ -147,7 +147,7 @@ def test_dental_exclusion_deterministic():
     assert dental_rule.execution_type == ExecutionType.DETERMINISTIC
     assert dental_rule.priority == 38
 
-    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
 
     # Case A: Dental procedure in description, not accident-related -> Excluded
     context_excluded = create_base_test_context()
@@ -172,7 +172,7 @@ def test_dental_exclusion_deterministic():
 
 def test_waterfall_negative_bounds():
     """Test 4: Defensive wrap max(0.0, ...) on running payable amount and payable amount before waterfall"""
-    pipeline = ClaimsAdjudicationPipeline(llm_provider="mock")
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
     context = create_base_test_context()
     
     # Let's verify that we can execute successfully without negative balance propagation
@@ -266,4 +266,80 @@ def test_deductible_dynamic_exempt_benefits():
     )
     assert res_custom.deductible_applied == 0.0
     assert res_custom.payable_amount == 1000.0
+
+
+def test_reasoning_model_thinking_extraction():
+    """Test 5: Verify that _extract_json_from_response correctly strips thinking blocks and parses JSON"""
+    from semantic_agent import SemanticExecutionAgent
+    agent = SemanticExecutionAgent(llm_provider="local", reasoning_on=True)
+    
+    # CASE A: Standard DeepSeek style <think> block
+    raw_response_ds = (
+        "<think>\n"
+        "We are analyzing the claim for Appendectomy.\n"
+        "An appendectomy is active surgery, not diagnostics.\n"
+        "Therefore, R3_EXCL_004 is PASSED.\n"
+        "</think>\n"
+        '{"evaluation_status": "PASSED", "reasoning_trace": "Appendectomy is surgery", "confidence_score": 0.95}'
+    )
+    extracted_ds = agent._extract_json_from_response(raw_response_ds)
+    assert "PASSED" in extracted_ds
+    assert "Appendectomy is surgery" in extracted_ds
+    
+    # CASE B: Gemma style <|think|> block
+    raw_response_gemma = (
+        "<|think|>\n"
+        "Hospitalization was for surgery.\n"
+        "Matches exception.\n"
+        "</|think|>\n"
+        '{"evaluation_status": "PASSED", "reasoning_trace": "Reconstructive surgery following cancer", "confidence_score": 0.92}'
+    )
+    extracted_gemma = agent._extract_json_from_response(raw_response_gemma)
+    assert "PASSED" in extracted_gemma
+    
+    # CASE C: Unclosed thinking block at the start of output
+    raw_response_unclosed = (
+        "<think>\n"
+        "Checking if exclusion applies...\n"
+        '{"evaluation_status": "PASSED", "reasoning_trace": "Not diagnostic-only", "confidence_score": 0.96}'
+    )
+    extracted_unclosed = agent._extract_json_from_response(raw_response_unclosed)
+    assert "PASSED" in extracted_unclosed
+
+
+def test_gemma4_prompt_formatting():
+    """Verify that the gemma4-e4b-qat prompt template is formatted correctly and sent to /completion"""
+    from semantic_agent import SemanticExecutionAgent, SemanticAdjudicationPayload
+    from unittest.mock import MagicMock
+    
+    agent = SemanticExecutionAgent(llm_provider="local", reasoning_on=True)
+    agent.use_legacy_completion = True
+    
+    # Mock self._http_post to return a valid JSON response so the call succeeds
+    agent._http_post = MagicMock(return_value='{"content": "{\\"evaluation_status\\": \\"PASSED\\", \\"reasoning_trace\\": \\"test\\", \\"confidence_score\\": 0.95}"}')
+    
+    # Trigger local LLM call
+    agent._call_local_llm("System Instruction", "User Prompt", SemanticAdjudicationPayload)
+    
+    # Verify the mocked http post call
+    assert agent._http_post.called
+    args = agent._http_post.call_args[0]
+    
+    # Verify it posted to '/completion'
+    assert args[3] == "/completion"
+    
+    # Verify the prompt contents match the gemma4-e4b-qat template format
+    payload = args[4]
+    prompt = payload["prompt"]
+    expected_template = (
+        "<|turn>system\n"
+        "<|think|>\n"
+        "System Instruction<turn|>\n"
+        "<|turn>user\n"
+        "User Prompt<turn|>\n"
+        "<|turn>model\n"
+    )
+    assert prompt == expected_template
+    assert payload["stop"] == ["</s>", "<end_of_turn>", "<|eot_id|>", "<turn|>"]
+
 
