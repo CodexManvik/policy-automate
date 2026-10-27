@@ -207,7 +207,7 @@ class FinancialsGateMixin:
                     rule_name="Hospital Daily Cash",
                     gate="financial_computation",
                     inputs={"daily_cash_amount": daily_cash_amount},
-                    evaluation="NOT_APPLICABLE",
+                    evaluation="ASSISTED_REVIEW",
                     reason="hospital_daily_cash_amount not configured in policy; requires manual review",
                     confidence=0.5
                 ))
@@ -318,7 +318,7 @@ class FinancialsGateMixin:
                     rule_name="Room Pro-Rata",
                     gate="financial_computation",
                     inputs={"actual_room_rent": line_item.actual_room_rent},
-                    evaluation="NOT_APPLICABLE",
+                    evaluation="ASSISTED_REVIEW",
                     reason=(
                         "room_rent_limit not configured in PolicyData — "
                         "pro-rata cannot be computed; flagged for ASSISTED_REVIEW"
@@ -361,13 +361,18 @@ class FinancialsGateMixin:
                         medical_practitioner_fees=expense_components["medical_practitioner_fees"],
                         ot_charges=expense_components["ot_charges"]
                     )
-                    if pro_rata_result.deduction > 0:
-                        admissible_amount -= pro_rata_result.deduction
-                        payable_amount -= pro_rata_result.deduction
+                    # Associated expenses can be itemised beyond this line item's
+                    # claimed amount; never deduct more than is still admissible.
+                    pro_rata_deduction = round(
+                        min(pro_rata_result.deduction, max(0.0, admissible_amount)), 2
+                    )
+                    if pro_rata_deduction > 0:
+                        admissible_amount -= pro_rata_deduction
+                        payable_amount -= pro_rata_deduction
                         state.room_pro_rata_ratio = pro_rata_result.pro_rata_ratio
                         deductions.append(DeductionDetail(
                             deduction_type="room_pro_rata",
-                            amount=pro_rata_result.deduction,
+                            amount=pro_rata_deduction,
                             rule_id="R3_BEN_004",
                             reason=(
                                 f"Room category breach: ratio "
@@ -379,7 +384,8 @@ class FinancialsGateMixin:
                                 "ratio": pro_rata_result.pro_rata_ratio,
                                 "associated_expenses": (
                                     pro_rata_result.associated_medical_expenses
-                                )
+                                ),
+                                "uncapped_deduction": pro_rata_result.deduction
                             }
                         ))
                         traces.append(DecisionTrace(
@@ -393,7 +399,7 @@ class FinancialsGateMixin:
                                 "ratio": pro_rata_result.pro_rata_ratio
                             },
                             evaluation="DEDUCTION_APPLIED",
-                            reason=f"Pro-rata deduction: INR {pro_rata_result.deduction:.2f}",
+                            reason=f"Pro-rata deduction: INR {pro_rata_deduction:.2f}",
                             source_section="6.2.4(d)"
                         ))
         # ================================================================

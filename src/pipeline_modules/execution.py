@@ -167,6 +167,10 @@ class ExecutionMixin:
         tool_calls: accumulated ToolCallTrace entries from all calculator invocations.
         """
         _tool_calls = tool_calls or []
+        # Gate 6 flags data gaps (e.g. missing hospitalization dates) with a
+        # review trace and a zero payable; those must reach a human queue
+        # rather than read as a zero-payout rejection.
+        financial_review_traces: List[DecisionTrace] = []
         # Calculate final payable through financial gates
         if payable_amount > 0:
             # Enforce Mutual Exclusivity Constraints before running financials
@@ -232,6 +236,9 @@ class ExecutionMixin:
             item_deductions.extend(fin_deductions)
             payable_amount = final_payable
             admissible_amount = final_admissible
+            financial_review_traces = [
+                t for t in fin_traces if t.evaluation in ("ASSISTED_REVIEW", "PENDING_REVIEW")
+            ]
             
             for ft in fin_traces:
                 AgentReasoningLogger.log_gate_evaluation(
@@ -259,7 +266,39 @@ class ExecutionMixin:
         else:
             overall_confidence = 1.0
         state.overall_confidence = overall_confidence
-        
+
+        if financial_review_traces:
+            self.manual_review_count += 1
+            flag = financial_review_traces[0]
+            route = (
+                "PENDING_REVIEW"
+                if any(t.evaluation == "PENDING_REVIEW" for t in financial_review_traces)
+                else "ASSISTED_REVIEW"
+            )
+            AgentReasoningLogger.log_routing(
+                claim_id=context.claim_id,
+                line_item_id=line_item.line_item_id if line_item else None,
+                gate="financial_computation",
+                rule_id=flag.rule_id,
+                confidence=flag.confidence,
+                action=route,
+                reason=f"Financial gate requested review: {flag.reason}"
+            )
+            return LineItemDecision(
+                line_item_id=line_item.line_item_id,
+                description=line_item.description,
+                claimed_amount=claimed_amount,
+                admissible_amount=admissible_amount,
+                payable_amount=payable_amount,
+                decision=route,
+                deductions=item_deductions,
+                decision_trace=item_traces,
+                tool_calls=_tool_calls,
+                confidence_score=min(overall_confidence, flag.confidence),
+                manual_review_required=True,
+                review_reason=flag.reason
+            )
+
         if overall_confidence < self.medical_review_threshold:
             self.manual_review_count += 1
             AgentReasoningLogger.log_routing(
@@ -395,7 +434,8 @@ class ExecutionMixin:
         payable_amount = claimed_amount
         
         step_confidences = []
-        
+        self._prescreen_semantic_exclusions(plan, context, line_item)
+
         for step in plan.execution_steps:
             gate_name = step.gate.value if hasattr(step.gate, "value") else str(step.gate)
             t_start = time.perf_counter()
@@ -555,6 +595,29 @@ class ExecutionMixin:
             manual_review_required=False
         )
 
+    def _prescreen_semantic_exclusions(self, plan: ExecutionPlan, context: ClaimContext, line_item) -> None:
+        """
+        Screen all semantic exclusion rules of this line item in one LLM call
+        (see SemanticExecutionAgent.prescreen_exclusions). Cuts ~11 LLM calls
+        per line item to one, which keeps cloud usage inside free-tier
+        token-per-minute limits; the per-rule steps then read from cache.
+        """
+        if not self.use_ai or not self.semantic_agent:
+            return
+        rules = [
+            (s.rule_id, s.semantic_prompt) for s in plan.execution_steps
+            if s.execution_type == ExecutionType.SEMANTIC.value
+            and s.semantic_prompt
+            and (s.gate.value if hasattr(s.gate, "value") else str(s.gate)) == "exclusion_validation"
+        ]
+        self.semantic_agent.prescreen_exclusions(rules, context.claim_id, line_item.line_item_id)
+
+    @staticmethod
+    def _attribute_gate_pass(passed: bool, trace: DecisionTrace, step: ExecutionStep) -> DecisionTrace:
+        if not passed:
+            return trace
+        return trace.model_copy(update={"rule_id": step.rule_id, "rule_name": step.rule_name})
+
     def _execute_deterministic_step(
         self,
         step: ExecutionStep,
@@ -565,20 +628,23 @@ class ExecutionMixin:
         """Execute a deterministic rule using calculation tools"""
         
         # Map rule to appropriate gate handler
+        # Gates 1-3 are gate-level checks run once per rule step in the plan.
+        # A pass is attributed to the rule being evaluated, so the trace reads
+        # as one entry per rule rather than the same generic gate result repeated.
         if step.gate == RuleGate.POLICY_VALIDATION:
             passed, trace = self._gate_1_policy_validation(context, line_item)
-            return passed, trace, None
-        
+            return passed, self._attribute_gate_pass(passed, trace, step), None
+
         elif step.gate == RuleGate.MEMBER_VALIDATION:
             passed, trace = self._gate_2_member_validation(context, line_item)
-            return passed, trace, None
-        
+            return passed, self._attribute_gate_pass(passed, trace, step), None
+
         elif step.gate == RuleGate.COVERAGE_VALIDATION:
             # Gate 3: Benefit bucket coverage, duration, and one-time benefit checks.
             # This MUST run before financial gates so invalid benefits are rejected
             # immediately rather than being silently approved with a zero deduction.
             passed, trace = self._gate_3_coverage_validation(context, line_item)
-            return passed, trace, None
+            return passed, self._attribute_gate_pass(passed, trace, step), None
         
         elif step.gate == RuleGate.WAITING_PERIOD_VALIDATION:
             return self._execute_waiting_period_check(step, line_item, context, state)
@@ -859,7 +925,8 @@ class ExecutionMixin:
         payable_amount = claimed_amount
         
         step_confidences = []
-        
+        await asyncio.to_thread(self._prescreen_semantic_exclusions, plan, context, line_item)
+
         # Step 1: Compute execution depth for each step in the plan
         step_by_id = {step.rule_id: step for step in plan.execution_steps}
         step_depths = {}

@@ -103,10 +103,13 @@ const DECISION_CONFIG: Record<string, { label: string; icon: string; badgeClass:
 };
 
 const formatBoldText = (text: string) => {
-  const parts = text.split(/(\*\*.*?\*\*)/g);
+  const parts = text.split(/(\*\*.*?\*\*|\*[^*\s][^*]*\*)/g);
   return parts.map((part, index) => {
     if (part.startsWith('**') && part.endsWith('**')) {
       return <strong key={index} className="text-on-surface font-semibold">{part.slice(2, -2)}</strong>;
+    }
+    if (part.length > 2 && part.startsWith('*') && part.endsWith('*')) {
+      return <em key={index}>{part.slice(1, -1)}</em>;
     }
     return part;
   });
@@ -1085,8 +1088,8 @@ export default function App() {
                         </div>
                         <div className="bg-white/70 backdrop-blur-sm p-3 rounded-xl border border-white/80 shadow-sm">
                           <span className="block text-on-surface-variant text-[9px] font-bold uppercase tracking-wider mb-1">ROUTING</span>
-                          <span className={`font-bold uppercase text-sm ${localDecision.manual_review_required ? 'text-amber-600' : 'text-emerald-600'}`}>
-                            {localDecision.manual_review_required ? 'REFERRAL' : 'AUTO-PAY'}
+                          <span className={`font-bold uppercase text-sm ${localDecision.manual_review_required ? 'text-amber-600' : localDecision.claim_decision === 'REJECTED' ? 'text-red-600' : 'text-emerald-600'}`}>
+                            {localDecision.manual_review_required ? 'REFERRAL' : localDecision.claim_decision === 'REJECTED' ? 'AUTO-REJECT' : 'AUTO-PAY'}
                           </span>
                         </div>
                         <div className="bg-white/70 backdrop-blur-sm p-3 rounded-xl border border-white/80 shadow-sm">
@@ -1148,7 +1151,7 @@ export default function App() {
                       </span>
                     </div>
                     <div className="flex flex-col gap-0.5 border-l-2 border-[#ffb74d]/40 pl-2">
-                      <span className="text-[9px] text-on-surface-variant font-semibold">EXCLUSIONS</span>
+                      <span className="text-[9px] text-on-surface-variant font-semibold">DEDUCTIONS</span>
                       <span className="font-display text-base text-on-surface font-bold">
                         {formatCurrency(deductibleAmt)}
                       </span>
@@ -1202,7 +1205,8 @@ export default function App() {
                         if (trimmed.startsWith('##')) {
                           return <h3 key={idx} className="font-display text-sm font-bold text-on-surface mt-4 mb-2">{trimmed.replace('##', '').trim()}</h3>;
                         }
-                        if (trimmed.startsWith('-') || trimmed.startsWith('*')) {
+                        // "* item" is a bullet; "**bold**" at line start is not
+                        if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
                           return (
                             <div key={idx} className="flex gap-2 items-start pl-2">
                               <span className="text-primary font-bold">•</span>

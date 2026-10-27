@@ -101,6 +101,7 @@ async def _lifespan(app: FastAPI):
             use_ai=True,
             confidence_threshold=settings.auto_approve_threshold,
             assisted_review_threshold=settings.assisted_review_threshold,
+            medical_review_threshold=settings.medical_review_threshold,
             llm_provider=settings.llm_provider,
             local_llm_url=settings.llm_url,
         )

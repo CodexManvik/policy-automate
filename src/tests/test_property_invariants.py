@@ -3,7 +3,7 @@ Property-Based Mathematical Invariant Tests for Financial Calculators
 """
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given, settings, strategies as st
 from calculators import (
     calculate_room_pro_rata,
     calculate_copayment,
@@ -15,7 +15,12 @@ from calculators import (
 money_strategy = st.floats(min_value=0.0, max_value=1e9, allow_nan=False, allow_infinity=False)
 charge_strategy = st.floats(min_value=0.0, max_value=1e8, allow_nan=False, allow_infinity=False)
 
+# Pure functions, but the first example can exceed Hypothesis's 200ms default
+# deadline while the full suite is warming up, which made these tests flaky.
+no_deadline = settings(deadline=None)
 
+
+@no_deadline
 @given(
     eligible_room_rent=money_strategy,
     actual_room_rent=money_strategy,
@@ -62,6 +67,7 @@ def test_room_pro_rata_invariants(
     assert round(result.payable_amount + result.deduction, 4) == total_expenses
 
 
+@no_deadline
 @given(
     admissible_amount=money_strategy,
     base_copay_percent=st.floats(min_value=0.0, max_value=2.0, allow_nan=False, allow_infinity=False),
@@ -95,6 +101,7 @@ def test_copayment_invariants(
     assert round(result.payable_amount + result.copay_amount, 4) == adm
 
 
+@no_deadline
 @given(
     payable_amount=money_strategy,
     base_si_remaining=money_strategy,
@@ -130,6 +137,7 @@ def test_si_waterfall_invariants(
     assert result.updated_forever_pool >= 0.0
 
 
+@no_deadline
 @given(
     claim_amount=money_strategy,
     annual_deductible_limit=money_strategy,

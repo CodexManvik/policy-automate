@@ -343,3 +343,48 @@ def test_gemma4_prompt_formatting():
     assert payload["stop"] == ["</s>", "<end_of_turn>", "<|eot_id|>", "<turn|>"]
 
 
+
+
+def test_room_pro_rata_deduction_capped_at_admissible():
+    """
+    Pro-rata is computed on associated expenses (room + nursing + doctor + OT),
+    which may be itemised beyond this line item's claimed amount. The deduction
+    must never push the line item's admissible amount below zero.
+    """
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
+    context = create_base_test_context()
+    context.policy.room_rent_limit = 3000.0
+    li = context.line_items[0]
+    li.claimed_amount = 34000.0
+    li.actual_room_rent = 12000.0
+    li.room_charges = 24000.0
+    li.nursing_charges = 10000.0
+    li.medical_practitioner_fees = 8000.0
+    li.ot_charges = 12000.0  # associated expenses 54,000 > claimed 34,000
+
+    decision = pipeline.adjudicate_claim(context)
+
+    assert decision.total_admissible >= 0.0
+    assert decision.total_payable >= 0.0
+    assert decision.deduction_breakdown.room_pro_rata <= li.claimed_amount
+
+
+def test_pre_post_hosp_missing_dates_routes_to_review():
+    """
+    A pre/post-hospitalization claim without the related hospitalization dates
+    cannot be validated; Gate 6 asks for assisted review. That request must
+    survive to the final decision instead of reading as a zero-payout rejection.
+    """
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
+    context = create_base_test_context()
+    li = context.line_items[0]
+    li.description = "Post-hospitalization physiotherapy"
+    li.benefit_bucket = "Expenses before and after hospitalization"
+    li.claimed_amount = 8000.0
+    li.admission_date = None
+    li.discharge_date = None
+
+    decision = pipeline.adjudicate_claim(context)
+
+    assert decision.claim_decision == "ASSISTED_REVIEW"
+    assert decision.manual_review_required is True

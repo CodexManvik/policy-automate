@@ -1,0 +1,285 @@
+"""
+Deterministic keyword-based stand-in for the semantic LLM.
+
+Used by the test suite (via conftest.py) and by LLM_PROVIDER=mock, so the
+full pipeline can be demonstrated offline with reproducible decisions.
+"""
+
+import json
+import re
+from pydantic import BaseModel
+
+
+def _payload(status: str, reason: str, confidence: float) -> str:
+    return json.dumps({"evaluation_status": status, "reasoning_trace": reason, "confidence_score": confidence})
+
+
+def _has(text: str, *words: str) -> bool:
+    return any(w in text for w in words)
+
+
+# Rule-family checks applied to the claim details only. Each returns None when
+# the claim carries no indicator for that family.
+def _cosmetic(t: str):
+    if not _has(t, "cosmetic", "plastic surgery", "rhinoplasty", "liposuction", "aesthetic"):
+        return None
+    if _has(t, "accident", "burn", "cancer", "reconstruction"):
+        return _payload("PASSED", "Reconstruction after accident/burns/cancer is covered under policy section 5.1.7.", 0.92)
+    return _payload("EXCLUSION_ACTIVE", "Treatment is cosmetic or plastic surgery which is strictly excluded under section 5.1.7.", 0.95)
+
+
+def _maternity(t: str):
+    if not _has(t, "maternity", "childbirth", "pregnancy", "delivery", "caesarean", "c-section"):
+        return None
+    if "ectopic" in t:
+        return _payload("PASSED", "Ectopic pregnancy is covered as an exception to maternity exclusion under section 5.1.16.", 0.98)
+    return _payload("EXCLUSION_ACTIVE", "Maternity expenses (childbirth, pregnancy) are excluded except ectopic pregnancy under section 5.1.16.", 0.96)
+
+
+def _diagnostic(t: str):
+    if not _has(t, "investigation", "diagnostic", "mri", "scan", "evaluation only"):
+        return None
+    if _has(t, "surgery", "ectomy", "procedure", "administered", "treatment performed", "operated"):
+        return _payload("PASSED", "Diagnostics were part of an active treatment protocol under section 5.1.4.", 0.90)
+    return _payload("EXCLUSION_ACTIVE", "Admission primarily for diagnostic tests and evaluation without active treatment under section 5.1.4.", 0.88)
+
+
+_FAMILIES = (
+    (("cosmetic", "plastic"), _cosmetic),
+    (("maternity",), _maternity),
+    (("diagnostic", "investigation"), _diagnostic),
+)
+
+
+def _scoped_adjudication(prompt: str):
+    """
+    Pipeline prompts contain the policy rule text (with its own trigger words,
+    e.g. "EXCEPTION — Ectopic pregnancy is always covered") followed by a
+    "Claim details:" block. Judge only the claim block, and only against the
+    rule family named in the header, as a real model would.
+    """
+    marker = prompt.find("Claim details:")
+    if marker == -1:
+        return None
+    header = prompt.split("\n", 1)[0].lower()
+    claim = prompt[marker:].split("\nEvaluate", 1)[0].lower()
+
+    if _has(claim, "lifestyle assessment", "routine body optimization"):
+        return _payload("PASSED", "Claim details contain highly ambiguous clinical terms (lifestyle assessment, routine body optimization). Unable to determine medical necessity with certainty.", 0.75)
+    for header_words, check in _FAMILIES:
+        if _has(header, *header_words):
+            result = check(claim)
+            if result is not None:
+                return result
+            break
+    return _payload("PASSED", "Claim details show no indicator that this rule applies.", 0.94)
+
+
+def _mock_batch(prompt: str) -> str:
+    """Batched exclusion screen: judge each '[RULE_ID] header' with the per-rule logic."""
+    claim = prompt.split("RULES TO EVALUATE:", 1)[0].replace("CLAIM DETAILS (shared by all rules):", "")
+    results = []
+    for m in re.finditer(r"^\[(\S+)\] ([^\n]*)", prompt, re.MULTILINE):
+        rule_id, header = m.group(1), m.group(2)
+        verdict = json.loads(_scoped_adjudication(f"{header}\nClaim details:{claim}\nEvaluate"))
+        results.append({"rule_id": rule_id, **verdict})
+    return json.dumps({"results": results})
+
+
+def _mock_summary(prompt: str) -> str:
+    def field(label: str) -> str:
+        m = re.search(rf"- {label}: ([^\n]+)", prompt)
+        return m.group(1).strip() if m else "n/a"
+
+    rules = re.findall(r"- Rule (\S+) \(([^)]*)\)[^:]*: ([^\n]+)", prompt)
+    lines = [f"**Decision: {field('Final Decision')}** for claim {field('Claim ID')}.", ""]
+    if rules:
+        lines.append("**Rules that drove the outcome:**")
+        lines += [f"- {rid} ({name}): {reason}" for rid, name, reason in rules]
+        lines.append("")
+    lines += [
+        "**Financial breakdown:**",
+        f"- Claimed: {field('Total Claimed')}",
+        f"- Admissible: {field('Total Admissible')}",
+        f"- Room rent pro-rata deduction: {field('Room Rent Pro-Rata Deduction')}",
+        f"- Co-payment: {field('Co-payment')}",
+        f"- Deductible: {field('Deductible')}",
+        f"- Non-payable items: {field('Non-Payable Items Excluded')}",
+        f"- **Payable: {field('Total Payable')}**",
+        "",
+        "Generated by the offline mock provider.",
+    ]
+    return json.dumps({"summary": "\n".join(lines)})
+
+
+def _mock_extraction(prompt: str) -> str:
+    def amount(*labels: str):
+        for label in labels:
+            m = re.search(rf"{label}[^0-9\n]*([0-9][0-9,]*(?:\.[0-9]+)?)", prompt, re.IGNORECASE)
+            if m:
+                return float(m.group(1).replace(",", ""))
+        return None
+
+    def text(*labels: str):
+        for label in labels:
+            m = re.search(rf"{label}\s*[:\-]\s*([^\n]+)", prompt, re.IGNORECASE)
+            if m:
+                return m.group(1).strip()
+        return None
+
+    dates = re.findall(r"\b(\d{4}-\d{2}-\d{2})\b", prompt)
+    return json.dumps({
+        "discharge_summary": text("discharge summary", "clinical summary"),
+        "condition_diagnosed": text("diagnosis", "final diagnosis", "condition"),
+        "admission_date": dates[0] if dates else None,
+        "discharge_date": dates[1] if len(dates) > 1 else None,
+        "hospitalization_hours": None,
+        "claimed_amount": amount("total amount", "grand total", "total bill", "net payable"),
+        "room_charges": amount("room charges", "room rent"),
+        "nursing_charges": amount("nursing"),
+        "medical_practitioner_fees": amount("doctor", "consultation", "practitioner", "surgeon"),
+        "ot_charges": amount("operation theatre", "ot charges"),
+    })
+
+
+def mock_llm_response(prompt: str, response_model: type[BaseModel]) -> str:
+    prompt_lower = prompt.lower()
+
+    if response_model.__name__ == "DecisionSummaryPayload":
+        return _mock_summary(prompt)
+    if response_model.__name__ == "DocumentExtractionLLMPayload":
+        return _mock_extraction(prompt)
+    if response_model.__name__ == "SemanticBatchPayload":
+        return _mock_batch(prompt)
+
+    if response_model.__name__ == "SemanticAdjudicationPayload":
+        scoped = _scoped_adjudication(prompt)
+        if scoped is not None:
+            return scoped
+
+        if "lifestyle assessment" in prompt_lower or "routine body optimization" in prompt_lower:
+            return json.dumps({
+                "evaluation_status": "PASSED",
+                "reasoning_trace": "Claim details contain highly ambiguous clinical terms (lifestyle assessment, routine body optimization). Unable to determine medical necessity with certainty.",
+                "confidence_score": 0.75
+            })
+            
+        if "cosmetic" in prompt_lower or "plastic surgery" in prompt_lower or "rhinoplasty" in prompt_lower:
+            if "accident" in prompt_lower or "burn" in prompt_lower or "cancer" in prompt_lower or "reconstruction" in prompt_lower:
+                return json.dumps({
+                    "evaluation_status": "PASSED",
+                    "reasoning_trace": "Reconstruction after accident/burns/cancer is covered under policy section 5.1.7.",
+                    "confidence_score": 0.92
+                })
+            else:
+                return json.dumps({
+                    "evaluation_status": "EXCLUSION_ACTIVE",
+                    "reasoning_trace": "Treatment is cosmetic or plastic surgery which is strictly excluded under section 5.1.7.",
+                    "confidence_score": 0.95
+                })
+        
+        if ("maternity" in prompt_lower or "childbirth" in prompt_lower or "pregnancy" in prompt_lower 
+            or "delivery" in prompt_lower or "caesarean" in prompt_lower or "c-section" in prompt_lower):
+            if "ectopic" in prompt_lower:
+                return json.dumps({
+                    "evaluation_status": "PASSED",
+                    "reasoning_trace": "Ectopic pregnancy is covered as an exception to maternity exclusion under section 5.1.16.",
+                    "confidence_score": 0.98
+                })
+            else:
+                return json.dumps({
+                    "evaluation_status": "EXCLUSION_ACTIVE",
+                    "reasoning_trace": "Maternity expenses (childbirth, pregnancy) are excluded except ectopic pregnancy under section 5.1.16.",
+                    "confidence_score": 0.96
+                })
+        
+        if "investigation" in prompt_lower or "diagnostic" in prompt_lower or "mri" in prompt_lower or "scan" in prompt_lower:
+            if "treatment" in prompt_lower and "performed" in prompt_lower:
+                return json.dumps({
+                    "evaluation_status": "PASSED",
+                    "reasoning_trace": "Diagnostics were part of active treatment protocol under section 5.1.4.",
+                    "confidence_score": 0.90
+                })
+            else:
+                return json.dumps({
+                    "evaluation_status": "EXCLUSION_ACTIVE",
+                    "reasoning_trace": "Admission primarily for diagnostic tests and evaluation without active treatment under section 5.1.4.",
+                    "confidence_score": 0.88
+                })
+                
+        if "appendicitis" in prompt_lower or "appendectomy" in prompt_lower:
+            return json.dumps({
+                "evaluation_status": "PASSED",
+                "reasoning_trace": "Hospitalization for appendectomy is covered under inpatient hospitalization benefits.",
+                "confidence_score": 0.93
+            })
+            
+        # Default response
+        return json.dumps({
+            "evaluation_status": "PASSED",
+            "reasoning_trace": "No active exclusion or waiting period satisfy criteria.",
+            "confidence_score": 0.94
+        })
+        
+    if response_model.__name__ == "ExclusionAssessment":
+        if "cosmetic" in prompt_lower or "plastic surgery" in prompt_lower or "rhinoplasty" in prompt_lower:
+            if "accident" in prompt_lower or "burn" in prompt_lower or "cancer" in prompt_lower or "reconstruction" in prompt_lower:
+                return json.dumps({
+                    "is_excluded": False,
+                    "exclusion_type": None,
+                    "confidence": 0.92,
+                    "reason": "Reconstruction after accident/burns/cancer is covered",
+                    "policy_section_ref": "5.1.7"
+                })
+            else:
+                return json.dumps({
+                    "is_excluded": True,
+                    "exclusion_type": "Cosmetic Surgery",
+                    "confidence": 0.95,
+                    "reason": "Treatment appears cosmetic with no medical necessity",
+                    "policy_section_ref": "5.1.7"
+                })
+        
+        if ("maternity" in prompt_lower or "childbirth" in prompt_lower or "pregnancy" in prompt_lower 
+            or "delivery" in prompt_lower or "caesarean" in prompt_lower or "c-section" in prompt_lower):
+            if "ectopic" in prompt_lower:
+                return json.dumps({
+                    "is_excluded": False,
+                    "exclusion_type": None,
+                    "confidence": 0.98,
+                    "reason": "Ectopic pregnancy is covered under policy",
+                    "policy_section_ref": "5.1.16"
+                })
+            else:
+                return json.dumps({
+                    "is_excluded": True,
+                    "exclusion_type": "Maternity",
+                    "confidence": 0.96,
+                    "reason": "Maternity expenses excluded except ectopic pregnancy",
+                    "policy_section_ref": "5.1.16"
+                })
+        
+        if "investigation" in prompt_lower or "diagnostic" in prompt_lower:
+            if "treatment" in prompt_lower and "performed" in prompt_lower:
+                return json.dumps({
+                    "is_excluded": False,
+                    "exclusion_type": None,
+                    "confidence": 0.90,
+                    "reason": "Diagnostics were part of active treatment",
+                    "policy_section_ref": "5.1.4"
+                })
+            else:
+                return json.dumps({
+                    "is_excluded": True,
+                    "exclusion_type": "Diagnostic Only",
+                    "confidence": 0.88,
+                    "reason": "Admission primarily for diagnostics only",
+                    "policy_section_ref": "5.1.4"
+                })
+                
+    # Default fallback
+    return json.dumps({
+        "evaluation_status": "PASSED",
+        "reasoning_trace": "Passed by mock fallback",
+        "confidence_score": 0.95
+    })
