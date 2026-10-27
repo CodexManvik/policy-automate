@@ -59,7 +59,7 @@ export const PRESETS: Record<string, ClaimContext> = {
       }
     ],
     line_items: [{
-      line_item_id: 'LI-001', description: 'Inpatient Room & Nursing (Suite Upgrade)', claimed_amount: 34000.0,
+      line_item_id: 'LI-001', description: 'Appendectomy — Suite Upgrade (room, nursing, surgeon, OT)', claimed_amount: 54000.0,
       expense_date: '2026-06-08T10:00:00Z', benefit_bucket: 'Expenses during Hospitalization',
       admission_date: '2026-06-06T10:00:00Z', discharge_date: '2026-06-08T10:00:00Z', hospitalization_hours: 48.0,
       actual_room_rent: 12000.0, room_category_claimed: 'Suite', treatment_type: 'Allopathic',

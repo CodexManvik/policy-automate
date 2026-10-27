@@ -1,0 +1,25 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend-mock",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "src.main:app", "--host", "127.0.0.1", "--port", "8000"],
+      "env": { "LLM_PROVIDER": "mock" },
+      "port": 8000
+    },
+    {
+      "name": "backend-groq",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "src.main:app", "--host", "127.0.0.1", "--port", "8000"],
+      "env": { "LLM_PROVIDER": "groq" },
+      "port": 8000
+    },
+    {
+      "name": "frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend", "run", "dev", "--", "--port", "5173", "--strictPort"],
+      "port": 5173
+    }
+  ]
+}

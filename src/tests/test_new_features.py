@@ -1,3 +1,4 @@
+import json
 import pytest
 from datetime import datetime, timezone, timedelta
 from schemas import (
@@ -8,6 +9,9 @@ from schemas import (
 from calculators import calculate_lock_the_clock
 from pipeline import ClaimsAdjudicationPipeline
 from product_memory import get_product_memory
+from semantic_agent import SemanticExecutionAgent as _Agent
+
+_REAL_CALL_LLM = _Agent._call_llm
 
 
 def test_lock_the_clock_multi_tenure():
@@ -549,3 +553,111 @@ def test_booster_plus_claim_free_years():
     state_update_trace2 = next(t for t in dec2.decision_trace if t.rule_id == "GATE_7_STATE_UPDATE")
     assert state_update_trace2.inputs["booster_plus_claim_free_years"] == 3
 
+
+def test_groq_llm_provider_routing(monkeypatch):
+    """Verify that the groq provider builds a JSON-mode request and parses the reply."""
+    from unittest.mock import MagicMock, patch
+    from semantic_agent import SemanticExecutionAgent
+
+    monkeypatch.setenv("GROQ_API_KEY", "test-key")
+    with patch("groq.Groq") as mock_groq_cls:
+        mock_client = MagicMock()
+        mock_groq_cls.return_value = mock_client
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = json.dumps({
+            "evaluation_status": "EXCLUSION_ACTIVE",
+            "reasoning_trace": "Claimed cosmetic treatment is excluded.",
+            "confidence_score": 0.95,
+        })
+        mock_response.usage.prompt_tokens = 100
+        mock_response.usage.completion_tokens = 50
+        mock_client.chat.completions.create.return_value = mock_response
+
+        agent = SemanticExecutionAgent(llm_provider="groq", confidence_threshold=0.90)
+        assert agent.groq_client == mock_client
+
+        # conftest.py mocks _call_llm globally; delegate to the real Groq path here
+        def groq_call_llm(self, system_prompt, user_prompt, response_model):
+            return self._call_groq_structured(system_prompt, user_prompt, response_model)
+
+        with patch.object(SemanticExecutionAgent, "_call_llm", new=groq_call_llm):
+            res = agent.execute_semantic_rule(
+                rule_id="R3_EXCL_007",
+                prompt="Is liposuction cosmetic?",
+                rule_type="exclusion",
+            )
+
+        assert res.passed is False
+        assert res.confidence == 0.95
+        assert res.reason == "Claimed cosmetic treatment is excluded."
+        kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert kwargs["response_format"] == {"type": "json_object"}
+        assert kwargs["temperature"] == 0.0
+        assert "JSON Schema" in kwargs["messages"][0]["content"]
+
+
+def test_groq_provider_requires_api_key(monkeypatch):
+    from semantic_agent import SemanticExecutionAgent
+    import config
+
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.setattr(config.settings, "groq_api_key", None)
+    with pytest.raises(ValueError, match="GROQ_API_KEY"):
+        SemanticExecutionAgent(llm_provider="groq")
+
+
+def test_mock_llm_provider_is_deterministic():
+    """LLM_PROVIDER=mock must work offline and give the same answer every time."""
+    from unittest.mock import patch
+    from semantic_agent import SemanticExecutionAgent, SemanticAdjudicationPayload
+
+    agent = SemanticExecutionAgent(llm_provider="mock")
+    # conftest.py replaces _call_llm for every test; restore the real router here
+    with patch.object(SemanticExecutionAgent, "_call_llm", new=_REAL_CALL_LLM):
+        prompt = "Procedure: rhinoplasty for aesthetic reasons"
+        first = agent._call_llm("sys", prompt, SemanticAdjudicationPayload)
+        second = agent._call_llm("sys", prompt, SemanticAdjudicationPayload)
+
+    assert first == second
+    assert json.loads(first)["evaluation_status"] == "EXCLUSION_ACTIVE"
+
+
+def _llm_models_called():
+    """Response-model names passed to the (conftest-mocked) _call_llm so far."""
+    return [c.args[3].__name__ for c in _Agent._call_llm.call_args_list]
+
+
+def test_semantic_exclusions_batched_into_one_call():
+    """All semantic exclusion rules of a line item are screened in one LLM call."""
+    from test_hardening import create_base_test_context
+
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
+    decision = pipeline.adjudicate_claim(create_base_test_context())
+
+    models = _llm_models_called()
+    assert models.count("SemanticBatchPayload") == 1
+    assert "SemanticAdjudicationPayload" not in models
+    assert decision.claim_decision == "APPROVED"
+    batched = [t for t in decision.decision_trace if t.gate == "exclusion_validation" and t.raw_llm_response]
+    assert batched, "exclusion traces should carry the batched verdicts"
+
+
+def test_semantic_batch_failure_falls_back_to_per_rule_calls():
+    from mock_llm import mock_llm_response
+    from test_hardening import create_base_test_context
+
+    def broken_batch(self, system_prompt, user_prompt, response_model):
+        if response_model.__name__ == "SemanticBatchPayload":
+            return "not json"
+        return mock_llm_response(user_prompt, response_model)
+
+    # conftest's autouse mock of _call_llm is active; swap its behaviour for this test
+    _Agent._call_llm.side_effect = broken_batch
+    pipeline = ClaimsAdjudicationPipeline(llm_provider="local")
+    decision = pipeline.adjudicate_claim(create_base_test_context())
+    models = _llm_models_called()
+
+    assert models.count("SemanticBatchPayload") == 1
+    assert models.count("SemanticAdjudicationPayload") > 1
+    assert decision.claim_decision == "APPROVED"

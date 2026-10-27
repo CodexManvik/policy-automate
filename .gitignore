@@ -10,3 +10,5 @@ graphs/
 logs/
 .agents/
 .vscode/
+node_modules
+.env

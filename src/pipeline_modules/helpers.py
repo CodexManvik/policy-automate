@@ -763,7 +763,10 @@ class PipelineHelpersMixin:
             line_items=line_item_decisions,
             decision_trace=active_traces,
             confidence_score=state.overall_confidence,
-            manual_review_required=state.overall_confidence < self.confidence_threshold,
+            manual_review_required=(
+                state.overall_confidence < self.confidence_threshold
+                or any(d.manual_review_required for d in line_item_decisions)
+            ),
             review_reasons=review_reasons,
             processing_duration_ms=processing_duration,
             pas_submission_payload=pas_payload,

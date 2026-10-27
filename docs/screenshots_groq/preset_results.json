@@ -1,0 +1,326 @@
+[
+  {
+    "key": "case1",
+    "status": 200,
+    "claim_id": "CLM-APP-001",
+    "decision": "PARTIALLY_APPROVED",
+    "claimed": 54000,
+    "admissible": 13500,
+    "payable": 2700,
+    "confidence": 0.9969811320754715,
+    "review": false,
+    "ms": 3271.259546279907,
+    "n_lines": 1,
+    "line_decisions": [
+      "PARTIALLY_APPROVED"
+    ],
+    "review_reasons": [],
+    "deductions": {
+      "room_pro_rata": 40500,
+      "co_payment": 10800,
+      "deductible": 0,
+      "non_payable_items": 0,
+      "sublimits": 0,
+      "penalties": 0,
+      "si_cap": 0,
+      "lock_the_clock_premium_delta": 0
+    },
+    "n_traces": 60,
+    "dup_traces": 0,
+    "blocking": [],
+    "error": null
+  },
+  {
+    "key": "case2",
+    "status": 200,
+    "claim_id": "CLM-LTC-002",
+    "decision": "REJECTED",
+    "claimed": 80000,
+    "admissible": 0,
+    "payable": 0,
+    "confidence": 1,
+    "review": false,
+    "ms": 5.186319351196289,
+    "n_lines": 1,
+    "line_decisions": [
+      "REJECTED"
+    ],
+    "review_reasons": [
+      "[LI-002] Policy status is Lapsed, not Active",
+      "[GATE_1_POLICY_STATUS] Policy status is Lapsed, not Active"
+    ],
+    "deductions": {
+      "room_pro_rata": 0,
+      "co_payment": 0,
+      "deductible": 0,
+      "non_payable_items": 0,
+      "sublimits": 0,
+      "penalties": 0,
+      "si_cap": 0,
+      "lock_the_clock_premium_delta": 0
+    },
+    "n_traces": 4,
+    "dup_traces": 0,
+    "blocking": [
+      "GATE_1_POLICY_STATUS: Policy status is Lapsed, not Active"
+    ],
+    "error": null
+  },
+  {
+    "key": "case3",
+    "status": 200,
+    "claim_id": "CLM-CB-003",
+    "decision": "ASSISTED_REVIEW",
+    "claimed": 8000,
+    "admissible": 0,
+    "payable": 0,
+    "confidence": 0.9962264150943393,
+    "review": true,
+    "ms": 1508.2993507385254,
+    "n_lines": 1,
+    "line_decisions": [
+      "ASSISTED_REVIEW"
+    ],
+    "review_reasons": [
+      "[LI-003] Pre/Post hospitalization claim is missing the related hospitalization admission/discharge dates. Cannot validate window \u2014 routed to assisted review."
+    ],
+    "deductions": {
+      "room_pro_rata": 0,
+      "co_payment": 0,
+      "deductible": 0,
+      "non_payable_items": 0,
+      "sublimits": 0,
+      "penalties": 0,
+      "si_cap": 0,
+      "lock_the_clock_premium_delta": 0
+    },
+    "n_traces": 59,
+    "dup_traces": 0,
+    "blocking": [],
+    "error": null
+  },
+  {
+    "key": "case4",
+    "status": 200,
+    "claim_id": "CLM-REASSURE-004",
+    "decision": "APPROVED",
+    "claimed": 1200000,
+    "admissible": 1200000,
+    "payable": 1200000,
+    "confidence": 0.9966666666666664,
+    "review": false,
+    "ms": 23407.34839439392,
+    "n_lines": 1,
+    "line_decisions": [
+      "APPROVED"
+    ],
+    "review_reasons": [],
+    "deductions": {
+      "room_pro_rata": 0,
+      "co_payment": 0,
+      "deductible": 0,
+      "non_payable_items": 0,
+      "sublimits": 0,
+      "penalties": 0,
+      "si_cap": 0,
+      "lock_the_clock_premium_delta": 0
+    },
+    "n_traces": 57,
+    "dup_traces": 0,
+    "blocking": [],
+    "error": null
+  },
+  {
+    "key": "case5",
+    "status": 200,
+    "claim_id": "CLM-APPROVE-005",
+    "decision": "APPROVED",
+    "claimed": 100000,
+    "admissible": 100000,
+    "payable": 100000,
+    "confidence": 0.9969230769230767,
+    "review": false,
+    "ms": 40247.432231903076,
+    "n_lines": 1,
+    "line_decisions": [
+      "APPROVED"
+    ],
+    "review_reasons": [],
+    "deductions": {
+      "room_pro_rata": 0,
+      "co_payment": 0,
+      "deductible": 0,
+      "non_payable_items": 0,
+      "sublimits": 0,
+      "penalties": 0,
+      "si_cap": 0,
+      "lock_the_clock_premium_delta": 0
+    },
+    "n_traces": 57,
+    "dup_traces": 0,
+    "blocking": [],
+    "error": null
+  },
+  {
+    "key": "case6",
+    "status": 200,
+    "claim_id": "CLM-MULTI-006",
+    "decision": "PARTIALLY_APPROVED",
+    "claimed": 172500,
+    "admissible": 154500,
+    "payable": 154500,
+    "confidence": 0.9931914893617019,
+    "review": false,
+    "ms": 120417.0708656311,
+    "n_lines": 3,
+    "line_decisions": [
+      "APPROVED",
+      "REJECTED",
+      "APPROVED"
+    ],
+    "review_reasons": [
+      "[LI-006B] Admission primarily for rest cure/rehabilitation/respite care is excluded",
+      "[R3_EXCL_005] Admission primarily for rest cure/rehabilitation/respite care is excluded"
+    ],
+    "deductions": {
+      "room_pro_rata": 0,
+      "co_payment": 0,
+      "deductible": 0,
+      "non_payable_items": 0,
+      "sublimits": 0,
+      "penalties": 0,
+      "si_cap": 0,
+      "lock_the_clock_premium_delta": 0
+    },
+    "n_traces": 123,
+    "dup_traces": 52,
+    "blocking": [
+      "R3_EXCL_005: Admission primarily for rest cure/rehabilitation/respite care is excluded"
+    ],
+    "error": null
+  },
+  {
+    "key": "case7",
+    "status": 200,
+    "claim_id": "CLM-DEDUCT-007",
+    "decision": "PARTIALLY_APPROVED",
+    "claimed": 50000,
+    "admissible": 50000,
+    "payable": 40000,
+    "confidence": 0.9967924528301884,
+    "review": false,
+    "ms": 36753.93557548523,
+    "n_lines": 1,
+    "line_decisions": [
+      "PARTIALLY_APPROVED"
+    ],
+    "review_reasons": [],
+    "deductions": {
+      "room_pro_rata": 0,
+      "co_payment": 0,
+      "deductible": 10000,
+      "non_payable_items": 0,
+      "sublimits": 0,
+      "penalties": 0,
+      "si_cap": 0,
+      "lock_the_clock_premium_delta": 0
+    },
+    "n_traces": 59,
+    "dup_traces": 0,
+    "blocking": [],
+    "error": null
+  },
+  {
+    "key": "case8",
+    "status": 200,
+    "claim_id": "CLM-PENALTY-008",
+    "decision": "PARTIALLY_APPROVED",
+    "claimed": 250000,
+    "admissible": 104175,
+    "payable": 41670,
+    "confidence": 0.996730769230769,
+    "review": false,
+    "ms": 35354.16913032532,
+    "n_lines": 1,
+    "line_decisions": [
+      "PARTIALLY_APPROVED"
+    ],
+    "review_reasons": [],
+    "deductions": {
+      "room_pro_rata": 145825,
+      "co_payment": 62505,
+      "deductible": 0,
+      "non_payable_items": 0,
+      "sublimits": 0,
+      "penalties": 0,
+      "si_cap": 0,
+      "lock_the_clock_premium_delta": 0
+    },
+    "n_traces": 59,
+    "dup_traces": 0,
+    "blocking": [],
+    "error": null
+  },
+  {
+    "key": "case9",
+    "status": 200,
+    "claim_id": "CLM-PORTING-009",
+    "decision": "APPROVED",
+    "claimed": 60000,
+    "admissible": 60000,
+    "payable": 60000,
+    "confidence": 0.9965384615384614,
+    "review": false,
+    "ms": 43031.845569610596,
+    "n_lines": 1,
+    "line_decisions": [
+      "APPROVED"
+    ],
+    "review_reasons": [],
+    "deductions": {
+      "room_pro_rata": 0,
+      "co_payment": 0,
+      "deductible": 0,
+      "non_payable_items": 0,
+      "sublimits": 0,
+      "penalties": 0,
+      "si_cap": 0,
+      "lock_the_clock_premium_delta": 0
+    },
+    "n_traces": 57,
+    "dup_traces": 0,
+    "blocking": [],
+    "error": null
+  },
+  {
+    "key": "case10",
+    "status": 200,
+    "claim_id": "CLM-TIERED-010",
+    "decision": "PARTIALLY_APPROVED",
+    "claimed": 120000,
+    "admissible": 120000,
+    "payable": 96000,
+    "confidence": 0.9969811320754715,
+    "review": false,
+    "ms": 28403.273105621338,
+    "n_lines": 1,
+    "line_decisions": [
+      "PARTIALLY_APPROVED"
+    ],
+    "review_reasons": [],
+    "deductions": {
+      "room_pro_rata": 0,
+      "co_payment": 24000,
+      "deductible": 0,
+      "non_payable_items": 0,
+      "sublimits": 0,
+      "penalties": 0,
+      "si_cap": 0,
+      "lock_the_clock_premium_delta": 0
+    },
+    "n_traces": 59,
+    "dup_traces": 0,
+    "blocking": [],
+    "error": null
+  }
+]

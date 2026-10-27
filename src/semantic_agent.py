@@ -4,9 +4,10 @@ Handles AI-powered semantic reasoning for non-deterministic rules
 Uses structured output for reliable decision extraction
 """
 
-from typing import Dict, Any, Optional, Literal
+from typing import Dict, Any, List, Optional, Literal, Sequence, Tuple
 from pydantic import BaseModel, Field
 from dataclasses import dataclass
+import hashlib
 import http.client
 import json
 import os
@@ -27,6 +28,19 @@ class SemanticAdjudicationPayload(BaseModel):
     evaluation_status: Literal["PASSED", "EXCLUSION_ACTIVE", "FAILED"]
     reasoning_trace: str = Field(description="Detailed step-by-step trace of semantic rule evaluation against policy wordings")
     confidence_score: float = Field(ge=0.0, le=1.0, description="Numeric confidence score between 0.0 and 1.0")
+
+
+class SemanticBatchVerdict(BaseModel):
+    """One rule's verdict inside a batched exclusion screen"""
+    rule_id: str
+    evaluation_status: Literal["PASSED", "EXCLUSION_ACTIVE", "FAILED"]
+    reasoning_trace: str
+    confidence_score: float = Field(ge=0.0, le=1.0)
+
+
+class SemanticBatchPayload(BaseModel):
+    """Batched exclusion screen: one verdict per requested rule"""
+    results: List[SemanticBatchVerdict]
 
 
 class SemanticDecision(BaseModel):
@@ -79,9 +93,9 @@ class SemanticExecutionAgent:
     Uses structured outputs to ensure reliable decision extraction
     
     Supports:
-    - OpenAI GPT-4 Turbo
-    - Anthropic Claude
+    - Groq cloud inference (Qwen3.8 27B by default, JSON mode)
     - Local LLM (llama.cpp server)
+    - Mock (deterministic keyword rules, offline demos and tests)
     """
     
     # GBNF grammar that forces valid SemanticAdjudicationPayload JSON.
@@ -108,7 +122,14 @@ class SemanticExecutionAgent:
         self.confidence_threshold = confidence_threshold
         self.local_llm_url = local_llm_url
         from config import settings
-        self.api_key = settings.openai_api_key or os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+        self.api_key = settings.groq_api_key or os.getenv("GROQ_API_KEY")
+        self.groq_model = settings.groq_model
+        if llm_provider == "groq":
+            if not self.api_key:
+                raise ValueError("LLM_PROVIDER=groq requires GROQ_API_KEY to be set")
+            import groq
+            # The SDK backs off on 429s using Groq's retry-after header
+            self.groq_client = groq.Groq(api_key=self.api_key, max_retries=4)
 
         if reasoning_on is not None:
             self.reasoning_on = reasoning_on
@@ -166,6 +187,8 @@ class SemanticExecutionAgent:
         print(f"[AGENT] Semantic Agent initialized with {llm_provider} provider (reasoning_on={self.reasoning_on}, legacy_completion={self.use_legacy_completion})")
         if llm_provider == "local":
             print(f"   Local LLM URL: {local_llm_url}")
+        elif llm_provider == "groq":
+            print(f"   Groq model: {self.groq_model}")
     
     def execute_semantic_rule(
         self,
@@ -188,7 +211,7 @@ class SemanticExecutionAgent:
         Returns:
             SemanticResult with structured decision
         """
-        cache_key = f"{rule_id}:{rule_type}:{hash(prompt[:500])}"
+        cache_key = self._cache_key(rule_id, rule_type, prompt)
         if cache_key in self._result_cache:
             return self._result_cache[cache_key]
 
@@ -206,6 +229,125 @@ class SemanticExecutionAgent:
 
         self._result_cache[cache_key] = res
         return res
+
+    @staticmethod
+    def _cache_key(rule_id: str, rule_type: str, prompt: str) -> str:
+        # Hash the whole prompt: the claim details sit after the policy text,
+        # so a prefix hash could serve one claim's verdict to another.
+        digest = hashlib.sha1(prompt.encode("utf-8")).hexdigest()
+        return f"{rule_id}:{rule_type}:{digest}"
+
+    def prescreen_exclusions(
+        self,
+        rules: Sequence[Tuple[str, str]],
+        claim_id: str = "UNKNOWN_CLAIM",
+        line_item_id: Optional[str] = None,
+    ) -> int:
+        """
+        Judge several semantic exclusion rules for one line item in a single
+        LLM call and seed the result cache, so the per-rule steps that follow
+        are served from cache. Each rule's prompt is "<policy text> Claim
+        details: <facts> Evaluate...", so the facts are sent once and the
+        policy texts listed after them.
+
+        Best effort: rules the reply omits, or a failed call, simply fall back
+        to one call per rule. Returns the number of rules cached.
+        """
+        pending = [
+            (rid, p) for rid, p in rules
+            if p and "Claim details:" in p
+            and self._cache_key(rid, "exclusion", p) not in self._result_cache
+        ]
+        if len(pending) < 2:
+            return 0
+
+        claim_lines: List[str] = []
+        rule_blocks: List[str] = []
+        for rid, p in pending:
+            policy_part, claim_part = p.split("Claim details:", 1)
+            claim_part = claim_part.split("\nEvaluate", 1)[0]
+            for line in claim_part.strip().splitlines():
+                line = line.strip()
+                if line and line not in claim_lines:
+                    claim_lines.append(line)
+            rule_blocks.append(f"[{rid}] {policy_part.strip()}")
+
+        system_prompt = (
+            "You are an expert health insurance adjudicator. Judge EACH exclusion rule below "
+            "independently against the same claim.\n"
+            "evaluation_status: PASSED = the exclusion does NOT apply; EXCLUSION_ACTIVE = it applies "
+            "and the claim must be blocked; FAILED = only if the facts needed are entirely absent.\n"
+            "Do not apply an exclusion without evidence in the claim details. Respect each rule's "
+            "stated exceptions. Keep each reasoning_trace under 40 words and cite the claim facts.\n"
+            "Return one JSON object: "
+            '{"results": [{"rule_id": "...", "evaluation_status": "PASSED", '
+            '"reasoning_trace": "...", "confidence_score": 0.95}]} '
+            "with exactly one entry per rule, in the order given."
+        )
+        user_prompt = (
+            "CLAIM DETAILS (shared by all rules):\n  "
+            + "\n  ".join(claim_lines)
+            + "\n\nRULES TO EVALUATE:\n"
+            + "\n\n".join(rule_blocks)
+        )
+
+        self._last_prompt_tokens = 0
+        self._last_completion_tokens = 0
+        try:
+            raw_response = self._call_llm(system_prompt, user_prompt, SemanticBatchPayload)
+            batch = SemanticBatchPayload.model_validate_json(raw_response)
+        except Exception as e:
+            print(f"[WARN] Batched exclusion screen failed, falling back to per-rule calls: {e}")
+            return 0
+
+        from metrics import telemetry_context
+        _session = telemetry_context.get()
+        if _session is not None:
+            _session.record_llm_tokens(
+                "exclusion_validation", self._last_prompt_tokens, self._last_completion_tokens
+            )
+
+        prompts = dict(pending)
+        cached = 0
+        for verdict in batch.results:
+            prompt = prompts.pop(verdict.rule_id, None)
+            if prompt is None:
+                continue  # unknown or duplicate rule id
+            requires_review = (
+                verdict.confidence_score < self.confidence_threshold
+                or verdict.evaluation_status == "FAILED"
+            )
+            self._result_cache[self._cache_key(verdict.rule_id, "exclusion", prompt)] = SemanticResult(
+                passed=verdict.evaluation_status == "PASSED",
+                confidence=verdict.confidence_score,
+                reason=verdict.reasoning_trace,
+                evidence={"evaluation_status": verdict.evaluation_status, "batched": True},
+                raw_response=verdict.model_dump_json(),
+                requires_manual_review=requires_review,
+            )
+            self.total_confidence += verdict.confidence_score
+            cached += 1
+        self.call_count += 1
+
+        AgentReasoningLogger.log_llm_call(
+            claim_id=claim_id,
+            line_item_id=line_item_id,
+            rule_id="BATCH:" + ",".join(rid for rid, _ in pending),
+            provider=self.llm_provider,
+            url=self.local_llm_url if self.llm_provider == "local" else None,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            raw_response=raw_response,
+            structured_output=batch.model_dump(),
+            confidence=min((v.confidence_score for v in batch.results), default=0.0),
+            requires_manual_review=not cached or any(
+                v.confidence_score < self.confidence_threshold or v.evaluation_status == "FAILED"
+                for v in batch.results
+            ),
+            prompt_tokens=self._last_prompt_tokens,
+            completion_tokens=self._last_completion_tokens,
+        )
+        return cached
 
     def _assess_exclusion(self, rule_id: str, prompt: str, claim_id: str, line_item_id: Optional[str]) -> SemanticResult:
         """
@@ -488,56 +630,58 @@ class SemanticExecutionAgent:
         
         Routes to appropriate provider:
         - local: llama.cpp server on localhost:8080
-        - openai: OpenAI GPT-4 Turbo
+        - groq: Groq cloud inference (OpenAI-compatible chat completions)
+        - mock: deterministic keyword rules (no network)
         """
         if self.llm_provider == "local":
             return self._call_local_llm(system_prompt, user_prompt, response_model)
-        
-        elif self.llm_provider == "openai" and self.api_key:
-            return self._call_openai_structured(system_prompt, user_prompt, response_model)
-        
+
+        elif self.llm_provider == "groq" and self.api_key:
+            return self._call_groq_structured(system_prompt, user_prompt, response_model)
+
+        elif self.llm_provider == "mock":
+            from mock_llm import mock_llm_response
+            return mock_llm_response(user_prompt, response_model)
+
         else:
             raise ValueError(
                 f"Unsupported or unconfigured LLM provider: {self.llm_provider}. "
                 f"Ensure appropriate API keys or servers are active."
             )
-    
-    def _call_openai_structured(
+
+    def _call_groq_structured(
         self,
         system_prompt: str,
         user_prompt: str,
         response_model: type[BaseModel]
     ) -> str:
         """
-        Call OpenAI with structured outputs (Function Calling)
-        Requires openai>=1.0.0
+        Call Groq in JSON mode. The JSON Schema of response_model is appended to
+        the system prompt; the caller validates the result with Pydantic, so a
+        malformed answer falls through to manual review rather than a decision.
         """
+        schema = json.dumps(response_model.model_json_schema())
         try:
-            import openai
-            
-            client = openai.OpenAI(api_key=self.api_key)
-            
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
+            response = self.groq_client.chat.completions.create(
+                model=self.groq_model,
                 messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
+                    {"role": "system", "content": f"{system_prompt}\n\nJSON Schema:\n{schema}"},
+                    {"role": "user", "content": user_prompt},
                 ],
                 response_format={"type": "json_object"},
-                temperature=0.0,  # Zero temperature for greedy decoding
-                seed=42
+                temperature=0.0,  # Greedy decoding for reproducible decisions
+                seed=42,
+                max_tokens=1024,
             )
-            
-            # Capture token counts from OpenAI usage metadata
-            if response.usage:
-                self._last_prompt_tokens = response.usage.prompt_tokens
-                self._last_completion_tokens = response.usage.completion_tokens
-            
-            return response.choices[0].message.content
-        
         except Exception as e:
-            print(f"[ERROR] OpenAI API call failed: {e}")
-            raise RuntimeError(f"OpenAI API call failed: {e}") from e
+            print(f"[ERROR] Groq API call failed: {e}")
+            raise RuntimeError(f"Groq API call failed: {e}") from e
+
+        if response.usage:
+            self._last_prompt_tokens = response.usage.prompt_tokens
+            self._last_completion_tokens = response.usage.completion_tokens
+
+        return self._extract_json_from_response(response.choices[0].message.content or "")
     
     def _call_local_llm(
         self,

@@ -41,15 +41,19 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     llm_provider: str = Field(
         default="default",
-        description="LLM backend to use: 'local' | 'openai' | 'default'",
+        description="LLM backend to use: 'local' | 'groq' | 'mock' | 'default'",
     )
     llm_url: str = Field(
         default="http://127.0.0.1:8080",
         description="Base URL of the local llama.cpp server (used when llm_provider='local')",
     )
-    openai_api_key: Optional[str] = Field(
+    groq_api_key: Optional[str] = Field(
         default=None,
-        description="OpenAI API key (used when llm_provider='openai')",
+        description="Groq API key (used when llm_provider='groq')",
+    )
+    groq_model: str = Field(
+        default="qwen/qwen3.8-27b",
+        description="Groq model ID (used when llm_provider='groq'); must support JSON mode",
     )
     reasoning_on: bool = Field(
         default=True,
@@ -173,7 +177,7 @@ class Settings(BaseSettings):
     @field_validator("llm_provider")
     @classmethod
     def _validate_llm_provider(cls, v: str) -> str:
-        allowed = {"local", "openai", "default"}
+        allowed = {"local", "groq", "mock", "default"}
         lower = v.lower()
         if lower not in allowed:
             raise ValueError(f"llm_provider must be one of {allowed}, got '{v}'")

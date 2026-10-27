@@ -37,7 +37,6 @@ def test_product_memory_loading():
         print(f"  {gate.value}: {len(rules)} rules")
     
     print("[PASS] PASSED: Product Memory loaded successfully")
-    return True
 
 
 def test_rule_filtering():
@@ -65,7 +64,6 @@ def test_rule_filtering():
     print(f"  Found rule: {rule.rule_name}")
     
     print("[PASS] PASSED: Rule filtering works correctly")
-    return True
 
 
 def test_dag_construction():
@@ -94,7 +92,6 @@ def test_dag_construction():
         executed_rules.add(step.rule_id)
     
     print("[PASS] PASSED: DAG construction and topological sort correct")
-    return True
 
 
 def test_semantic_agent_exclusions():
@@ -133,7 +130,6 @@ def test_semantic_agent_exclusions():
     print(f"  Investigation: {'EXCLUDED' if not result3.passed else 'APPROVED'} (confidence: {result3.confidence:.2f})")
     
     print("[PASS] PASSED: Semantic agent correctly assesses exclusions")
-    return True
 
 
 def test_semantic_agent_coverage():
@@ -156,7 +152,6 @@ def test_semantic_agent_coverage():
     print(f"  Manual review: {result.requires_manual_review}")
     
     print("[PASS] PASSED: Semantic agent coverage assessment works")
-    return True
 
 
 def test_confidence_based_routing():
@@ -183,7 +178,6 @@ def test_confidence_based_routing():
         print(f"  High confidence ({result_high.confidence:.2f}) → Auto-Decision [PASS]")
     
     print("[PASS] PASSED: Confidence-based routing works")
-    return True
 
 
 def test_execution_plan_generation():
@@ -221,7 +215,6 @@ def test_execution_plan_generation():
     assert has_deterministic, "Should have deterministic rules"
     
     print("[PASS] PASSED: Execution plan generated correctly")
-    return True
 
 
 def create_test_context() -> ClaimContext:
@@ -319,7 +312,6 @@ def test_async_adjudication():
     print(f"  Overall Decision: {decision.claim_decision}")
     print(f"  Total Payable: INR {decision.total_payable:,.2f}")
     print("[PASS] PASSED: Asynchronous adjudication matches schema and succeeds")
-    return True
 
 
 def test_endorsement_processing():
@@ -380,7 +372,6 @@ def test_endorsement_processing():
     assert ctx_copy.policy.variant == "Elite"
     assert ctx_copy.policy.room_category_entitled == "Suite"
     print("  PlanUpgrade variant upgrade verified [PASS]")
-    return True
 
 
 def test_non_payable_deduction():
@@ -416,7 +407,6 @@ def test_non_payable_deduction():
     assert decision.total_payable == 0.0
     assert decision.deduction_breakdown.non_payable_items == 10000.0
     print("  Non-payable items deducted correctly [PASS]")
-    return True
 
 
 def test_modern_treatment_sublimit():
@@ -473,7 +463,6 @@ def test_modern_treatment_sublimit():
     assert decision_opted.total_payable == 80000.0
     assert decision_opted.deduction_breakdown.sublimits == 0.0
     print("  Modern treatment sublimit bypassed with Modern Treatments Plus [PASS]")
-    return True
 
 
 def test_hospital_daily_cash():
@@ -515,7 +504,6 @@ def test_hospital_daily_cash():
     # The correct days used (8 = prior 5 + 3 new) lives in the pipeline's internal copy.
     assert decision.total_payable == 6000.0, f"HDC payout mismatch: {decision.total_payable}"
     print("  Hospital Daily Cash calculation verified [PASS]")
-    return True
 
 
 def test_pa_benefit():
@@ -551,7 +539,6 @@ def test_pa_benefit():
     assert decision.total_payable == 500000.0
     assert decision.claim_decision == "APPROVED"
     print("  Personal Accident benefit AD payout verified [PASS]")
-    return True
 
 
 def test_confidence_routing_assisted():
@@ -574,7 +561,6 @@ def test_confidence_routing_assisted():
     assert decision.claim_decision == "ASSISTED_REVIEW"
     assert decision.manual_review_required == True
     print("  Confidence-based routing to ASSISTED_REVIEW verified [PASS]")
-    return True
 
 
 def run_all_tests():

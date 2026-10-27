@@ -299,57 +299,28 @@ class ValidationGatesMixin:
             if r.benefit_category == "optional"
         ]
         
+        opt_in_flags = {
+            "r3_ben_019": "borderless_specific_illness_opted",  # Borderless for Specified Illness
+            "r3_ben_018": "borderless_opted",                   # Borderless
+            "r3_ben_016": "heads_up_opted",                     # HeadsUp
+            "r3_ben_017": "tiered_network_opted",               # Tiered Network
+        }
+        # Gate 3 runs once per coverage rule in the plan; note each un-opted
+        # benefit only once instead of repeating it on every pass.
+        already_noted = {t.rule_id for t in _STEP_LOCAL.decision_traces}
         for rule in optional_benefit_rules:
-            rule_id_lower = rule.rule_id.lower()
-            # Check if optional benefit is opted
-            if rule_id_lower == "r3_ben_019":  # Borderless for Specified Illness
-                if not context.policy.borderless_specific_illness_opted:
-                    _STEP_LOCAL.decision_traces.append(DecisionTrace(
-                        step=_STEP_LOCAL.current_step,
-                        rule_id=rule.rule_id,
-                        rule_name=rule.rule_name,
-                        gate="coverage_validation",
-                        inputs={"benefit": rule.rule_name, "opted": False},
-                        evaluation="NOT_APPLICABLE",
-                        reason=f"Optional benefit '{rule.rule_name}' not opted by member"
-                    ))
-                    continue
-            elif rule_id_lower == "r3_ben_018":  # Borderless
-                if not context.policy.borderless_opted:
-                    _STEP_LOCAL.decision_traces.append(DecisionTrace(
-                        step=_STEP_LOCAL.current_step,
-                        rule_id=rule.rule_id,
-                        rule_name=rule.rule_name,
-                        gate="coverage_validation",
-                        inputs={"benefit": rule.rule_name, "opted": False},
-                        evaluation="NOT_APPLICABLE",
-                        reason=f"Optional benefit '{rule.rule_name}' not opted by member"
-                    ))
-                    continue
-            elif rule_id_lower == "r3_ben_016":  # HeadsUp
-                if not context.policy.heads_up_opted:
-                    _STEP_LOCAL.decision_traces.append(DecisionTrace(
-                        step=_STEP_LOCAL.current_step,
-                        rule_id=rule.rule_id,
-                        rule_name=rule.rule_name,
-                        gate="coverage_validation",
-                        inputs={"benefit": rule.rule_name, "opted": False},
-                        evaluation="NOT_APPLICABLE",
-                        reason=f"Optional benefit '{rule.rule_name}' not opted by member"
-                    ))
-                    continue
-            elif rule_id_lower == "r3_ben_017":  # Tiered Network
-                if not context.policy.tiered_network_opted:
-                    _STEP_LOCAL.decision_traces.append(DecisionTrace(
-                        step=_STEP_LOCAL.current_step,
-                        rule_id=rule.rule_id,
-                        rule_name=rule.rule_name,
-                        gate="coverage_validation",
-                        inputs={"benefit": rule.rule_name, "opted": False},
-                        evaluation="NOT_APPLICABLE",
-                        reason=f"Optional benefit '{rule.rule_name}' not opted by member"
-                    ))
-                    continue
+            flag = opt_in_flags.get(rule.rule_id.lower())
+            if flag and not getattr(context.policy, flag) and rule.rule_id not in already_noted:
+                already_noted.add(rule.rule_id)
+                _STEP_LOCAL.decision_traces.append(DecisionTrace(
+                    step=_STEP_LOCAL.current_step,
+                    rule_id=rule.rule_id,
+                    rule_name=rule.rule_name,
+                    gate="coverage_validation",
+                    inputs={"benefit": rule.rule_name, "opted": False},
+                    evaluation="NOT_APPLICABLE",
+                    reason=f"Optional benefit '{rule.rule_name}' not opted by member"
+                ))
         
         # Check benefit-specific preconditions (e.g., Home Care requires 3 conditions)
         if line_item.benefit_bucket == "Home Care / Domiciliary Treatment":
